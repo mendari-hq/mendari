@@ -2,7 +2,7 @@
 """People, organizations, memberships, invitations and access requests in the store (LP-12d,
 ADR-0008): every write chains ids and digests only; the bootstrap adds and rewrites nothing; an
 invitation is single-use, expiring and bound to a verified address; no organization is left
-without an administrator; no membership holds `grading`."""
+without an administrator."""
 
 from __future__ import annotations
 
@@ -370,13 +370,9 @@ def test_two_accepts_of_one_link_make_one_membership(store: AuditStore, db_targe
     assert store.verify()["ok"]
 
 
-def test_roles_grading_is_never_held_and_an_organization_keeps_an_admin(
-    store: AuditStore,
-) -> None:
+def test_roles_are_known_and_an_organization_keeps_an_admin(store: AuditStore) -> None:
     store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
     ada = person(store, "ada", "ada@example.org")
-    with pytest.raises(ValueError, match="grading"):
-        store.add_membership(org="clinic-a", roles=["grading"], created_by="cli", user_id=ada["id"])
     with pytest.raises(ValueError, match="unknown role"):
         store.add_membership(org="clinic-a", roles=["root"], created_by="cli", user_id=ada["id"])
     admin = store.add_membership(

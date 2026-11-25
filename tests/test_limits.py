@@ -924,7 +924,7 @@ def in_words(rate: Rate) -> str:
 
 def test_the_operator_guide_lists_every_default_limit() -> None:
     """The deploy guide's table of limits (§4) has a row for each default rate, as it words it:
-    a class added to `DEFAULT_RATES` fails here until the guide lists it (a labeller's, LP-11j).
+    a class added to `DEFAULT_RATES` fails here until the guide lists it (a grader's, `label`).
     That class counts reads, so wherever the guide and SECURITY.md say reads are not limited,
     they name it."""
     guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()

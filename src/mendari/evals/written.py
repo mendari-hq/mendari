@@ -32,7 +32,7 @@ criterion a clinician-failed output it could not grade counts as a failure it di
 the report counts, per criterion, the outputs it could not grade among those clinicians graded
 and among the rest.
 
-**The gate**, per criterion, has three states, as a grade's attestations do (`evals/grade.py`):
+**The gate**, per criterion, has three states:
 
 - *insufficient evidence* when any holds: fewer than `MIN_PAIRED` outputs graded by both; fewer
   than `MIN_EACH_SIDE` clinician verdicts on either side of the pass line; either kappa or its

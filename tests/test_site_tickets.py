@@ -295,9 +295,7 @@ def test_site_key_new_says_where_the_old_key_is_kept(
     assert kept.is_file() and f"the old key ({old}) is kept in {kept}" in capsys.readouterr().err
 
 
-def test_a_recall_or_a_scoreboard_signature_is_not_a_sites(
-    published: Registry, tmp_path: Path
-) -> None:
+def test_a_recalls_signature_is_not_a_sites(published: Registry, tmp_path: Path) -> None:
     """A site key signing the same fields as a recall would (bare canonical JSON) makes no site
     signature: the prefix and the format are a site's own."""
     site = _site(published, tmp_path)

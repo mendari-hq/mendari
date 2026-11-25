@@ -14,12 +14,9 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from pydantic import BaseModel
-
 from mendari import notices
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
-from mendari.evals.share import SharedPack
 from mendari.server import scopes
 
 TAGS = [
@@ -48,37 +45,12 @@ TAGS = [
         "and invitations.",
     },
     {
-        "name": "Labelling",
-        "description": "Hidden evaluation sets, labelled blind (memberships mode): a labeller's "
-        "next case, their label and their own counts. A labeller sees a case's input and the "
-        "questions, never another label, the case's attributes or a model's output.",
-    },
-    {
         "name": "Written output",
         "description": "What an agent wrote, graded blind against its rubric (memberships mode): "
         "a grader's next text, their grades and their own counts; and, for anyone who may read, "
         "each grading round's state and, once it is closed, its report. A grader sees the text, "
         "the context the rubric names and the rubric's own words, never a judge's grade or "
         "another grader's. A report holds counts, coefficients and hashes, never a text.",
-    },
-    {
-        "name": "Evaluation sets",
-        "description": "Hidden evaluation sets, managed by the organization's administrators "
-        "(memberships mode): its sets listed and read (state, labelling progress by user id, "
-        "and the coverage and rater agreement the key holder stored), and their cases drawn, "
-        "assigned and adjudicated. Ids and counts: never a case, an input or a label given.",
-    },
-    {
-        "name": "Grading",
-        "description": "An agent graded against one of the organization's hidden evaluation sets, "
-        "frozen and committed to, by its grading key only (which only the operator makes): each "
-        "run counted against the set's rotation rule and recorded in the audit chain, with "
-        "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
-        "never a case, its id or a missed case. A run that declares its arms (`arms`, with the "
-        "declaration's SHA-256 as `declared`) is the hidden-set scoreboard: every declared arm "
-        "decided on the same cases in that one run, answered `mendari.hidden_scoreboard/1`, each "
-        "arm's figures with their intervals, its attestations and the ranking, never cost, "
-        "latency, a subgroup or a case. Nothing is stored.",
     },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
@@ -247,7 +219,7 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
         f"decides is one, at most 50 a request), evaluations "
-        f"{rates['evaluate']} (a grading run is one), exports {rates['export']} and a labeller's "
+        f"{rates['evaluate']}, exports {rates['export']} and a labeller's "
         f"calls {rates['label']}; signing in {rates['signin']} and the token endpoint "
         f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "
         "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
@@ -416,34 +388,6 @@ def mounted(schema: dict[str, Any], registry: Mapping[str, Any], *, prefix: str)
     schema["tags"] = [*schema.get("tags", []), *REGISTRY_TAGS]
 
 
-# Models an API description lists under the title they set (`model_config`'s `title`), in
-# place of their Python class's name. A class keeps its name until the records it is in change
-# (the JSON key it types is on the wire); what a reader of the description sees is the title.
-TITLED: tuple[type[BaseModel], ...] = (SharedPack,)
-
-
-def titled(schema: dict[str, Any]) -> dict[str, Any]:
-    """The document with each of `TITLED` listed under its title: its component renamed, and
-    every reference to it. One whose title another component already has is left as it is, so a
-    name never stands for two schemas."""
-    schemas = schema.get("components", {}).get("schemas", {})
-    renames = {
-        model.__name__: str(model.model_config["title"])
-        for model in TITLED
-        if model.__name__ in schemas and model.model_config.get("title") not in (None, *schemas)
-    }
-    if not renames:
-        return schema
-    text = json.dumps(schema)
-    for name, title in renames.items():
-        text = text.replace(f'{_SCHEMA_REF}{name}"', f'{_SCHEMA_REF}{title}"')
-    renamed: dict[str, Any] = json.loads(text)
-    renamed["components"]["schemas"] = {
-        renames.get(name, name): model for name, model in renamed["components"]["schemas"].items()
-    }
-    return renamed
-
-
 TOO_MANY = {
     "description": "Too many requests from this caller: retry after `Retry-After` seconds.",
     "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
@@ -561,23 +505,6 @@ def _secure(
             "a person who signed in holding the registry_reviewer role in the agent registry's "
             "review organization (`registry_review`, memberships mode; never a key, a token "
             "or an administrator of another organization)"
-        )
-        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
-        return
-    if permission == "curate":  # people only, an administrator (server/auth.py)
-        operation["security"] = [{"session": []}]
-        needed = (
-            "a person who signed in as an administrator of the organization they act for "
-            "(`curate`, memberships mode; never a key, a token or a labeller)"
-        )
-        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
-        return
-    if permission == "grade":  # an organization's grading key only (server/auth.py GRADING_ONLY)
-        operation["security"] = [{"apiKey": []}]
-        needed = (
-            "the organization's grading key (`grade`), which only the operator makes "
-            "(`mendari access grader-key`); never a person, an administrator, another key or a "
-            "token"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

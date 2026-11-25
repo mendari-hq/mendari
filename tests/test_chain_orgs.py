@@ -40,10 +40,6 @@ PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 HELD = "Please renew my prescription."
 TRIAGE = "mendari-test/triage"  # the agent these tests decide with (`triage_agent`)
 CLINIC = "clinic-a"
-# What the store still lists of the features wave 6 removes, which nothing kept writes: the
-# hidden evaluation sets' table (G13). It leaves the store's classes with its code, and this then
-# removes nothing.
-REMOVED_TABLES = frozenset({"evalset_sets"})
 
 
 def keeping(target: str, **options: Any) -> AuditStore:
@@ -392,7 +388,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
 
 
 def test_every_subject_table_is_checked() -> None:
-    tables = {table for table, _, _ in SUBJECT_TABLES.values()} - REMOVED_TABLES
+    tables = {table for table, _, _ in SUBJECT_TABLES.values()}
     assert tables | {"decisions"} == set(SUBJECTS)
 
 

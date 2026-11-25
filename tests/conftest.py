@@ -13,25 +13,22 @@ import secrets
 import shutil
 import time
 import uuid
-from collections.abc import Callable, Coroutine, Iterator, Mapping
+from collections.abc import Callable, Coroutine, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
 import pytest
 import yaml
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
-from mendari.core.evalset_keys import evalset_keys
 from mendari.core.pack import pack_digest
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
@@ -86,8 +83,7 @@ POSTGRES_URL, _WORKER_POSTGRES_DB = _worker_postgres(_BASE_POSTGRES_URL, _XDIST_
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
 # exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM
 # endpoint and key (and the origins they may be at), the alert webhook, the registry,
-# the CDS clients whose tokens a server would take (LP-23b), a site's code map (LP-23i), and the
-# key holder's grading key (LP-17e), which no test may sign with.
+# the CDS clients whose tokens a server would take (LP-23b) and a site's code map (LP-23i).
 # No test may reach them, whatever a module opens at import (the Vercel entrypoint builds its
 # app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected. A
 # test that needs one sets its own.
@@ -98,9 +94,9 @@ LIVE_SETTINGS = (
     "MENDARI_ALERT_WEBHOOK", "MENDARI_ALERT_SECRET", "MENDARI_ALERT_FORMAT",
     "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS", "MENDARI_REGISTRY_HUB_URL",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN",
-    "CRON_SECRET", "MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY",
+    "CRON_SECRET",
     "MENDARI_CDS_CLIENTS", "MENDARI_SITE_CODES", "MENDARI_EHR_DECLARATIONS",
-    "MENDARI_GRADING_SIGNING_KEY", "MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN",
+    "MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN",
 )  # fmt: skip
 for _name in LIVE_SETTINGS:
     os.environ.pop(_name, None)
@@ -235,14 +231,6 @@ def _cds_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
         return not signed_in and not os.environ.get("VERCEL")
 
     monkeypatch.setattr(server_app, "cds_sandbox", as_the_flag_would)
-
-
-@pytest.fixture(autouse=True)
-def _no_evalset_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hidden evaluation sets are off unless a test turns them on (`evalset_on`): no key from
-    the developer's shell reaches a test (LP-11)."""
-    for name in ("MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY"):
-        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -613,58 +601,6 @@ def encrypt_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
-
-
-def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
-    """Hidden evaluation sets on, with throwaway keys made for this test: (the key, the index
-    key)."""
-    key, index = secrets.token_bytes(32), secrets.token_bytes(32)
-    monkeypatch.setenv("MENDARI_EVALSET_KEY", base64.b64encode(key).decode())
-    monkeypatch.setenv("MENDARI_EVALSET_INDEX_KEY", base64.b64encode(index).decode())
-    monkeypatch.delenv("MENDARI_EVALSET_READ_KEYS", raising=False)
-    return key, index
-
-
-# The routes hidden evaluation sets mount in both account modes (LP-11l: the grading route, an
-# organization's grading key's), and those they mount in memberships mode only (LP-11j: a
-# labeller's; LP-11k: an organization's curators').
-EVALSET_CLAIMS_ROUTES = frozenset({("POST", "/api/evalsets/{set_id}/runs")})
-EVALSET_MEMBERSHIPS_ROUTES = frozenset(
-    {
-        ("GET", "/api/labelling"),
-        ("GET", "/api/labelling/next"),
-        ("POST", "/api/labelling/{assignment_id}"),
-        ("GET", "/api/evalsets"),
-        ("GET", "/api/evalsets/{set_id}"),
-        ("POST", "/api/evalsets/{set_id}/sample"),
-        ("POST", "/api/evalsets/{set_id}/assignments"),
-        ("POST", "/api/evalsets/{set_id}/adjudication"),
-        *EVALSET_CLAIMS_ROUTES,
-    }
-)
-
-
-def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
-    """Hidden evaluation sets are on in the server `client` talks to, as a route inventory needs
-    (LP-11g, conflict 37: with them off, their routes are not mounted and the inventory passes on
-    nothing): health names, to a reader (`headers`), the ids of this environment's
-    evaluation-set keys; and the routes they mount are mounted: the grading route in either
-    account mode (LP-11l), and in memberships mode a labeller's (LP-11j) and its curators'
-    (LP-11k) too."""
-    keys = evalset_keys()
-    assert keys is not None, "turn them on first: evalset_on(monkeypatch)"
-    shown = client.get("/api/health", headers=dict(headers)).json()
-    assert shown.get("evalset_keys") == keys.key_ids, shown.get("evalset_keys")
-    app = cast(FastAPI, client.app)
-    mounted = {
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods or ()
-    }
-    assert mounted >= EVALSET_CLAIMS_ROUTES, "the keys mount the grading route"
-    if client.get("/api/auth/me").json().get("accounts") == "memberships":
-        assert mounted >= EVALSET_MEMBERSHIPS_ROUTES, "memberships mode mounts the sets' routes"
 
 
 def encrypted_store(target: str | Path) -> AuditStore:

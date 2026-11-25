@@ -165,7 +165,7 @@ test("an agent page shows site evidence in its own section: sites, cases, a plot
   await page.goto(DEMO);
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence: 2 sites, 900 cases");
-  await expect(section).toContainText("not part of any hidden-set result or rank");
+  await expect(section).toContainText("They are not part of any rank");
   await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText(
     "2 sites, 900 cases (a configuration with remote providers, consented)",
   );
@@ -205,7 +205,7 @@ test("an agent page shows the publisher's evaluations side by side, one row per 
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Published evaluations");
   await expect(section).toContainText("own public dataset: test (600 cases)");
   await expect(section).toContainText("can be tuned to a set its publisher chose");
-  await expect(section).toContainText("site evidence and hidden sets are stronger evidence");
+  await expect(section).toContainText("site evidence is stronger evidence");
   const table = section.getByRole("table");
   await expect(table.getByRole("columnheader")).toHaveText([
     "Configuration (latency and cost as reported by the publisher)",

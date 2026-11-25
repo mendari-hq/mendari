@@ -4,9 +4,9 @@
 // (the server keeps the choice for this browser). Holding none, they see who they are signed in
 // as and may ask to join an organization by its id: the server answers the same whether or not
 // it exists, and this page never lists organizations. Holding one whose roles grant nothing
-// here, they are told so; one who only labels hidden evaluation sets, where the
-// deployment serves no labelling route, is told what they do (where it does, they see the
-// labelling screen instead, labelling.js). Reached only through `state.noAccess` (router.js).
+// here, they are told so; one who only grades written output, where no round holds work of
+// theirs, is told what they do (where one does, they see the grading screen instead,
+// written.js). Reached only through `state.noAccess` (router.js).
 
 import { views } from "./router.js";
 import { api, emptyState, esc, roleName, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
@@ -21,8 +21,8 @@ views.access = async (main, [reason = "none"]) => {
   if (reason === "label") {
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
       icon: "shield-check",
-      title: "You label cases for hidden evaluation sets",
-      text: "Labelling is not switched on here yet. Once it is, the cases assigned to you are shown here.",
+      title: "You grade what agents write",
+      text: "No round of written output has texts for you yet. Once one does, they are shown here.",
     })}${accountButtons()}`;
     wireAccount(main);
     return;

@@ -2,9 +2,9 @@
 """The one ranking of a leaderboard's configurations (`mendari.rank/1`, LP-10): the card, the
 command line and the dashboard all list the rows in the order this writes, never their own.
 A pack's own sets are public, in the repository and in the package, and a board can also hold a
-site's own file (`mendari leaderboard --dataset PATH`), never a frozen hidden set: so since
-LP-17g that order is shown as a listing order and no surface prints a rank, each table a
-regression check, not a ranking. `rank` and `standing` stay in the rows and the API as data.
+site's own file (`mendari leaderboard --dataset PATH`): so since LP-17g that order is shown as
+a listing order and no surface prints a rank, each table a regression check, not a ranking.
+`rank` and `standing` stay in the rows and the API as data.
 
 Only rows measured on the pack as it is (its digest) rank, against rows on the same records (the
 dataset's name, hash and size; a row that did not record the hash is never on the same records as

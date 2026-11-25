@@ -184,19 +184,19 @@ def test_the_bar_names_the_roles_of_who_is_signed_in(page: Page) -> None:
 def test_a_member_who_only_labels_is_told_so_and_the_page_asks_for_nothing_else(
     page: Page,
 ) -> None:
-    """LP-11: a labeller and nothing else holds `label` only: no agents, no notice, no review
-    queue. Where no labelling route is served (the open-mode test server here), they are told
-    what they do, and the page reads nothing but who they are, health and their counts (which
-    say whether the routes are served; tests/browser/test_written.py where they are)."""
+    """A labeller and nothing else holds `label` only: no agents, no notice, no review queue.
+    Where no grader's route is served (the open-mode test server here), they are told what they
+    do, and the page reads nothing but who they are, health and their counts (which say whether
+    the routes are served; tests/browser/test_written.py where they are)."""
     held = [{"org": "clinic-b", "name": "Clinic B", "roles": ["labeller"]}]
     seen = pins(page)
     member_of(page, held, "clinic-b", ["labeller"])
     page.goto("/")
     expect(page.locator("main h1")).to_have_text("Nothing to do here yet")
-    expect(page.locator("main")).to_contain_text("You label cases")
-    for section in ("overview", "review", "try", "labelling", "written"):
+    expect(page.locator("main")).to_contain_text("You grade what agents write")
+    for section in ("overview", "review", "try", "written"):
         expect(page.locator(f'.nav a[data-view="{section}"]')).to_be_hidden()
-    asked = {"/api/health", "/api/labelling", "/api/written/labelling"}
+    asked = {"/api/health", "/api/written/labelling"}
     assert {path for _, path, _ in seen} <= asked
 
 

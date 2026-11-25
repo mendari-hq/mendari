@@ -6,7 +6,7 @@ The registry evaluates a version on the publisher's own test set (its manifest's
 (`evals/gate.py`, as `scripts/pack_gate.py` does in CI) against the newest earlier version's
 check. It is what the registry computed itself, so it may be shown, labelled for what it is:
 **publisher's own test set: regression check, not a ranking**. A set the publisher chose cannot
-rank a pack; only the scoreboard (LP-17) does.
+rank a pack.
 
 It runs in an isolated job: a child process (`python -I -m mendari.hub.regression DIR`) with an
 environment holding no credential or setting but its own, a wall-clock limit, a CPU limit and,

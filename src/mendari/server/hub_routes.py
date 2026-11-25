@@ -40,13 +40,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from mendari.core.pack import Pack
-from mendari.core.pack_store import HELD, HUB, OrgPins, PackStore, PhiRejected, StoreError
+from mendari.core.pack_store import HUB, OrgPins, PackStore, PhiRejected, StoreError
 from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import HubError, MendariError
 from mendari.hub.client import RegistryClient, fetch, pinned_in, pinned_keys
 from mendari.server import security_log
 from mendari.server.auth import Auth, org_of
-from mendari.server.store_routes import HELD_MESSAGE, _detail
+from mendari.server.store_routes import _detail
 
 TAG = "Agents"
 STORE_TAG = "Agent store"
@@ -213,14 +213,12 @@ def add_hub_routes(
     served: Callable[[], Mapping[str, Pack]],
     served_here: Callable[[], Mapping[str, Pack]],
     store: PackStore | None,
-    hidden: Any = None,
 ) -> None:
     """Mount the console's registry routes. `registry`: the deployment's registry address, or
     None (then only `GET /api/hub` is served); `served`: the agents this deployment serves from
     its own files, whoever asks; `served_here`: the agents the request's organization is served
     (those, and its promoted store versions); `store`: organizations' agent stores, or None
-    where they are off (then nothing is added here); `hidden`: as the store's own routes take
-    it."""
+    where they are off (then nothing is added here)."""
 
     @app.get("/api/hub", tags=[TAG], summary="The registry agents are added from")
     def hub(request: Request) -> dict[str, Any]:
@@ -390,8 +388,7 @@ def add_hub_routes(
         verify (`422`), the publisher's signing key is one your organization has not seen
         (`409` with `key_changed`: check it with the publisher, then send `accept_new_key`), your
         organization holds that version already (`409`), or a check, limit or quota of the
-        store refuses it. Answers the new version (`201`), `held` if it is held for the
-        operator's review. Chained `pack_version.created`."""
+        store refuses it. Answers the new version (`201`). Chained `pack_version.created`."""
         principal = auth.acting(request)
         if principal.kind != "user":  # the guard lets people only through: fail closed
             raise HTTPException(403, "only a person who signed in may do this")
@@ -407,7 +404,7 @@ def add_hub_routes(
                 "registry never replaces it",
             )
         try:
-            # The day's quota and the stop first: nothing is downloaded for a refused request.
+            # The day's quota first: nothing is downloaded for a refused request.
             kept.refuse_before_adding(org)
         except StoreError as error:
             raise HTTPException(error.status, str(error)) from None
@@ -455,21 +452,15 @@ def add_hub_routes(
             refused("registry_answer")
             raise HTTPException(502, NOT_A_REGISTRY) from None
         try:
-            made = kept.admit_pulled(org, fetched, by=by, hidden=hidden, served_ids=served())
+            made = kept.admit_pulled(org, fetched, by=by, served_ids=served())
         except PhiRejected as error:
             refused("phi")
             return JSONResponse({"detail": str(error), "phi": error.report}, status_code=422)
         except StoreError as error:
             refused("checks")
             raise HTTPException(error.status, str(error)) from None
-        if made.state == HELD:
-            security_log.event("store.version.held", actor=by, org=org, ids=[made.digest])
-        else:
-            security_log.event("store.pull.added", actor=by, org=org, ids=[made.digest])
-        row = kept.version(org, made.digest)
-        shown = _detail(row)
-        if row["state"] == HELD:
-            shown = {**shown, "message": HELD_MESSAGE}
+        security_log.event("store.pull.added", actor=by, org=org, ids=[made.digest])
+        shown = _detail(kept.version(org, made.digest))
         return JSONResponse({**shown, "source": HUB}, status_code=201)
 
 

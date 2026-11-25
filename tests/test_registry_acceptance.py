@@ -403,7 +403,7 @@ def test_a_shipped_key_is_trusted_without_first_use(
     listed = yank.registry_public(_key())
     for broken in (
         "not json",
-        json.dumps({"format": "mendari.grading-keys/1", "keys": []}),
+        json.dumps({"format": "mendari.other-keys/1", "keys": []}),
         json.dumps({"format": acceptance.KEYS_FORMAT, "keys": [], "hosts": ["registry.example"]}),
         json.dumps({"format": acceptance.KEYS_FORMAT, "keys": [{**listed, "host": "x"}]}),
         json.dumps({"format": acceptance.KEYS_FORMAT, "keys": [{**listed, "public_key": "AAAA"}]}),

@@ -82,35 +82,15 @@ class NoteError(MendariError):
 
 
 class NoAssignment(MendariError):
-    """A label for an assignment that is unknown, another labeller's, another organization's or
-    closed (answered, withdrawn, in a set no longer a draft, or on a membership no longer a
-    labeller's): one refusal for them all (`core/evalsets.py` `NO_ASSIGNMENT`), a `404` on the
-    labelling route, as an id that names nothing is (LP-11j)."""
+    """Grades for an assignment that is unknown, another grader's, another organization's or
+    closed (graded, withdrawn, in a round no longer open, or on a membership no longer a
+    labeller's): one refusal for them all (`core/written.py` `NO_ASSIGNMENT`), a `404` on a
+    grader's route, as an id that names nothing is."""
 
 
 class LabelError(MendariError):
-    """A label that does not answer its set's questions, each with one of its labels: names the
-    question, never a value given (a `422` on the labelling route, LP-11j)."""
-
-
-class NoEvalset(MendariError):
-    """A hidden evaluation set that is unknown, or another organization's to a route acting for
-    one: one refusal for both (`core/evalsets.py` `NO_SET`, naming no id), a `404` on the
-    set-management routes (LP-11k), as an id that names nothing is."""
-
-
-class GradingRefused(MendariError):
-    """A grading read of a hidden evaluation set refused (`core/evalsets.py` `grade_read`), or a
-    grading run refused before it reads one (LP-11l), with the fixed `reason` the grading route
-    answers and logs in place of the message: from the store `no_set`, `not_gradable`,
-    `no_runs_left`, `expired`, `set_changed` and `set_unavailable`; the route adds its own
-    (`server/app.py` `GRADING_REFUSALS`). The store's message names the set, for the key holder
-    and the tests; the route never repeats it. Retiring a set raises it too (`set_changed`,
-    `set_unavailable`), as the key holder's command's error."""
-
-    def __init__(self, reason: str, message: str):
-        self.reason = reason
-        super().__init__(message)
+    """Grades that do not answer a rubric's criteria, each with one of its levels: names the
+    criterion, never a value given (a `422` on a grader's route)."""
 
 
 class FhirError(MendariError):

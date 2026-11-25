@@ -69,11 +69,8 @@ ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 # service (`calm_agent`), the screen's checked by its keyword rules. A refill is automated; a
 # message with chest pain waits for a person.
 CHECKED = {"router": "agent", "screen": "checked"}
-# What the server still holds of features wave 6 removes, until their code goes: hidden
-# evaluation sets' permissions and role (G13). Set aside, so these tables hold what stays.
+# What the server still holds of features wave 6 removes, until their code goes: none left.
 REMOVED_ROUTES: set[tuple[str, str]] = set()
-REMOVED_PERMISSIONS = {"curate", "grade"}
-REMOVED_ROLES = {"grading"}
 
 
 class FakeIdp:
@@ -716,11 +713,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
             "discover" if route in lists else next(iter(parse(scope).permissions - {"discover"}))
         )
         assert permission_for(*route) == implied, route
-    assert {
-        role: set(p) - REMOVED_PERMISSIONS
-        for role, p in auth_module.PERMISSIONS.items()
-        if role not in REMOVED_ROLES
-    } == ROLE_PERMISSIONS
+    assert {role: set(p) for role, p in auth_module.PERMISSIONS.items()} == ROLE_PERMISSIONS
 
     settings = AuthSettings(
         issuer=IDP,

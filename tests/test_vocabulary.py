@@ -21,7 +21,7 @@ their own, which import it (`tests/test_vocabulary_docs.py`,
 - `KEPT_NAMES`: identifiers that hold the old word and are not words: canonical URLs that stored
   FHIR resources carry, where a person still reads them.
 - `KEPT_SCHEMAS`: Python classes whose names an API description shows as its schemas' names
-  (none now: the one there was is listed under a title, `server/api_docs.py` `titled`).
+  (none now).
 - `ALLOWED`: the few texts that name something from before on purpose.
 - `NOT_READ`: files of the product this test does not read, each with who does.
 
@@ -30,7 +30,6 @@ their own, which import it (`tests/test_vocabulary_docs.py`,
 from __future__ import annotations
 
 import ast
-import json
 import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -45,7 +44,7 @@ from mendari.core.origin import Origin
 from mendari.core.pack import load_pack
 from mendari.hub.registry import create_registry_app
 from mendari.server.app import create_app
-from tests.conftest import DEMO_AGENT_DIR, ROOT, encrypt_mode, encrypted_store, evalset_on
+from tests.conftest import DEMO_AGENT_DIR, ROOT, encrypt_mode, encrypted_store
 
 # -- the rule -------------------------------------------------------------------------------------
 
@@ -233,8 +232,8 @@ def _open_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
 def _whole_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """The engine with everything it can mount, so every route and every sentence that only
     some settings add is in the document: sign-in in memberships mode, Backend Services, the
-    SMART launch, the registry under it with its reviewers, the agent store, hidden evaluation
-    sets, and the rate limits on."""
+    SMART launch, the registry under it with its reviewers, the agent store, the grading of
+    written output, and the rate limits on."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -248,7 +247,6 @@ def _whole_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
     monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
-    evalset_on(monkeypatch)
     with encrypted_store(tmp_path / "whole.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
     app = create_app(db_path=tmp_path / "whole.db", packs_paths=[ROOT / "agents"])
@@ -259,7 +257,7 @@ def _whole_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     paths = set(document["paths"])
     for mounted in ("/api/store/agents", "/api/registry/review", "/registry/v1/search"):
         assert mounted in paths, f"{mounted} is not mounted: the document is not the whole one"
-    assert "/api/evalsets/{set_id}/runs" in paths and "/api/smart/decide" in paths
+    assert "/api/written/labelling" in paths and "/api/smart/decide" in paths
     assert "securitySchemes" in document["components"]  # sign-in is on
     return document
 
@@ -563,9 +561,8 @@ def offences_without_kept(text: str) -> list[str]:
 
 
 # A schema's name in an API description is its Python class's, and classes are not renamed here
-# (module docstring). A class that holds the old word sets a title, and the description lists it
-# under that (`server/api_docs.py` `titled`), so none needs keeping: an entry here would be a
-# class shown under its own name, with why it is shown at all.
+# (module docstring). No API description shows a class that holds the old word, so none needs
+# keeping: an entry here would be a class shown under its own name, with why it is shown at all.
 KEPT_SCHEMAS: dict[str, str] = {}
 
 
@@ -594,34 +591,10 @@ def test_every_kept_schema_is_still_shown(tmp_path: Path, monkeypatch: pytest.Mo
     """The list never outlives its reasons: each kept schema is in the whole API description."""
     whole = API_DOCUMENTS["the engine's API description, everything on"](tmp_path, monkeypatch)
     shown = {name for where, name in api_names(whole) if where.endswith(_A_SCHEMA)}
-    assert len(shown) > 100  # the whole description, not a part of it
+    assert len(shown) > 50  # the whole description, not a part of it
     for name, reason in KEPT_SCHEMAS.items():
         assert reason.strip() and old_name(name), name
         assert name in shown, f"{name} is no longer a schema: take it off the list"
-
-
-def test_a_class_named_for_the_old_word_is_listed_under_its_title(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The model of a shared record's `pack` key: its Python class and the key it types keep
-    their names (signed records hold the key), and the API description lists the schema under
-    the title the model sets, with every reference to it following."""
-    from mendari.evals.share import SharedPack, SiteReportV2
-    from mendari.server import api_docs
-
-    assert SharedPack.__name__ == "SharedPack" and SharedPack in api_docs.TITLED
-    assert "pack" in SiteReportV2.model_fields  # the key on the wire, unchanged
-    whole = API_DOCUMENTS["the engine's API description, everything on"](tmp_path, monkeypatch)
-    schemas = whole["components"]["schemas"]
-    assert "SharedPack" not in schemas and schemas["SharedAgent"]["title"] == "SharedAgent"
-    assert set(schemas["SharedAgent"]["properties"]) == {"id", "version", "digest"}
-    references = set(re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(whole)))
-    assert "SharedAgent" in references and "SharedPack" not in references
-    assert references <= set(schemas)  # every reference names a schema that is listed
-    # A title another schema already has is left alone, and a document without the model too.
-    taken: dict[str, Any] = {"components": {"schemas": {"SharedPack": {}, "SharedAgent": {}}}}
-    assert api_docs.titled(taken) == taken
-    assert api_docs.titled({"paths": {}}) == {"paths": {}}
 
 
 # The wire names each API description types.

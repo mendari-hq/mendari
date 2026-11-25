@@ -475,7 +475,7 @@ def test_the_runbook_says_where_each_reserved_role_reaches() -> None:
     """docs/operations/accounts.md on each reserved role a membership may hold: one whose
     permissions no route rule needs grants nothing yet (`pack_author`); one a rule needs names
     the paths that rule covers and never says no route needs it yet (`labeller`'s `label`,
-    `/api/labelling` since LP-11j)."""
+    `/api/written/labelling`)."""
     runbook = " ".join((ROOT / "docs" / "operations" / "accounts.md").read_text().split())
     for role in sorted(set(accounts.MEMBERSHIP_ROLES) - set(ROLES)):
         said = re.search(rf"`{role}`, which (.*?)\.(\s|$)", runbook)
@@ -1272,7 +1272,7 @@ def test_a_key_never_manages_people(members: TestClient, store: AuditStore, db_t
 
 def test_reserved_roles_may_be_given(members: TestClient, store: AuditStore, idp: FakeIdp) -> None:
     """Both reserved roles a membership may hold are given as any role is: `pack_author` grants
-    `author` only (LP-20f), `labeller` grants `label` only (LP-11)."""
+    `author` only (LP-20f), `labeller` grants `label` only (ADR-0025)."""
     lead = admin_of(store)
     made = invite(members, lead, roles=("pack_author", "labeller"))
     assert made["roles"] == ["labeller", "pack_author"]
@@ -1291,7 +1291,9 @@ def test_reserved_roles_may_be_given(members: TestClient, store: AuditStore, idp
     assert store.verify()["ok"]
 
 
-def test_grading_is_never_given(members: TestClient, store: AuditStore) -> None:
+def test_an_unknown_role_or_a_malformed_request_is_never_given(
+    members: TestClient, store: AuditStore
+) -> None:
     lead = admin_of(store)
     viewer = store.add_membership(
         org="clinic-a", roles=["viewer"], created_by="t", user_id=recorded(store, "bo")
@@ -1302,10 +1304,8 @@ def test_grading_is_never_given(members: TestClient, store: AuditStore) -> None:
     grant = f"/api/auth/access-requests/{asked['id']}"
     before = store.verify()["events"]
     for method, path, body in (
-        ("POST", invitation, {"email": "ada@example.org", "roles": ["grading"]}),
-        ("PUT", roles, {"roles": ["grading"]}),
-        ("POST", grant, {"outcome": "granted", "roles": ["grading"]}),
         ("POST", invitation, {"email": "ada@example.org", "roles": ["root"]}),
+        ("PUT", roles, {"roles": ["root"]}),
         ("PUT", roles, {"roles": []}),
         ("POST", grant, {"outcome": "granted", "roles": ["viewer", "root"]}),
         ("POST", grant, {"outcome": "maybe"}),

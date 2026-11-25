@@ -61,8 +61,6 @@ from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.connections import ConnectionStore
 from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
-from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
-from mendari.core.evalsets import NO_SET, EvalsetStore, GradingRead, pack_problem
 from mendari.core.https_only import is_local_host
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
@@ -78,12 +76,10 @@ from mendari.errors import (
     ClientError,
     FhirError,
     FhirStructureError,
-    GradingRefused,
     InvitationRefused,
     LabelError,
     MendariError,
     NoAssignment,
-    NoEvalset,
     NoOrganization,
     NoteError,
     NoticeNotAcknowledged,
@@ -100,16 +96,6 @@ from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_d
 from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.feedback import feedback_dataset, reviewed_dataset
 from mendari.evals.harness import Dataset, evaluation
-from mendari.evals.hidden import (
-    Declared,
-    HiddenResult,
-    HiddenScoreboard,
-    configuration_of,
-    graded,
-    holds,
-    scoreboard_graded,
-    scoreboard_holds,
-)
 from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
 from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
@@ -185,9 +171,8 @@ _STATUS = {
     PackValidationError: 422,
     ScopeError: 422,
     ClientError: 422,
-    NoAssignment: 404,  # unknown, another's or closed: one answer (LP-11j)
-    LabelError: 422,  # names the question, never the value
-    NoEvalset: 404,  # unknown or another organization's set: one answer (LP-11k)
+    NoAssignment: 404,  # unknown, another's or closed: one answer (a grader's route)
+    LabelError: 422,  # names the criterion, never the value
     CdsHooksError: 400,
     UnknownCard: 404,  # card feedback: unknown, another's or another caller's, one answer
     RateLimited: 429,
@@ -424,47 +409,40 @@ class HoldRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=200)
 
 
-# A labeller's routes (LP-11j): what they send, and closed answers (`extra="forbid"`), so a field
-# the store might one day add to what it returns fails the answer rather than reaching a labeller.
+# A grader's routes over written output (ADR-0025): what they send, and closed answers
+# (`extra="forbid"`), so a field the store might one day add to what it returns (a judge's grade,
+# another grader's) fails the answer rather than reaching a grader. A grader sends a
+# `LabelRequest` and is answered a `LabelRecorded`.
 class LabelRequest(BaseModel):
     labels: dict[str, str] = Field(
-        description="each question the case asks, with one of its labels (as the case gave them)",
-        examples=[{"request": "refill", "urgent_symptoms": "no"}],
+        description="each criterion of the rubric, with one of its levels (as the item gave them)",
+        examples=[
+            {"safe_to_send": "yes", "says_what_happens_next": "fully", "plain_language": "yes"}
+        ],
     )
-
-
-class LabellingCase(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    assignment: str = Field(description="what to send your label to")
-    questions: dict[str, list[str]] = Field(description="each question, with its labels")
-    input: Any = Field(description="the case, as the agent reads it")
 
 
 class LabelledSet(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    set: str
-    open: int = Field(description="your cases waiting in this set")
-    labelled: int = Field(description="your cases labelled in this set")
+    set: str = Field(description="the grading round's id")
+    open: int = Field(description="your items waiting in this round")
+    labelled: int = Field(description="your items graded in this round")
 
 
 class LabellingCounts(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sets: list[LabelledSet]
-    remaining: int = Field(description="your cases waiting, in all")
+    remaining: int = Field(description="your items waiting, in all")
 
 
 class LabelRecorded(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    remaining: int = Field(description="your cases still waiting")
+    remaining: int = Field(description="your items still waiting")
 
 
-# A grader's routes over written output (ADR-0025): closed answers, as a labeller's are, so a
-# judge's grade or another grader's added to what the store returns fails the answer rather
-# than reaching a grader. A grader sends a `LabelRequest` and is answered a `LabelRecorded`.
 class WrittenText(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -513,357 +491,6 @@ class WrittenRound(BaseModel):
         description="the round's report (`mendari.written/1`), once it is closed and while it "
         "is the one the audit trail committed to; null otherwise"
     )
-
-
-# An organization's curators' routes over its hidden evaluation sets (LP-11k): what they send,
-# and closed answers (`extra="forbid"`) down to the stored aggregates' last field, so a field the
-# store might one day add to what it returns (a case, an input, a label given) fails the answer
-# rather than reaching anyone. People are named by user id only (`accounts.USER_ID`).
-UserId = Annotated[str, Field(pattern=r"^user:[0-9a-f]{16}$")]
-SetState = Literal["draft", "frozen", "active", "retired"]
-Seed = Annotated[
-    int, Field(ge=0, le=2**32 - 1, description="the same set and seed give the same result")
-]
-
-
-class SampleRequest(BaseModel):
-    per_stratum: int | None = Field(
-        default=None,
-        ge=1,
-        le=1_000_000,
-        description="how many more cases to draw from each stratum (all that are left of a "
-        "smaller one); or `cases`, not both",
-    )
-    cases: int | None = Field(
-        default=None,
-        ge=1,
-        le=1_000_000,
-        description="how many more cases to draw in all, shared out among the strata by the "
-        "cases left in each; or `per_stratum`, not both",
-    )
-    seed: Seed = 0
-
-
-class LabellersRequest(BaseModel):
-    labellers: list[Annotated[str, Field(max_length=64)]] = Field(
-        min_length=1,
-        max_length=500,
-        description="the labellers' user ids, as the members list shows them: each with the "
-        "labeller role in this organization, and none an administrator",
-        examples=[["user:0123456789abcdef", "user:fedcba9876543210"]],
-    )
-    seed: Seed = 0
-
-
-class EvalsetListed(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    set: str
-    name: str
-    pack: str = Field(title="Agent")
-    state: SetState
-    created_at: str
-    cases: int = Field(description="the cases the set holds")
-
-
-class CaseStatuses(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    draft: int = Field(description="not drawn")
-    sampled: int = Field(description="drawn, waiting for its two first labels")
-    agreed: int
-    disputed: int = Field(description="its two first labels differ: waiting for a third")
-    resolved: int = Field(description="settled by the majority, once adjudicated")
-    unresolved: int = Field(description="three labels, no majority: keeps the set from freezing")
-
-
-class RoundCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    assigned: int
-    labelled: int
-    open: int
-    withdrawn: int
-
-
-class LabellerCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    first: RoundCounts
-    adjudication: RoundCounts
-
-
-class RunsCount(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    used: int = Field(description="grading runs made (frozen and active sets)")
-    left: int | None = Field(description="grading runs left; null before the set is frozen")
-
-
-class LabelCount(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cases: int
-    distinct: int
-
-
-class QuestionCoverage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    labelled: int
-    labels: dict[str, LabelCount]
-
-
-class CriticalCount(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    question: str
-    label: str
-    cases: int
-    distinct: int
-    insufficient: bool
-
-
-class CoverageMix(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    language: dict[str, int]
-    source: dict[str, int]
-    stratum: dict[str, int]
-
-
-class DistinctCount(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    exact: int
-    normalised: int
-
-
-class NamedDataset(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(description="the set's id: no hash of its cases, keyed or not")
-
-
-class CoverageReport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    format: Literal["mendari.coverage/1"]
-    pack: str = Field(title="Agent")
-    dataset: NamedDataset
-    norm: str
-    cases: int
-    distinct: DistinctCount
-    duplicate_groups: int
-    conflicting_groups: int
-    questions: dict[str, QuestionCoverage]
-    critical: list[CriticalCount]
-    mix: CoverageMix
-    warnings: list[str]
-
-
-class Share(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    k: int
-    n: int
-    low: float | None
-    high: float | None
-
-
-class Interval(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["ok", "not_estimable"]
-    low: float | None = None
-    high: float | None = None
-    reason: str | None = None
-    dropped: int
-
-
-class Coefficient(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    estimate: float | None
-    status: Literal["ok", "not_estimable"]
-    reason: str | None = None
-    interval: Interval | None = None
-
-
-# Without the pair's label counts, which the store leaves out for curators: where a pair shares
-# few cases, they are what each rater answered (`EvalsetStore.summary`).
-class PairKappa(Coefficient):
-    raters: list[UserId]
-    n: int
-
-
-class PoolAlpha(Coefficient):
-    cases: int
-    ratings: int
-
-
-class QuestionAgreement(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cases: int
-    percent: Share
-    kappa: list[PairKappa]
-    alpha: PoolAlpha
-
-
-class AgreementSeeds(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    bootstrap: int
-    resamples: int
-
-
-class AgreementReport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    format: Literal["mendari.agreement/1"]
-    pack: str = Field(title="Agent")
-    level: float
-    seeds: AgreementSeeds
-    questions: dict[str, QuestionAgreement]
-
-
-class StoredAggregates(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    format: Literal["mendari.evalset_aggregates/1"]
-    set: str
-    measured_at: str
-    n: int = Field(description="the drawn cases measured")
-    coverage: CoverageReport
-    agreement: AgreementReport
-
-
-class EvalsetDetail(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    set: str
-    name: str
-    pack: str = Field(title="Agent")
-    questions: dict[str, list[str]] = Field(description="each question labellers answer")
-    state: SetState
-    created_at: str
-    cases: int
-    statuses: CaseStatuses
-    labellers: dict[UserId, LabellerCounts]
-    frozen_at: str | None
-    commitment: str | None = Field(description="the salted commitment chained at freeze")
-    max_runs: int | None
-    max_age_days: int | None
-    runs: RunsCount
-    graded_until: str | None
-    retired_at: str | None
-    aggregates: StoredAggregates | None = Field(
-        description="the set's coverage and rater agreement as last stored (`mendari evalset "
-        "agreement` or `coverage`, or at freeze), with when they were measured; null before"
-    )
-
-
-class SetSampled(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    set: str
-    drawn: int = Field(description="cases drawn now")
-    sampled: int = Field(description="cases drawn in all")
-    seed: int
-
-
-class SetAssigned(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    set: str
-    round: Literal["first", "adjudication"]
-    assigned: int = Field(description="assignments made now")
-    withdrawn: int = Field(description="open assignments whose membership no longer holds")
-
-
-# A grading run over a hidden evaluation set (LP-11l): what the organization's grading key sends,
-# and what it is answered (`evals/hidden.py` `HiddenResult`, closed, aggregates only).
-SlotName = Annotated[str, Field(min_length=1, max_length=64)]
-# The scoreboard's arms (`evals/arms.py` `ARMS`), as a grading run declares them (LP-17k).
-ArmName = Literal["deterministic", "classifier", "llm", "classifier_and_llm"]
-
-
-class GradingRequest(BaseModel):
-    pack: str = Field(
-        min_length=1,
-        max_length=200,
-        title="Agent",
-        description="the id of the agent the set was made for, as this server serves it",
-        examples=[DEMO_AGENT],
-    )
-    variants: dict[SlotName, SlotName] | None = Field(
-        default=None,
-        max_length=64,
-        description="a variant for any of the agent's provider slots (the others run the "
-        "deployment's choice, or the agent's default); every slot must run a local variant",
-        examples=[{"reader": "rules"}],
-    )
-    arms: dict[ArmName, Annotated[dict[SlotName, SlotName], Field(max_length=64)]] | None = Field(
-        default=None,
-        min_length=1,
-        max_length=4,
-        description="the hidden-set scoreboard (LP-17k): each declared arm with its whole "
-        "configuration, a variant for every one of the agent's slots (none is filled in from "
-        "the deployment's choice); every one local, and each in the arm it is declared under. "
-        "With `declared`, never with `variants`: the answer is `mendari.hidden_scoreboard/1`",
-        examples=[{"deterministic": {"reader": "rules"}}],
-    )
-    declared: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f]{64}$",
-        description="the SHA-256 of the committed declaration `arms` comes from (the grading "
-        "method's section 3), which the answer cites; with `arms` only",
-    )
-
-    @model_validator(mode="after")
-    def _arms_with_their_declaration(self) -> GradingRequest:
-        if (self.arms is None) != (self.declared is None):
-            raise ValueError("`arms` and `declared` are sent together, or neither is")
-        if self.arms is not None and self.variants is not None:
-            raise ValueError("`variants` or `arms`, not both: each arm names its own variants")
-        return self
-
-
-# Each refusal of a grading run (LP-11l), by its fixed reason (`GradingRefused.reason`): its
-# status and the one sentence it is answered with, in place of any message (a store's names the
-# set, and a run's could name a case), and logged as its reason only.
-GRADING_REFUSALS: dict[str, tuple[int, str]] = {
-    # Unknown, malformed and another organization's: one answer, as the curators' routes give.
-    "no_set": (404, NO_SET),
-    "wrong_pack": (422, "a hidden set is graded with the agent it was made for: name it as `pack`"),
-    "pack_unavailable": (409, "the set's agent does not run on this server"),
-    "unknown_variant": (
-        422,
-        "`variants`, or an arm in `arms`, names a slot or a variant the agent does not have",
-    ),
-    "remote_provider": (
-        422,
-        "a hidden set is graded with local providers only: name a local variant, in `variants` "
-        "or in each arm of `arms`, for each slot that runs a remote one here",
-    ),
-    "wrong_arm": (
-        422,
-        "each arm in `arms` names a variant for every slot of the agent, a configuration of "
-        "that arm",
-    ),
-    "not_gradable": (409, "only a frozen or active set is graded"),
-    "no_runs_left": (409, "the set has had all the grading runs its rotation rule allows"),
-    "expired": (409, "the set is older than its rotation rule allows for grading"),
-    "set_changed": (409, "the set does not hold what it was frozen with: nothing was read"),
-    "set_unavailable": (503, "the set cannot be graded on this server now: nothing was read"),
-    "run_failed": (500, "the grading run failed; it counts as one of the set's runs"),
-}
-
-
-def grading_refused(reason: str) -> GradingRefused:
-    """A grading run's refusal as answered: its fixed reason and sentence (`GRADING_REFUSALS`)."""
-    return GradingRefused(reason, GRADING_REFUSALS[reason][1])
 
 
 # What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
@@ -939,11 +566,6 @@ def create_app(
     launch = smart_options is not None  # a launch fetches the patient's record
     # and plaintext where it must not be: never with sign-in, never on the hosted site
     require_protection(phi, sign_in=sign_in is not None, launch=launch)
-    # Hidden evaluation sets (LP-11): off unless both keys are set; malformed, half-set or
-    # reused keys stop the server here, as does a set without sign-in or off Production.
-    evalsets = evalset_keys()
-    if evalsets is not None:
-        require_evalset_deployment(sign_in=sign_in is not None)
     retention_days = settings.retention_days()  # likewise
     status_org = settings.status_org()  # likewise
     # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
@@ -1014,8 +636,6 @@ def create_app(
             raise MendariError(
                 "MENDARI_AGENT_STORE is on, but the agent store cannot open: " + "; ".join(unmet)
             )
-    if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
-        store.evalset_ready(evalsets)
     if review_org is not None:
         # An optional feature never stops the server (as CRON_SECRET above): reviewing stays
         # off, and the log says why.
@@ -1581,7 +1201,6 @@ def create_app(
                     registry_app.openapi(),
                     prefix=REGISTRY_PREFIX.rstrip("/"),
                 )
-            app.openapi_schema = api_docs.titled(app.openapi_schema)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
@@ -1593,8 +1212,6 @@ def create_app(
             status = error.status
         if isinstance(error, ProviderError):
             status = _PROVIDER_STATUS.get(error.code, _PROVIDER_UPSTREAM)
-        if isinstance(error, GradingRefused):
-            status = GRADING_REFUSALS.get(error.reason, (status, ""))[0]
         if request.url.path.startswith(("/smart/", "/auth/")):
             page = error_page(str(error), status)
             page.headers.update(retry_headers(error))
@@ -1691,13 +1308,6 @@ def create_app(
         return {
             # The pack registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
             **({"registry": True} if registry_on else {}),
-            # The organization's pack store (LP-20f): how many of its versions wait for the
-            # operator's review, for its administrators; only with the store on.
-            **(
-                {"store": {"held": app.state.pack_store.held_count(org)}}
-                if store_on and principal.may("admin")
-                else {}
-            ),
             "packs": len(packs),
             # How many of them come from where: maintained, hub, local, store.
             "packs_by_origin": dict(Counter(pack.origin for pack in packs.values())),
@@ -1751,9 +1361,6 @@ def create_app(
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
             # those it only opens with (MENDARI_PHI_READ_KEYS, during a rotation).
             **({"phi_keys": phi.key_ids} if phi.mode == "encrypt" else {}),
-            # With hidden evaluation sets on (LP-11), the ids of their keys (never a key): the
-            # one that seals, those it only opens with, and the index key's.
-            **({"evalset_keys": evalsets.key_ids} if evalsets is not None else {}),
             # Kept inputs and notes are deleted after this many days (MENDARI_RETENTION_DAYS),
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
@@ -3715,10 +3322,8 @@ def create_app(
                 add_registry_review_routes(app, auth, registry_store, review_org)
 
     if store_on:
-        # An organization's pack store (LP-20f): its authors' routes. The hidden-set check
-        # reads every organization's hidden sets with the index key, when it is set; a
-        # namespace an organization holds by an approved registry claim is its too.
-        from mendari.core.evalsets import EvalsetStore as _Evalsets
+        # An organization's pack store (LP-20f): its authors' routes. A namespace an
+        # organization holds by an approved registry claim is its too.
         from mendari.server.store_routes import add_store_routes
 
         def claimed_namespace(org: str, namespace: str) -> bool:
@@ -3768,7 +3373,6 @@ def create_app(
             auth,
             pack_store,
             served=lambda: packs,
-            hidden=None if evalsets is None else _Evalsets(store, evalsets),
             claimed=claimed_namespace,
             deadline_s=deadline_s,
             jobs=store_jobs,
@@ -3785,7 +3389,6 @@ def create_app(
         served=lambda: packs,
         served_here=served_here,
         store=kept_store,
-        hidden=None if evalsets is None else EvalsetStore(store, evalsets),
     )
 
     def draft_decision(pack: Pack) -> Decision:
@@ -3950,54 +3553,6 @@ def create_app(
             headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
             return HTMLResponse(invite_page, headers=headers)
 
-    def grading_decision(header: Mapping[str, Any], asked: GradingRequest) -> Decision:
-        """The Decision a grading run over a hidden set with `header` runs (LP-11l): the pack the
-        set was made for, as served here (`asked.pack` names it, and it still asks the set's
-        questions with their labels and critical labels), each slot on the variant `asked`
-        names, else the deployment's choice, else the pack's default, every one of them local
-        (conflict 52, owner decision 4 open); with no store (nothing is recorded), no budget (no
-        remote call), no governance override and the pack's own policy, as an evaluation
-        measures it. Refused before any case is read (`grading_refused`): `wrong_pack`,
-        `pack_unavailable` (not served here, it does not build, or what it names does not fit
-        `mendari.hidden_result/1`, so every run's answer would fail: `holds`), `unknown_variant`
-        and `remote_provider`. Its own Decision, whatever the deployment's for the pack built."""
-        if asked.pack != header.get("pack"):
-            raise grading_refused("wrong_pack")
-        pack = packs.get(asked.pack)
-        if pack is None:
-            raise grading_refused("pack_unavailable")
-        if pack_problem(pack, header) is not None:
-            raise grading_refused("wrong_pack")
-        slots = pack.manifest.providers
-        named = dict(asked.variants or {})
-        if any(slot not in slots or named[slot] not in slots[slot].variants for slot in named):
-            raise grading_refused("unknown_variant")
-        chosen = {**variants_for(pack)[0], **named}
-        running = {slot: chosen.get(slot, spec.use) for slot, spec in slots.items()}
-        if not all(_local_variant(pack, slot, variant) for slot, variant in running.items()):
-            raise grading_refused("remote_provider")
-        try:
-            decision = Decision(pack, providers=running, deadline_s=deadline_s, origin_cap=False)
-        except Exception:  # the pack's content: it does not run here, whatever it says
-            raise grading_refused("pack_unavailable") from None
-        if decision.is_remote:  # what the variants say, checked again on what was built
-            raise grading_refused("remote_provider")
-        if not holds(decision):
-            raise grading_refused("pack_unavailable")
-        return decision
-
-    # A labeller's routes over hidden evaluation sets (LP-11j), and its organization's curators'
-    # (LP-11k): memberships mode (so sign-in, which the keys need anyway) with both evaluation-set
-    # keys, as the invitation page is memberships mode's; the hosted site (memberships mode since
-    # 2026-11-07, no keys yet) mounts none of them. The grading route (LP-11l) is mounted with the
-    # keys in both account modes: only the organization's grading key reaches it.
-    if evalsets is not None:
-        hidden = EvalsetStore(store, evalsets)
-        if auth.memberships:
-            add_labelling_routes(app, auth, hidden)
-            add_evalset_routes(app, auth, hidden)
-        add_grading_routes(app, auth, hidden, grading_decision)
-
     # Written output (ADR-0025): a grader's routes and the rounds' reports. Memberships mode
     # (graders are members holding `labeller`) under PHI mode `encrypt` (a round's texts are
     # sealed under the PHI key; `hash` keeps none, and sign-in never runs `off`).
@@ -4056,83 +3611,15 @@ def create_app(
     return app
 
 
-def add_labelling_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
-    """A labeller's routes over hidden evaluation sets (LP-11j, ADR-0011): their own counts,
-    their next case and their label. Mounted only in memberships mode with both evaluation-set
-    keys (`create_app`). The guard lets through only a person whose membership holds the
-    `labeller` role (`label`: never a key, a token, an EHR launch, an administrator or open
-    mode), and each route acts for that person and the organization they act for, never one a
-    body, a query or a path names; the store refuses anyone who also manages the organization's
-    sets. Not gated by the notice (conflict 20). The security log names set ids only (conflict
-    50); the access line names the route's template, never an assignment's id."""
-
-    def labeller(request: Request) -> tuple[str, str]:
-        """The person the guard let through (their user id), and the organization they act
-        for."""
-        principal = auth.acting(request)
-        if principal.kind != "user":  # the guard lets people only through: fail closed
-            raise AuthError("only a person who signed in may do this", 403)
-        return principal.id, org_of(principal)
-
-    @app.get("/api/labelling", tags=["Labelling"], summary="Your labelling, set by set")
-    def labelling(request: Request) -> LabellingCounts:
-        """Your cases in each hidden evaluation set you label for this organization: how many
-        wait (`open`) and how many you labelled, by the set's id; and how many wait in all
-        (`remaining`). Counts only: no case is named or opened, and nothing is recorded."""
-        user, org = labeller(request)
-        return LabellingCounts.model_validate(hidden.labelling(user, org=org))
-
-    @app.get(
-        "/api/labelling/next",
-        tags=["Labelling"],
-        summary="Your next case to label",
-        response_model=LabellingCase,
-        responses={204: {"description": "Nothing waits for you"}},
-    )
-    def next_case(request: Request) -> Response | LabellingCase:
-        """Your oldest open case, in a set still being labelled: its input, and the set's
-        questions with their labels; nothing else (no attribute of the case, no intended label,
-        no one's label, no model's output). Each time it is shown, the audit chain records that
-        you read it (`evalset.case_read`) before it is sent. `204` when nothing waits for you.
-        Answer it with `POST /api/labelling/{assignment}`."""
-        user, org = labeller(request)
-        shown = hidden.next_case(user, org=org)
-        if shown is None:
-            return Response(status_code=204)
-        set_id = hidden.assignment_set(str(shown["assignment"]), user, org=org)
-        log_event(request, "evalset.case.read", ids=[set_id] if set_id else None)
-        return LabellingCase.model_validate(shown)
-
-    @app.post("/api/labelling/{assignment_id}", tags=["Labelling"], summary="Label your case")
-    def label(request: Request, assignment_id: str, body: LabelRequest) -> LabelRecorded:
-        """Your answer to the case `GET /api/labelling/next` gave you (its `assignment`): every
-        question of the set's, each with one of its labels. One answer per case, kept sealed and
-        never changed; the audit chain records a salted commitment to it (`evalset.labelled`),
-        never the label. The answer is how many of your cases still wait, never how yours
-        compares with anyone's. An assignment that is unknown, someone else's, another
-        organization's or no longer open (answered, withdrawn, or in a set no longer being
-        labelled) is one answer: `404`. A label that does not answer each question with one of
-        its labels is a `422` naming the question, never the value."""
-        user, org = labeller(request)
-        try:
-            recorded = hidden.record_label(assignment_id, user, body.labels, org=org)
-        except NoAssignment:
-            log_event(request, "evalset.labelled", outcome="refused", reason="no_assignment")
-            raise
-        set_id = hidden.assignment_set(assignment_id, user, org=org)
-        log_event(request, "evalset.labelled", ids=[set_id] if set_id else None)
-        return LabelRecorded.model_validate(recorded)
-
-
 def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
     """A grader's routes over written output, and the rounds' reports (ADR-0025). Mounted only
     in memberships mode under PHI mode `encrypt` (`create_app`). The guard lets through to a
     grader's routes only a person whose membership holds the `labeller` role (`label`: never a
     key, a token, an EHR launch, an administrator or open mode), and each route acts for that
     person and the organization they act for, never one a body, a query or a path names; the
-    store refuses anyone who also manages the organization's sets. Not gated by the notice, as
-    a labeller's are not. The security log names round ids only; the access line names the
-    route's template, never an assignment's id."""
+    store refuses anyone who also administers the organization. Not gated by the notice
+    (`label` is not one of `notices.GATED`). The security log names round ids only; the access
+    line names the route's template, never an assignment's id."""
 
     def grader(request: Request) -> tuple[str, str]:
         """The person the guard let through (their user id), and the organization they act
@@ -4230,312 +3717,6 @@ def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
         ]
 
 
-def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
-    """An organization's curators' routes over its hidden evaluation sets (LP-11k, ADR-0011):
-    its sets listed, one read, and its cases drawn, assigned and adjudicated. Mounted only in
-    memberships mode with both evaluation-set keys (`create_app`). The guard lets through only a
-    person holding `curate` (an administrator of the organization they act for: never a key, a
-    token, an EHR launch, a labeller or open mode), and each route acts for that organization,
-    never one a body, a query or a path names: another organization's set answers as an unknown
-    one does (`NoEvalset`, one `404`). Answers are ids, counts, user ids, the commitment and the
-    stored aggregates (without each rater pair's label counts): never an input, a label given,
-    an attribute or a case id. No route computes statistics, freezes or retires (conflicts 43
-    and 49): those are the key holder's commands. Not gated by the notice: they take no data in
-    and mint no credential (`notices.GATED`, `MINTING_PERMISSION`). Like an administrator's
-    other writes, they have no rate-limit class. The security log names set ids only (conflict
-    50); the access line names the route's template."""
-
-    def curators_org(request: Request) -> str:
-        """The organization the person the guard let through acts for."""
-        principal = auth.acting(request)
-        if principal.kind != "user":  # the guard lets people only through: fail closed
-            raise AuthError("only a person who signed in may do this", 403)
-        return org_of(principal)
-
-    def logged_write(
-        request: Request,
-        event: str,
-        set_id: str,
-        write: Callable[[], dict[str, Any]],
-        counted: str,
-    ) -> dict[str, Any]:
-        """`write`, logged as `event` with the set's id and how many it made (its `counted`);
-        a set that is unknown or another organization's logged as refused (`no_set`), with no
-        id."""
-        try:
-            done = write()
-        except NoEvalset:
-            log_event(request, event, outcome="refused", reason="no_set")
-            raise
-        log_event(request, event, ids=[set_id], count=int(done[counted]))
-        return done
-
-    @app.get("/api/evalsets", tags=["Evaluation sets"], summary="Your organization's hidden sets")
-    def list_evalsets(request: Request) -> list[EvalsetListed]:
-        """The hidden evaluation sets of the organization you act for, oldest first: each one's
-        id, name, agent, state, when it was made and how many cases it holds. Nothing is
-        recorded."""
-        org = curators_org(request)
-        return [EvalsetListed.model_validate(item) for item in hidden.named_sets(org=org)]
-
-    @app.get(
-        "/api/evalsets/{set_id}",
-        tags=["Evaluation sets"],
-        summary="One hidden set: its state, labelling and stored aggregates",
-        response_model=EvalsetDetail,
-        response_model_exclude_unset=True,
-    )
-    def evalset_detail(request: Request, set_id: str) -> EvalsetDetail:
-        """One of your organization's sets: its name, agent and questions with their labels; its
-        state, commitment (once frozen) and grading runs used and left; its cases counted by
-        status and each labeller's assignments by user id; and its coverage and rater agreement
-        as last stored (by the key holder's `mendari evalset agreement` or `coverage`, or at
-        freeze), with when they were measured, or null before. Counts and coefficients by label,
-        strata and languages (each rater pair's kappa without the pair's label counts): never a
-        case, an input, a label given or an attribute. Nothing is computed or recorded. An
-        unknown set and another organization's are one `404`."""
-        org = curators_org(request)
-        return EvalsetDetail.model_validate(hidden.summary(set_id, org=org))
-
-    @app.post(
-        "/api/evalsets/{set_id}/sample",
-        tags=["Evaluation sets"],
-        summary="Draw cases of a draft set to label",
-    )
-    def sample_evalset(request: Request, set_id: str, body: SampleRequest) -> SetSampled:
-        """Draws more cases of a draft set to label, seeded, within each stratum: `per_stratum`
-        from each (all that are left of a smaller one) or `cases` in all, shared out by the
-        strata's sizes. Each drawn case's weight is sealed with it, and the audit chain records
-        how many were drawn, the seed and a salted commitment to each drawn case's weight,
-        naming every case drawn so far by its keyed hash (`evalset.sampled`), never a stratum or
-        a weight. The answer: how many were drawn now and in all, and the seed. An unknown set
-        and another organization's are one `404`; a set no longer a draft changes no more."""
-        org = curators_org(request)
-        drawn = logged_write(
-            request,
-            "evalset.sampled",
-            set_id,
-            lambda: hidden.sample(
-                set_id, per_stratum=body.per_stratum, cases=body.cases, seed=body.seed, org=org
-            ),
-            "drawn",
-        )
-        return SetSampled.model_validate(drawn)
-
-    @app.post(
-        "/api/evalsets/{set_id}/assignments",
-        tags=["Evaluation sets"],
-        summary="Give each drawn case two blind labellers",
-    )
-    def assign_evalset(request: Request, set_id: str, body: LabellersRequest) -> SetAssigned:
-        """Gives each drawn case of a draft set two different labellers from those named (their
-        user ids), balanced across labellers and pairs, deterministically for a seed; an open
-        assignment whose membership no longer holds is withdrawn and its case given to another.
-        Each must hold the labeller role in this organization, and no one who manages its sets
-        (an administrator, you included) is ever assigned. Cases are chosen by status, so a set
-        whose rows are not those its audit chain recorded (a label, a status or a weight changed
-        behind the store's back) is refused (a `400` naming the set and no case) and nothing is
-        assigned. The audit chain records each assignment (`evalset.assigned`). The answer: how
-        many were made and withdrawn. An unknown set and another organization's are one
-        `404`."""
-        org = curators_org(request)
-        made = logged_write(
-            request,
-            "evalset.assigned",
-            set_id,
-            lambda: hidden.assign(set_id, body.labellers, seed=body.seed, org=org),
-            "assigned",
-        )
-        return SetAssigned.model_validate(_counted(made))
-
-    @app.post(
-        "/api/evalsets/{set_id}/adjudication",
-        tags=["Evaluation sets"],
-        summary="Give each disputed case a third, blind labeller",
-    )
-    def adjudicate_evalset(request: Request, set_id: str, body: LabellersRequest) -> SetAssigned:
-        """Gives each disputed case of a draft set (its two first labels differ) a third labeller
-        from those named who is neither of its first two, balanced, with the same refusals as
-        assigning; the third labels from the input alone, and the majority on each question
-        settles the case. The audit chain records each assignment (`evalset.assigned`). The
-        answer: how many were made and withdrawn. An unknown set and another organization's are
-        one `404`."""
-        org = curators_org(request)
-        made = logged_write(
-            request,
-            "evalset.adjudication.assigned",
-            set_id,
-            lambda: hidden.adjudicate(set_id, body.labellers, seed=body.seed, org=org),
-            "assigned",
-        )
-        return SetAssigned.model_validate(_counted(made))
-
-
-def add_grading_routes(
-    app: FastAPI,
-    auth: Auth,
-    hidden: EvalsetStore,
-    grading: Callable[[Mapping[str, Any], GradingRequest], Decision],
-) -> None:
-    """The grading route over hidden evaluation sets (LP-11l, ADR-0011): one run of a pack over
-    one of the organization's frozen or active sets, answered with aggregates only
-    (`mendari.hidden_result/1`, `evals/hidden.py`). Mounted with both evaluation-set keys (so
-    with sign-in) in both account modes (`create_app`). The guard lets through only a grading
-    key (`grade`: never a person, an administrator, another key, a token, an EHR launch or open
-    mode), and the route acts for its organization: another organization's set answers as an
-    unknown one does (`no_set`, one `404`). Before any case is read the set's header is checked
-    against the pack asked for and every provider slot is checked to be local (`grading`); then
-    the store's grading read (`EvalsetStore.grade_read`) checks the set and its rotation rule,
-    recomputes its content against its commitment, chains the read (`evalset.graded`, and
-    `evalset.activated` on a frozen set's first) and hands the cases, in memory, to the run,
-    whose answer is the closed result. A request that declares its arms (`arms`, with
-    `declared`) is the hidden-set scoreboard (LP-17k): each declared configuration is checked as
-    `variants` is, and to be in the arm it is declared under (`declared_arms`), before any case
-    is read; then one grading read hands the cases to every arm, decided in turn on the same
-    records, and the answer is `mendari.hidden_scoreboard/1`. Nothing is stored: no decision,
-    report, ledger or `eval_reports` row. A refusal or a failure is answered with its fixed
-    reason and sentence (`GRADING_REFUSALS`), never a store's or a run's message; a set that no
-    longer holds what it was frozen with is a `409` `set_changed`, and the operator's log names
-    the set only. Not
-    gated by the notice (a key is never asked); its rate-limit class is `evaluate`. The security
-    log names set ids only (conflict 50); the access line names the route's template."""
-
-    def grader_of(request: Request) -> Principal:
-        """The grading key the guard let through."""
-        principal = auth.acting(request)
-        if not principal.is_grading_key:  # the guard lets the grading key only through
-            raise AuthError("only the deployment's grading key may do this", 403)
-        return principal
-
-    def declared_arms(header: Mapping[str, Any], body: GradingRequest) -> list[Declared]:
-        """Each arm `body.arms` declares, as sent (`scoreboard_graded` decides them in the
-        scoreboard's order), with the configuration it runs and its Decision: each
-        configuration resolved and refused as `variants` is (`grading`: `wrong_pack`,
-        `pack_unavailable`, `unknown_variant`, `remote_provider`, so a declared arm that calls a
-        remote provider is refused here), then `wrong_arm` when the configuration it runs is not
-        the one sent, slot for slot (an arm that leaves a slot out would run the deployment's
-        choice for it, so one cited declaration would grade other configurations on other
-        deployments), or not of the arm it is declared under, and `pack_unavailable` when no
-        grade of the pack could be answered (`scoreboard_holds`: it has no critical label to
-        attest). Before any case is read."""
-        assert body.arms is not None
-        found = []
-        for arm, variants in body.arms.items():
-            asked = body.model_copy(update={"variants": variants, "arms": None, "declared": None})
-            decision = grading(header, asked)
-            configuration = configuration_of(decision)
-            sent = (arm, variants)  # the whole configuration, as declared
-            if configuration is None or (configuration.arm, configuration.providers) != sent:
-                raise grading_refused("wrong_arm")
-            found.append(Declared(arm, configuration, decision))
-        if not scoreboard_holds(found[0].decision.pack):
-            raise grading_refused("pack_unavailable")
-        return found
-
-    @app.post(
-        "/api/evalsets/{set_id}/runs",
-        tags=["Grading"],
-        summary="Grade an agent against a hidden set: aggregates only",
-        response_model=HiddenResult | HiddenScoreboard,
-        responses={
-            404: {"description": "No set of your organization has that id"},
-            409: {"description": "The set is not graded now (`reason` says why)"},
-            422: {"description": "The agent or a variant asked for is not the set's to run"},
-        },
-    )
-    def grade_evalset(
-        request: Request, set_id: str, body: GradingRequest
-    ) -> HiddenResult | HiddenScoreboard:
-        """One grading run of the agent a hidden evaluation set of your organization was made
-        for, over the set's cases, with local providers only, answered with aggregates only:
-        each question's metrics, the outcome counts and rates, each critical label's counts, the
-        threshold sweep and error counts, with the set's id and commitment, how many cases were
-        graded, this run's number and the runs left (`mendari.hidden_result/1`). Never a case,
-        its id or hash, a dataset's name or hash, a missed or misclassified case or a subgroup.
-        The set is frozen or active (a frozen set becomes active on its first run), its rotation
-        rule allows another run, and its cases still give the commitment chained when it froze;
-        each run is chained (`evalset.graded`) before the cases are read, and counts even if it
-        fails. `pack` is the set's agent id, and `variants` may choose a local variant for any of
-        its slots. With `arms` and `declared` instead, the run is the hidden-set scoreboard
-        (`mendari.hidden_scoreboard/1`, LP-17k): each arm declared with its configuration, every
-        one local, decided in turn on the same cases in one run; each arm's figures (every
-        proportion as k of n with its interval, every mean with its bootstrap interval), its
-        attestations (met, not met or insufficient evidence, draft while the grading method is
-        not in effect) and the ranking (off with one arm graded), with the scope and the
-        declaration's SHA-256; never cost, latency, a subgroup or a case. Nothing is stored. A
-        refusal names its `reason` only: `no_set` (`404`: an unknown set and another
-        organization's are one answer), `wrong_pack`, `unknown_variant`, `remote_provider` and
-        `wrong_arm` (`422`), `pack_unavailable`, `not_gradable`, `no_runs_left`, `expired` and
-        `set_changed` (`409`), `set_unavailable` (`503`) and `run_failed` (`500`)."""
-        principal = grader_of(request)
-        told: list[GradingRead] = []
-        declared: list[Declared] = []
-        measured_on = clock.today()  # the day a scoreboard's answer is dated (US Eastern)
-
-        def run(dataset: Dataset) -> HiddenResult | HiddenScoreboard:
-            try:
-                if declared:
-                    assert body.declared is not None
-                    return scoreboard_graded(
-                        declared,
-                        dataset,
-                        told[0],
-                        declaration=body.declared,
-                        measured_on=measured_on,
-                    )
-                return graded(decision, dataset, told[0])
-            except Exception as error:  # after the read: it counts, and says nothing of a case
-                grading_logger.warning(
-                    "a grading run of evaluation set %s failed (%s): it counts as a run",
-                    set_id,
-                    type(error).__name__,
-                )
-                raise grading_refused("run_failed") from None
-
-        try:
-            header = hidden.grading_header(set_id, org=org_of(principal))
-            if body.arms is None:
-                decision = grading(header, body)
-            else:
-                declared += declared_arms(header, body)
-                decision = declared[0].decision
-            answer = hidden.grade_read(
-                set_id, principal.id, decision.pack.digest, run, receipt=told.append
-            )
-        except NoEvalset:
-            log_event(request, "evalset.graded", outcome="refused", reason="no_set")
-            raise grading_refused("no_set") from None
-        except GradingRefused as refused:
-            reason = refused.reason if refused.reason in GRADING_REFUSALS else "set_unavailable"
-        except MendariError:  # the store's keys or database not ready for this set: say so only
-            reason = "set_unavailable"
-        else:
-            log_event(request, "evalset.graded", ids=[set_id], count=answer.n)
-            return answer
-        if reason == "no_set":
-            log_event(request, "evalset.graded", outcome="refused", reason=reason)
-        else:
-            log_event(request, "evalset.graded", ids=[set_id], outcome="refused", reason=reason)
-        if reason == "set_changed":
-            grading_logger.warning(
-                "evaluation set %s does not hold what it was frozen with: run `mendari audit "
-                "verify --evalsets`",
-                set_id,
-            )
-        elif reason == "set_unavailable":
-            grading_logger.warning(
-                "evaluation set %s cannot be graded here: run `mendari evalset rotate --check`",
-                set_id,
-            )
-        raise grading_refused(reason) from None
-
-
-def _counted(made: Mapping[str, Any]) -> dict[str, Any]:
-    """What an assignment run answers a curator: counts, never the assignments it made (each a
-    case's hash, its id and its labeller, which the chain keeps)."""
-    return {key: made[key] for key in ("set", "round", "assigned", "withdrawn")}
-
-
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
     """(method, path) of every route the app serves."""
     return [
@@ -4561,7 +3742,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     headers.update(retry_headers(error))
     if not fhir_route(path):
         said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
-        if isinstance(error, InvitationRefused | GradingRefused):  # which refusal: a fixed code
+        if isinstance(error, InvitationRefused):  # which refusal: a fixed code
             said["reason"] = error.reason
         return JSONResponse(identified(said), status, headers=headers)
     if isinstance(error, FhirStructureError):
@@ -4576,7 +3757,6 @@ quota_logger = logging.getLogger("mendari.limits")
 phi_logger = logging.getLogger("mendari.phi")
 monitor_logger = logging.getLogger("mendari.monitor")
 providers_logger = logging.getLogger("mendari.providers")
-grading_logger = logging.getLogger("mendari.evalsets")  # the operator's: a set's id only
 
 
 def log_event(request: Request, name: str, **fields: Any) -> None:

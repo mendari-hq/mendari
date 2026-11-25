@@ -124,7 +124,7 @@ export function PublishedEvaluationsSection({
       <p className="muted group-sub">
         The publisher&apos;s own evaluations of version {version}, one row per configuration, on its own public
         dataset{datasets.length ? `: ${datasets.join(", ")}` : ""}. A configuration can be tuned to a set its
-        publisher chose: site evidence and hidden sets are stronger evidence. The rows are not ranked.
+        publisher chose: site evidence is stronger evidence. The rows are not ranked.
       </p>
       {unavailable ? (
         <p className="muted">Published evaluations are temporarily unavailable. Reload in a moment to check again.</p>

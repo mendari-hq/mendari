@@ -14,8 +14,8 @@ must still be an event of the chain (`RegistryStore.verify(head=…)`, `mendari 
 The signature is Ed25519 over the canonical JSON of the other four fields (sorted keys, no
 spaces), by the registry's own key (`MENDARI_REGISTRY_SIGNING_KEY`, `hub/yank.py`
 `registry_key`). The `format` is inside what is signed and is this statement's own, so no
-recall, acceptance, engine checkpoint or scoreboard signature by the same key is ever one, and
-this is none of them. The day is UTC, as every time the registry stores is. The statement names
+recall, acceptance or engine checkpoint signature by the same key is ever one, and this is none
+of them. The day is UTC, as every time the registry stores is. The statement names
 the head only, never a count. Nothing of it is stored in the registry's database: a copy there
 could be rewritten with the chain.
 """

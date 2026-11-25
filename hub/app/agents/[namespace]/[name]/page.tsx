@@ -311,8 +311,8 @@ function SiteEvidenceSection({
         <span className="group-tag group-tag-accent">Zero-PHI counts</span>
       </div>
       <p className="muted group-sub">
-        These are sites&apos; own data, shared as signed counts. They are not part of any hidden-set result or
-        rank. A ticket binds a dataset before its run, not how its cases were chosen.
+        These are sites&apos; own data, shared as signed counts. They are not part of any rank. A ticket
+        binds a dataset before its run, not how its cases were chosen.
       </p>
       {evidenceError ? (
         <p className="muted">Site evidence is temporarily unavailable. Reload in a moment to check again.</p>

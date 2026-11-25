@@ -4,8 +4,7 @@
 // `pack_author` role) or `promote` (`governance`, `admin`). Five tabs:
 // - Agents (#store/agents): the organization's agents and their versions, with their state in
 //   words; copy an agent served here, upload a signed archive (in parts, with progress); a refused
-//   upload shows the PHI report's kinds, files and lines, never a value; a held one says only that
-//   it is held.
+//   upload shows the PHI report's kinds, files and lines, never a value.
 // - A version (#store/version/<digest>): its files, an editor for a text file that saves a new
 //   draft, its validation, its behaviour tests and the proposed tests from reviewers'
 //   corrections, and the Decision Card the server rendered, as text.
@@ -49,7 +48,6 @@ const TABS = [
 const PART_BYTES = 3 * 1024 * 1024;
 const STATE_WORDS = {
   draft: ["Draft", ""],
-  held: ["Held for the operator's review", "s-warning"],
   promoted: ["Serving", "s-ok"],
   retired: ["Retired", ""],
   withdrawn: ["Withdrawn", "o-ABSTAIN"],
@@ -145,7 +143,7 @@ function lineageHtml(lineage) {
   const rows = lineage.versions.map((v) => [
     { html: `<a href="#store/version/${encodeURIComponent(v.digest)}">${esc(v.version)}</a> ${digestCode(v.digest)}`, sort: v.created_at },
     { html: stateBadge(v.state) },
-    { html: v.state === "held" ? "" : v.valid ? "Validates" : '<span class="badge o-ABSTAIN">Does not validate</span>' },
+    { html: v.valid ? "Validates" : '<span class="badge o-ABSTAIN">Does not validate</span>' },
     { html: esc(v.source ?? "") },
     { html: esc(time(v.created_at)), sort: v.created_at },
   ]);
@@ -180,7 +178,7 @@ async function upload(file) {
     progress.hidden = true;
   }
   result.innerHTML = uploadedHtml(answer);
-  if (answer.ok && answer.body.state !== "held") toast(`Uploaded: ${answer.body.pack_id}`);
+  if (answer.ok) toast(`Uploaded: ${answer.body.pack_id}`);
 }
 
 // A request whose refusal is shown in the page (the PHI report), not only in a toast.
@@ -203,9 +201,6 @@ function uploadedHtml({ ok, body }) {
       <p>Use synthetic data only. Where each was found (never what):</p>
       ${cellTable({ id: "phi-report", columns: ["Kind", "File", "Line"], rows })}</div>`;
   }
-  if (body.state === "held") {
-    return '<div class="callout neutral" role="status"><h3>Held for the operator\'s review</h3><p>This version is kept, held: it cannot be tested, edited from or promoted until the operator reviews it.</p></div>';
-  }
   return `<div class="callout ok" role="status">A draft: <a href="#store/version/${encodeURIComponent(body.digest)}">${esc(body.pack_id)} ${esc(body.version)}</a>.</div>`;
 }
 
@@ -213,12 +208,10 @@ function uploadedHtml({ ok, body }) {
 
 async function showVersion(main, digest) {
   const version = await api(`/api/store/versions/${encodeURIComponent(digest)}`);
-  const held = version.state === "held";
   main.innerHTML = `<p><a href="#store/agents">← Agent store</a></p>
     <h1><code>${esc(version.pack_id)}</code> ${esc(version.version)}</h1>
     <p>${stateBadge(version.state)} ${digestCode(version.digest)}</p>
-    ${held ? '<div class="callout neutral" role="status">Held for the operator\'s review. Nothing more is shown until the operator answers.</div>' : versionBody(version)}`;
-  if (held) return focusHeading(main.querySelector("h1") ?? main);
+    ${versionBody(version)}`;
   $("#run-tests")?.addEventListener("click", (event) =>
     whileBusy(event.currentTarget, "Running…", async () => {
       const ran = await post(`/api/store/versions/${encodeURIComponent(digest)}/tests`, {});
@@ -235,7 +228,7 @@ async function showVersion(main, digest) {
       const made = await post(`/api/store/versions/${encodeURIComponent(digest)}/edits`, {
         files: [{ path: form.path.value, content: form.content.value }],
       });
-      toast(made.state === "held" ? "Saved: held for the operator's review" : "Saved as a new draft");
+      toast("Saved as a new draft");
       location.hash = `#store/version/${encodeURIComponent(made.digest)}`;
     }).catch((error) => toastError(error.message));
   });
@@ -303,10 +296,10 @@ function testsHtml(ran) {
 
 async function showResults(body) {
   const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/agents")]);
-  const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "held" && v.state !== "withdrawn"));
+  const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "withdrawn"));
   const datasetRows = datasets.map((d) => [
     { html: esc(d.name) },
-    { html: d.state === "held" ? stateBadge("held") : esc(d.kind ?? "upload") },
+    { html: esc(d.kind ?? "upload") },
     { html: esc(d.cases ?? "") },
     { html: d.report ? esc(d.report.schema_problems.count + d.report.label_problems.count) : "" },
     { html: esc(time(d.created_at)), sort: d.created_at },
@@ -328,7 +321,7 @@ async function showResults(body) {
       <label for="job-pack">Or an agent served here (the current one)</label>
       <input id="job-pack" name="pack" placeholder="mendari/portal-message-agent">
       <label for="job-dataset">Dataset</label>
-      <select id="job-dataset" name="source">${datasets.filter((d) => d.state !== "held").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
+      <select id="job-dataset" name="source">${datasets.map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
         <option value="name:test">The version's own test set</option></select>
       <button type="submit" class="primary">Make the job</button>
     </form>

@@ -115,5 +115,5 @@ figures.
 ## What a signed report does not show
 
 A ticket binds a dataset before the run; it cannot show how the cases were chosen before you
-asked for it. The registry shows your site's figures beside other sites', apart from any
-hidden-set result or rank, and says so.
+asked for it. The registry shows your site's figures beside other sites', apart from any rank,
+and says so.

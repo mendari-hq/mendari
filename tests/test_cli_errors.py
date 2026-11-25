@@ -200,10 +200,6 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "store verify": (["--db", "{not_db}"], {}),
     "store withdraw": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{missing_db}"], {}),
     "store purge": (["--db", "{not_db}"], {}),
-    "store held": (["--db", "{missing_db}"], {}),
-    "store release": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{not_db}"], {}),
-    "store dismiss": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{missing_db}"], {}),
-    "store recheck": (["--db", "{not_db}"], {}),
     "new": (["{file}"], {}),
     "demo": (["--no-such-option"], {}),
     "mcp": (["--db", "{not_db}"], {}),
@@ -218,11 +214,7 @@ USAGE = {"list", "demo"}
 # and exit 1, as for any failed check: the report is the result, not an error.
 REPORTS = {"smart check"}
 # The commands wave 6 removes, until their code goes (a name, or the first word of a group's):
-# hidden evaluation sets, their grading key and the scoreboard (G13). Set aside, so `BROKEN`
-# holds every command that stays.
-REMOVED = {
-    *("evalset", "access grader-key", "scoreboard"),
-}
+REMOVED: set[str] = set()  # none left
 
 
 def staying(command: str) -> bool:

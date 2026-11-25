@@ -78,8 +78,6 @@ nav:
       - Revoking access: operations/revoking-access.md
       - Organizations and memberships: operations/accounts.md
       - Status checks: operations/status-checks.md
-      - Hidden evaluation sets: operations/evalsets.md
-      - Running the scoreboard: operations/scoreboard.md
       - Running a registry: operations/registry.md
       - Agent store: operations/agent-store.md
       - Incident runbook: operations/incident-runbook.md
@@ -90,9 +88,6 @@ nav:
       - Evaluation reports and ledgers: spec/evaluation-reports.md
       - Agent manifest spec 0.1: spec/agent-manifest-0.1.md
       - Architecture: architecture.md
-  - Grading:
-      - Grading method 1.0 (draft): grading/method-1.0.md
-      - Verifying a scoreboard result: grading/verifying.md
   - Security:
       - Threat model: security/threat-model.md
       - External review packet: security/review-packet.md

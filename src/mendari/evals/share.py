@@ -14,7 +14,7 @@ rounded. A composite provider (`check`) is shared as it is recorded: its model l
 member's as `member:model`, joined as the composite joins them (" + "), and a failed member's
 error is `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
 
-Its parts are kept for what is built from them (a hidden set's result, `evals/hidden.py`);
+Of it, only the names a shared record holds are kept (`SharedPack`, `SharedProvider`, `Name`);
 a registry takes none, and nothing here builds one. A site shares `mendari.site-report/2`
 (LP-22c, ADR-0017), built by `site_report` (`shareable`, as sent): whole counts only, counted
 from the run's ledger, small cells suppressed by one function (`suppress`) that both sides run.
@@ -30,7 +30,6 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -62,14 +61,6 @@ _ERROR_KEY = rf"^(?:{_CODE}|{_MEMBER_CODE}(?:, {_MEMBER_CODE}){{0,{MAX_MEMBERS -
 Name = Annotated[str, Field(pattern=_NAME)]
 ErrorKey = Annotated[str, Field(pattern=_ERROR_KEY)]
 Count = Annotated[int, Field(ge=0, le=10**9)]
-# Rounded on both sides: the digits past these say nothing about a pack and could say something
-# about a single case.
-Rate = Annotated[
-    float, Field(ge=0.0, le=1.0, allow_inf_nan=False), AfterValidator(lambda v: round(v, 4))
-]
-Positive = Annotated[
-    float, Field(ge=0.0, le=1e9, allow_inf_nan=False), AfterValidator(lambda v: round(v, 3))
-]
 
 
 class _Closed(BaseModel):
@@ -79,8 +70,8 @@ class _Closed(BaseModel):
 class SharedPack(_Closed):
     """The agent a shared record is about (its `pack` key): its id, version and digest."""
 
-    # What an API description calls this schema (`server/api_docs.py` `titled`); the class and
-    # the `pack` key it types keep their names, as the signed records that hold them do.
+    # What a JSON schema made from it calls it; the class and the `pack` key it types keep their
+    # names, as the signed records that hold them do.
     model_config = ConfigDict(title="SharedAgent")
 
     id: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}/[a-z0-9][a-z0-9-]{0,62}$")]
@@ -128,78 +119,7 @@ def composite_members(provider: SharedProvider) -> list[str] | None:
     return [part.split(":", 1)[0] for part in provider.model.split(joiner)]
 
 
-class SharedThresholds(_Closed):
-    auto: Rate
-    review: Rate
-
-
-class SharedPolicy(_Closed):
-    risk_level: Annotated[int, Field(ge=0, le=4)]
-    thresholds: SharedThresholds
-    governance_override: bool
-
-
-class LabelMetrics(_Closed):
-    precision: Rate | None
-    recall: Rate | None
-    f1: Rate | None
-    support: Count
-
-
-class CalibrationBin(_Closed):
-    low: Rate
-    high: Rate
-    n: Annotated[int, Field(ge=MIN_GROUP, le=10**9)]
-    confidence: Rate | None
-    accuracy: Rate | None
-
-
-class Calibration(_Closed):
-    ece: Rate | None
-    bins: Annotated[list[CalibrationBin], Field(max_length=20)]
-
-
-class QuestionMetrics(_Closed):
-    n: Count
-    accuracy: Rate | None
-    macro_f1: Rate | None
-    per_label: Annotated[dict[Name, LabelMetrics], Field(max_length=64)]
-    confusion: Annotated[
-        dict[Name, Annotated[dict[Name, Count], Field(max_length=65)]], Field(max_length=64)
-    ]
-    calibration: Calibration
-    brier: Positive | None
-
-
-class Automation(_Closed):
-    n: Count
-    accuracy: Rate | None
-    false_automation_rate: Rate | None
-    false_automation_share: Rate | None
-
-
-class Review(_Closed):
-    n: Count
-    expected_override_rate: Rate | None
-
-
-class CriticalCounts(_Closed):
-    question: Name
-    label: Name
-    n: Count
-    detected: Count
-    detection_rate: Rate | None
-    auto_missed: Count
-
-
 Outcome = Literal["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
-
-
-class SweepRow(_Closed):
-    threshold: Rate
-    coverage: Rate | None
-    accuracy: Rate | None
-    errors: Count
 
 
 def _field_names() -> frozenset[str]:

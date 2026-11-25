@@ -92,8 +92,8 @@ keeping anything, exactly as `mendari pull` does:
 4. it is the agent and the version that were asked for.
 
 Then it passes every check a version of the agent store passes: no file that reads as a
-person's details, it loads on the engine it will run on, the hidden-set check, the size limits
-and your organization's daily quota.
+person's details, it loads on the engine it will run on, the size limits and your
+organization's daily quota.
 
 **Nothing is added** when the registry does not answer, the version is recalled or deleted,
 the archive or the signature does not verify, the publisher's key was revoked, your
@@ -240,4 +240,3 @@ the same rate limit as labelling.
   for any organization but the one that operates the deployment.
 - Naming the organization that operates the deployment (`MENDARI_OPERATOR_ORG`), without which
   nobody allows an address from the console.
-- Answering a version the hidden-set check held ([The agent store](../operations/agent-store.md)).

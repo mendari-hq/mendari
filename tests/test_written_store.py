@@ -352,7 +352,7 @@ def test_who_may_be_assigned(world: World) -> None:
     curator = person(world.store, "curator", roles=["admin", "labeller"])
     stranger = person(world.store, "stranger", org="clinic-b")
     viewer = person(world.store, "viewer", roles=["viewer"])
-    with pytest.raises(MendariError, match="manages hidden sets"):
+    with pytest.raises(MendariError, match="administers clinic-a"):
         world.rounds.assign(round_id, [a, curator])
     for nobody in (stranger, viewer, accounts.person_id(ISSUER, "nobody")):
         with pytest.raises(MendariError, match="holds no labeller role"):

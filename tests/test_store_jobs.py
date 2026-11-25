@@ -301,9 +301,7 @@ def test_a_remote_arm_needs_the_organizations_quota_and_stops_at_it(world: Store
     assert made["total"] == store_jobs.REMOTE_LIMIT < len(CASES)
 
 
-def test_a_dataset_with_a_hidden_case_or_phi_like_content_is_held_or_refused(
-    world: Store,
-) -> None:
+def test_a_dataset_with_phi_like_content_is_refused(world: Store) -> None:
     digest = _copy(world)
     phi = json.dumps({"id": "p1", "input": {"message": {"body": f"call {SECRET_PHONE}"}},
                       "labels": {}})  # fmt: skip

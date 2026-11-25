@@ -28,7 +28,7 @@ from urllib.parse import quote
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
 from mendari.server import api_docs, scopes, sessions, snippets
-from mendari.server.auth import EHR_ONLY, GRADING_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
+from mendari.server.auth import EHR_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
@@ -79,9 +79,7 @@ _ORDER = (
     "admin",
     "operate",
     "keys",
-    "curate",
     "label",
-    "grade",
 )
 _WHO = {
     "public": "anyone, with no credential",
@@ -96,15 +94,11 @@ _WHO = {
     "operate": "an administrator, signed in as a person, of the organization that operates this "
     "deployment (the one MENDARI_OPERATOR_ORG names; in claims mode without it, any "
     "administrator): never a key, a token or an administrator of another organization",
-    "curate": "an administrator of the organization (memberships mode), signed in as a person: "
-    "never a key, a token or a labeller",
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
     "a token",
     "registry_review": "a person holding the registry_reviewer role in the agent registry's "
     "review organization (memberships mode), signed in: never a key, a token, or an "
     "administrator of another organization",
-    "grade": "the organization's grading key, which only the operator makes: never a person, an "
-    "administrator, another key or a token; a grading run answers aggregates only",
 }
 _LISTED = 8  # a row with more calls than this folds them away
 
@@ -332,9 +326,7 @@ def _rank(permission: str) -> tuple[int, str]:
 
 def _scope(method: str, path: str, permission: str) -> str:
     """What a scoped key or token needs for the call (`server/scopes.py`)."""
-    if permission in ("public", "page", "person") or permission in (
-        PEOPLE_ONLY | EHR_ONLY | GRADING_ONLY
-    ):
+    if permission in ("public", "page", "person") or permission in PEOPLE_ONLY | EHR_ONLY:
         return ""
     needed = scopes.needed(method, path)
     if needed is None:

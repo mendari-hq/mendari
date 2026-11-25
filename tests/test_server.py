@@ -406,11 +406,14 @@ def test_a_release_offers_the_demo_agent_first(
     assert decided["task"]["resourceType"] == "Task"
     assert decided["decision"]["input_issues"] == []  # the example conforms to US Core
     assert decided["decision"]["recommendation"] == "refill"
-    # A grader's labels (`LabelRequest`), as read: the demo agent's questions and labels.
+    # A grader's grades (`LabelRequest`), as read: the demo agent's rubric, each criterion with
+    # one of its levels.
     (agent,) = discover([ROOT / "agents"]).packs
     (labels,) = LabelRequest.model_json_schema()["properties"]["labels"]["examples"]
-    questions = agent.manifest.questions
-    assert all(label in questions[q].labels for q, label in labels.items()), labels
+    (rubric,) = agent.manifest.rubrics.values()
+    levels = {name: [level for level, _ in c.scale()] for name, c in rubric.criteria.items()}
+    assert labels.keys() == levels.keys(), labels
+    assert all(level in levels[name] for name, level in labels.items()), labels
 
 
 # -- health does no pack work in the request (LP-16d) ----------------------------------------

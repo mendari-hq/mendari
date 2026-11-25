@@ -602,9 +602,7 @@ def _calibration_set_note(pack: Pack, name: str) -> None:
     """Say, for an `llm` variant and an `agent` variant alike, that a calibration is being
     fitted on one of the agent's own evaluation sets: `mendari eval` on it then reports on the
     cases the fit saw. The agent's fitting sets (`train`, `calibration`) are what a fit is for."""
-    from mendari.evals.results_store import FITTING_SETS
-
-    if name in pack.manifest.evaluation.datasets and name not in FITTING_SETS:
+    if name in pack.manifest.evaluation.datasets and name not in ("train", "calibration"):
         print(
             f"note: {name} is one of this agent's evaluation sets. A calibration fitted on the "
             "cases an evaluation reports on makes that evaluation look better calibrated than "
@@ -942,6 +940,10 @@ def _written_grades(args: argparse.Namespace, pack: Pack, dataset: Any) -> Any:
     return grades
 
 
+# A bootstrap's resamples on the command line: enough for any interval, never a run for hours.
+MAX_RESAMPLES = 100_000
+
+
 def cmd_compare(args: argparse.Namespace) -> int:
     from mendari.core.registry import resolve_pack
     from mendari.evals import paired
@@ -1080,286 +1082,6 @@ def _phi_text(report: Any) -> str:
     return "\n".join(lines)
 
 
-def cmd_scoreboard_arms(args: argparse.Namespace) -> int:
-    """An agent's provider configurations by arm (`mendari.arms/1`, LP-17c): Mendari only, with a
-    specialised classifier, with a general LLM, or with both. From the manifest alone: nothing
-    is run, called or written."""
-    from mendari.evals.arms import arms_report, arms_text
-
-    report = arms_report(resolve_pack(args.pack))
-    if args.json:
-        _print_json(report)
-    else:
-        print(arms_text(report))
-    return 0
-
-
-def _scoreboard_json(path: str, where: str) -> Any:
-    """A scoreboard file (a result, or the keys file), read strictly (`signing.read`): a key
-    twice or a NaN is refused, never read as one of its meanings. Whatever stops it being read
-    (missing, not UTF-8, not that JSON) is one `MendariError` line that starts with `where`."""
-    from mendari.evals import signing
-
-    try:
-        text = Path(path).read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise MendariError(f"{where}: not UTF-8 text; save it as UTF-8") from None
-    except OSError as error:
-        problem = error.strerror or type(error).__name__
-        raise MendariError(f"{where}: {problem}; check the path") from None
-    try:
-        return signing.read(text)
-    except MendariError as error:
-        raise MendariError(f"{where}: {error}") from None
-
-
-def _scoreboard_result(path: str) -> Any:
-    """A result file, read strictly; a line that says why it cannot be read names the file."""
-    return _scoreboard_json(path, _path_shown(path))
-
-
-def cmd_scoreboard_sign(args: argparse.Namespace) -> int:
-    """For the key holder only, on their own machine (LP-17e): sign scoreboard results in place
-    with $MENDARI_GRADING_SIGNING_KEY. Refused in CI (`CI` or `GITHUB_ACTIONS` set), without the
-    key, and with a key this machine pinned as a publisher's. Every file is checked before any
-    is written, and a file is replaced whole, so a refusal leaves each as it was. What it prints
-    names the key's id and public half, never the key."""
-    from mendari.core.checkpoint import key_id, public_text
-    from mendari.evals import signing
-    from mendari.hub.client import config_dir
-
-    signing.refuse_in_ci()
-    key = signing.grading_key()
-    if key is None:
-        raise MendariError(
-            f"{signing.KEY_ENV} is not set: signing is the key holder's, on their own machine "
-            "(docs/grading/verifying.md)"
-        )
-    signer = key_id(key.public_key())
-    if signer in signing.read_pins(config_dir() / "trusted_keys.json"):
-        raise MendariError(
-            f"{signing.KEY_ENV} is {signer}, which this machine pinned as a publisher's or a "
-            "registry's key: a grading key is its own"
-        )
-    planned = []
-    for path in args.files:
-        target = Path(path)
-        if target.is_symlink():  # the write would land wherever the link points
-            raise MendariError(f"{_path_shown(path)} is a symbolic link; not writing through it")
-        result = _scoreboard_result(path)
-        try:
-            signed = signing.sign(result, key)
-        except MendariError as error:
-            raise MendariError(f"{_path_shown(path)}: {error}") from None
-        planned.append((target, signed))
-    for target, signed in planned:
-        staged = target.with_name(f".{target.name}.signing")
-        staged.write_text(signing.dump(signed), encoding="utf-8")
-        os.replace(staged, target)
-        print(f"signed {_path_shown(str(target))} (body {signing.body_sha256(signed)})")
-    print(
-        f"with {signer}, public key {public_text(key.public_key())}: list it once in "
-        f"{signing.KEYS_PATH} with the dates it is valid for"
-    )
-    # The page marks each unsigned result and counts the signed ones: one written before the
-    # signatures no longer matches them.
-    print(
-        "then: uv run python scripts/scoreboard_page.py (the page), and commit both with the keys "
-        "file"
-    )
-    return 0
-
-
-def cmd_scoreboard_verify(args: argparse.Namespace) -> int:
-    """Check signed scoreboard results (LP-17e) against public keys only: the keys file
-    (`scoreboard/keys.json`, from the repository's root, unless --keys names another) or one key
-    (--public-key). A key this machine pinned as a publisher's or a registry's is refused, even
-    one the keys list. Needs no secret and writes nothing. Exit 0 when every result verifies,
-    1 when one does not. Each result is its own line, one that cannot be read included, so one
-    broken file hides no other's; a keys file that cannot be read, or is not one, stops the run.
-    The keys file is read as strictly as a result: a field twice is refused, never read as its
-    last value."""
-    from mendari.evals import signing
-    from mendari.hub.client import config_dir
-
-    if args.public_key is not None:
-        keys = signing.given_key(args.public_key)
-    else:
-        source = args.keys or signing.KEYS_PATH
-        if args.keys is None and not Path(source).is_file():
-            raise MendariError(
-                f"no keys file at {source}: run this from the repository's root, or give --keys "
-                "or --public-key"
-            )
-        where = f"--keys {_path_shown(source)}"
-        listing = _scoreboard_json(source, where)
-        try:
-            keys = signing.load_keys(listing)
-        except MendariError as error:
-            raise MendariError(f"{where}: {error}") from None
-    publishers = signing.read_pins(config_dir() / "trusted_keys.json")
-    debug = getattr(args, "debug", False) or (
-        os.environ.get("MENDARI_DEBUG", "").strip().lower() in _DEBUG_ON
-    )
-    failed = False
-    for path in args.files:
-        try:
-            result = _scoreboard_result(path)
-        except MendariError as error:
-            if debug:
-                raise
-            failed = True
-            print(f"error: {_one_line(str(error))}", file=sys.stderr)
-            continue
-        found = signing.problem(result, keys, publisher_ids=publishers)
-        if found is not None:
-            failed = True
-            print(f"error: {_path_shown(path)}: {found}", file=sys.stderr)
-            continue
-        key = keys[result["signature"]["key_id"]]
-        print(
-            f"verified: {_path_shown(path)}, signed with {key.key_id} ({key.dates}), under "
-            f"{result['scope']['method']['version']}"
-        )
-    return 1 if failed else 0
-
-
-def cmd_scoreboard_run(args: argparse.Namespace) -> int:
-    """Run configurations of a maintained agent over its public scoring sets (LP-17f, LP-17h)
-    and store each result, unsigned, with its ledger and its run record (each case's latency and
-    tokens) in the results store (`scoreboard/`, from the repository's root, or --store). A
-    result that is still current (the agent's digest, the set and the method unchanged, and not
-    past its stale date) is kept, not run again, unless --again; a new one supersedes the stored
-    one. A local configuration runs one replicate. A remote one is run by hand, never in CI (`CI`
-    or `GITHUB_ACTIONS` set): `--replicates 3` to `5`, as its arm's remote configuration in the
-    agent's declaration (`scoreboard/declared/<agent name>.json`, committed before the run), and
-    with `--prices FILE` when it calls a model. Refused before anything runs: any of those
-    unmet, a fitting set (`train`, `calibration`), anything but a set the agent names (so no file
-    and no hidden set), and an agent Mendari does not maintain: the agent is read from the
-    bundled agents alone (the repository's `agents/`), never from `MENDARI_AGENTS_PATH` or the
-    registry cache."""
-    from mendari.evals import results_store, runs
-
-    store = results_store.Store.at(args.store)
-    pack = results_store.maintained_pack(args.pack)
-    if args.every_local:
-        configurations = results_store.local_configurations(pack)
-    else:
-        configurations = [results_store.configuration_of(pack, args.config)]
-    prices = None if args.prices is None else runs.read_prices(args.prices)[0]
-    sets = list(dict.fromkeys(args.dataset)) or results_store.scoring_sets(pack)
-
-    def replicates(configuration: Any) -> int:
-        if args.replicates is not None:
-            return int(args.replicates)
-        return 1 if configuration.local else 0  # a remote one names its count
-
-    for configuration in configurations:
-        for name in sets:
-            results_store.refuse_unrunnable(
-                store,
-                pack,
-                name,
-                configuration,
-                replicates=replicates(configuration),
-                prices=prices,
-            )
-    today = clock.today()
-    stored = False
-    for configuration in configurations:
-        for name in sets:
-            outcome = results_store.record_run(
-                store,
-                pack,
-                name,
-                configuration,
-                date=today,
-                again=args.again,
-                replicates=replicates(configuration),
-                prices=prices,
-            )
-            stored = stored or outcome.action == results_store.STORED
-            print(outcome.line)
-    if stored:
-        print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
-    return 0
-
-
-def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
-    """A canary (LP-17h; the grading method's section 12): a seeded draw of 30 cases from a
-    maintained agent's `test` set, decided once by a remote configuration, by hand and never in
-    CI, with no schedule, and compared with replicate 1 of its current result there, which must
-    hold replicates. Stored in the results store (`canaries/`, with its ledger and run record):
-    when it shows drift (its flip rate's lower bound above the replicates' upper bound), the page
-    marks the remote results of the agent's arm stale; when it reports another model of a type,
-    every result of that type measured no later that reported other models."""
-    from mendari.evals import results_store, scoreboard
-
-    store = results_store.Store.at(args.store)
-    pack = results_store.maintained_pack(args.pack)
-    configuration = results_store.configuration_of(pack, args.config)
-    name, found = results_store.run_canary(
-        store, pack, configuration, size=args.size, seed=args.seed, date=clock.today()
-    )
-    against = found["against"]["result"].removeprefix("sha256:")
-    print(
-        f"stored: {results_store.CANARIES}/{name}.json, against {results_store.RESULTS}/"
-        f"{against}.json"
-    )
-    marks = [
-        mark
-        for mark, on in (
-            (scoreboard.STALE_DRIFT, found["drift"]),
-            (scoreboard.STALE_MODEL, found["another_model"]),
-        )
-        if on
-    ]
-    # Drift marks the remote results of the agent's arm; another model, every result of a type
-    # it names that reported other models (the page works both out).
-    print(f"it marks: {', '.join(marks) if marks else 'nothing'}")
-    print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
-    return 0
-
-
-def cmd_scoreboard_add(args: argparse.Namespace) -> int:
-    """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
-    never over another file. `--supersedes HASH` names the stored result it replaces, which
-    becomes part of its body: refused for a signed result, whose signature would no longer
-    hold. A public result must be on its agent's current digest, set and method, measured no
-    later than today, and what its stored inputs give; a remote configuration's must also hold
-    3 to 5 replicates and its agent's declaration of it (LP-17h); a hidden set's (the grading
-    route's `mendari.hidden_scoreboard/1` answer, LP-17k) must fit its closed schema, under the
-    current method, and agree with its own figures; a signed one must verify against the
-    store's keys."""
-    from mendari.evals import results_store, signing
-    from mendari.hub.client import config_dir
-
-    store = results_store.Store.at(args.store)
-    result = _scoreboard_result(args.file)
-    if not isinstance(result, dict):
-        raise MendariError(f"{_path_shown(args.file)}: not a scoreboard result")
-    if args.supersedes is not None:
-        target = args.supersedes.strip().removeprefix("sha256:")
-        if not re.fullmatch(r"[0-9a-f]{64}", target):
-            raise MendariError("--supersedes names a stored result by its name (64 hex digits)")
-        if "signature" in result:
-            raise MendariError(
-                f"{_path_shown(args.file)} is signed: its supersedes link is part of its body, "
-                "so it is set before it is signed"
-            )
-        if result.get("supersedes") not in (None, f"sha256:{target}"):
-            raise MendariError(f"{_path_shown(args.file)} supersedes another result already")
-        result = {**result, "supersedes": f"sha256:{target}"}
-        result["body_sha256"] = f"sha256:{results_store.name_of(result)}"
-    publishers = signing.read_pins(config_dir() / "trusted_keys.json")
-    try:
-        name = store.add(result, publisher_ids=publishers)
-    except MendariError as error:
-        raise MendariError(f"{_path_shown(args.file)}: {error}") from None
-    print(f"stored: {results_store.RESULTS}/{name}.json")
-    return 0
-
-
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import card_of
 
@@ -1445,15 +1167,6 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
     head = None
-    if args.evalsets and args.since_checkpoint:
-        raise MendariError("--evalsets needs a full verification: leave out --since-checkpoint")
-    # Hidden evaluation sets (LP-11e) are opened with the deployment's keys, read only: nothing is
-    # marked. Without them, each row is counted unchecked; a malformed key fails here.
-    evalsets: Any = False
-    if args.evalsets:
-        from mendari.core.evalset_keys import evalset_keys
-
-        evalsets = evalset_keys() or True
     if (args.against is None) != (args.public_key is None):
         raise MendariError("--against and --public-key go together: a statement and its key")
     if args.against is not None and args.since_checkpoint:
@@ -1469,12 +1182,7 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
             raise MendariError(f"--against: {problem}")
         head = statement["head"]
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(
-            notes=args.notes,
-            since_checkpoint=args.since_checkpoint,
-            head=head,
-            evalsets=evalsets,
-        )
+        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint, head=head)
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -1625,9 +1333,9 @@ def _servers_database(
 ) -> str:
     """`target` as shown (no password) when it can be a server's database: it exists, has
     Mendari's tables (`tables`; read before anything is created in it) and, with `used`, holds
-    a decision, a deployment or a hold, or a row of `also`'s tables (the evaluation-set
-    commands': a database whose only rows are hidden sets is a server's too). A `MendariError`
-    saying why when it cannot."""
+    a decision, a deployment or a hold, or a row of `also`'s tables (a written round's or an
+    agent store's commands: a database whose only rows are theirs is a server's too). A
+    `MendariError` saying why when it cannot."""
     shown = _shown(target)
     if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
         raise MendariError(f"no database at {shown}: give the server's --db")
@@ -1864,36 +1572,6 @@ def cmd_access_revoke(args: argparse.Namespace) -> int:
             raise MendariError(f"no key or client of {args.org} in force in {shown}")
     _print_json(revoked)
     print(f"revoked in {shown}", file=sys.stderr)
-    return 0
-
-
-def cmd_access_grader_key(args: argparse.Namespace) -> int:
-    """An organization's grading key (LP-11, ADR-0011): the only credential that may read a
-    hidden evaluation set to grade against it, holding `grade` and nothing else. The operator's
-    alone: no HTTP route mints one, and an administrator may list and revoke it, never rotate
-    it. Chained (`key.created`, with the role, the organization and why); its secret is printed
-    once, here, and kept nowhere."""
-    from mendari.core import accounts
-
-    reason = _access_call(lambda: break_glass_reason(args.reason))
-    store, shown = _access_store(args.db)
-    if store.organizations() and store.organization(args.org) is None:
-        how = (
-            "mendari access bootstrap"
-            if args.org == accounts.RESERVED_ORG
-            else "mendari access org create"
-        )
-        raise MendariError(f"no organization {args.org} in {shown}: create it first ({how})")
-    key = _access_call(
-        lambda: store.create_grading_key(
-            org=args.org, created_by=_command_line_actor(), reason=reason, days=args.days
-        )
-    )
-    _print_json(key)
-    print(
-        f"made in {shown}: its secret is shown once, above; give it only to the grading runner",
-        file=sys.stderr,
-    )
     return 0
 
 
@@ -2560,32 +2238,42 @@ def cmd_registry_sites(args: argparse.Namespace) -> int:
 
 def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool) -> dict[str, str]:
     """The configuration a site evaluates and shares (LP-22e): the variants `--provider` names
-    (with the agent's defaults for the other slots), or with none named the deterministic arm,
-    the agent's defaults when they are local and else its first wholly local configuration. A
-    configuration that calls anything off the site's machines needs `--consent-remote`."""
-    from mendari.evals import arms
-
+    (with the agent's defaults for the other slots), or with none named the agent's defaults
+    when they are local, else its first wholly local configuration (each slot's first local
+    variant). A configuration that calls anything off the site's machines needs
+    `--consent-remote`."""
     # Only what --provider names: never $MENDARI_PROVIDERS, a deployment's setting.
     settings = parse_providers(providers) if providers else {}
     chosen = _providers(pack, settings, typed=bool(providers))
     decision = Decision(pack, providers=chosen)
     configuration = {slot: info.variant for slot, info in decision.provider_info.items()}
-    found = {tuple(c.providers.items()): c for c in arms.configurations(pack)}
-    local = found[tuple(configuration.items())].local
+    slots = pack.manifest.providers
+    local = all(_decides_here(slots[slot].variants[name]) for slot, name in configuration.items())
     if not providers and not local:
-        deterministic = [c for c in found.values() if c.local]
-        if not deterministic:
+        local_variants = {
+            slot: [name for name, variant in spec.variants.items() if _decides_here(variant)]
+            for slot, spec in slots.items()
+        }
+        if not all(local_variants.values()):
             raise MendariError(
                 f"{pack.id} has no configuration that runs wholly on this machine: name one "
                 "with --provider, and --consent-remote"
             )
-        return dict(deterministic[0].providers)
+        return {slot: names[0] for slot, names in local_variants.items()}
     if not local and not consent:
         raise MendariError(
             "this configuration calls a provider off this machine: a site shares it only with "
             "--consent-remote (recorded in the ticket and the report)"
         )
     return configuration
+
+
+def _decides_here(variant: Any) -> bool:
+    """Whether a provider variant decides on this machine (`core.origin.is_local`): a local
+    type, or a composite whose members all are."""
+    from mendari.core.origin import is_local
+
+    return is_local({"type": variant.type, **(variant.model_extra or {})})
 
 
 def cmd_site_init(args: argparse.Namespace) -> int:
@@ -3057,20 +2745,25 @@ def cmd_push(args: argparse.Namespace) -> int:
 def _evaluated_configurations(pack: Pack, named: Sequence[str]) -> list[dict[str, str]]:
     """The configurations `mendari push --evaluate` runs: those named (`--configuration`, each
     a slot's variant or several, as `mendari leaderboard --run` takes them; a slot left out
-    keeps its default), or every configuration the agent declares, when they are few."""
-    from mendari.evals import arms
+    keeps its default), or every configuration the agent declares (the product of its slots'
+    variants, in the manifest's order), when they are few."""
+    import itertools
+    import math
 
     if named:
         chosen = [_providers(pack, parse_providers(given.split(","))) for given in named]
     else:
-        every = arms.configurations(pack)
-        if len(every) > MAX_EVALUATED:
+        slots = pack.manifest.providers
+        count = math.prod(len(slot.variants) for slot in slots.values())
+        if count > MAX_EVALUATED:
             raise MendariError(
-                f"{pack.id} has {len(every)} configurations: name the ones to evaluate, each "
-                "with --configuration SLOT=VARIANT[,SLOT=VARIANT...] (`mendari scoreboard arms` "
-                "lists them)"
+                f"{pack.id} has {count} configurations: name the ones to evaluate, each with "
+                "--configuration SLOT=VARIANT[,SLOT=VARIANT...]"
             )
-        chosen = [dict(configuration.providers) for configuration in every]
+        chosen = [
+            dict(zip(slots, names, strict=True))
+            for names in itertools.product(*(slot.variants for slot in slots.values()))
+        ]
     distinct: list[dict[str, str]] = []
     for configuration in chosen:
         if configuration not in distinct:
@@ -3503,38 +3196,6 @@ def cmd_notes_erase(args: argparse.Namespace) -> int:
     return 0
 
 
-def _evalset_keys() -> Any:
-    """The deployment's evaluation-set keys, which every `mendari evalset` write needs: checked
-    before anything is read or opened (a malformed or half-set key fails here, as at startup)."""
-    from mendari.core.evalset_keys import evalset_keys
-    from mendari.core.evalsets import OFF
-
-    keys = evalset_keys()
-    if keys is None:
-        raise MendariError(OFF)
-    return keys
-
-
-def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any, str]:
-    """The deployment's database for `mendari evalset` (LP-11e): given, or $DATABASE_URL (an
-    empty --db is given, and refused as no database, never read as $DATABASE_URL's). To
-    write, it must be a server's (`_servers_database`: it holds a decision, a deployment, a hold
-    or a hidden set, so a mistyped path is refused) and is opened marking nothing of PHI: the
-    store checks the evaluation-set keys against the database, and marks them, before each
-    write. Otherwise opened read-only: nothing is created, migrated or marked. Returns the
-    store (`core/evalsets.py`) and the database's name as shown (no password)."""
-    from mendari.core.evalsets import EvalsetStore
-
-    if target is None:
-        target = os.environ.get("DATABASE_URL", "").strip() or None
-    if target is None:
-        raise MendariError("give --db (the server's database) or set DATABASE_URL")
-    if not writes:
-        return EvalsetStore(_read_store(target), keys), _shown(target)
-    shown = _servers_database(target, used=True, also=("evalset_sets",))
-    return EvalsetStore(AuditStore(target, marks=False), keys), shown
-
-
 def _pack_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
     """The deployment's database for `mendari store` (LP-20e): given, or $DATABASE_URL. To
     write, it must be a server's (`_servers_database`); otherwise opened read-only. Returns the
@@ -3571,56 +3232,13 @@ def cmd_store_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_store_withdraw(args: argparse.Namespace) -> int:
-    """The operator withdraws a draft or held version of an organization's store, with a reason
-    on the chain (LP-20e)."""
+    """The operator withdraws a draft of an organization's store, with a reason on the chain
+    (LP-20e)."""
     store, shown = _pack_store(args.db, writes=True)
     with store.store:
         moved = store.withdraw(args.org, args.digest, by="operator", reason=args.reason)
     _print_json(moved)
     print(f"withdrawn in {shown}", file=sys.stderr)
-    return 0
-
-
-def cmd_store_held(args: argparse.Namespace) -> int:
-    """The versions the hidden-set check held, not yet cleared, with the hidden sets and cases
-    each matched (LP-20f): the operator's only, no route answers it. Read-only."""
-    store, _ = _pack_store(args.db, writes=False)
-    with store.store:
-        _print_json(store.held())
-    return 0
-
-
-def cmd_store_clear(args: argparse.Namespace) -> int:
-    """The operator releases a held version (a draft again) or withdraws it, with a reason on
-    the chain; its match no longer counts towards stopping the organization's uploads."""
-    store, shown = _pack_store(args.db, writes=True)
-    release = args.store_command == "release"
-    with store.store:
-        moved = store.clear(
-            args.org, args.digest, by="operator", release=release, reason=args.reason
-        )
-    _print_json(moved)
-    print(f"{'released' if release else 'withdrawn'} in {shown}", file=sys.stderr)
-    return 0
-
-
-def cmd_store_recheck(args: argparse.Namespace) -> int:
-    """The hidden-set check again over every draft of every store, once hidden sets are frozen
-    and their keys set (LP-20f): a draft that now matches is held for the operator's review."""
-    from mendari.core.evalset_keys import evalset_keys
-    from mendari.core.evalsets import EvalsetStore
-
-    keys = evalset_keys()
-    if keys is None:
-        raise MendariError(
-            "set MENDARI_EVALSET_KEY and MENDARI_EVALSET_INDEX_KEY: no hidden set "
-            "can be matched without them"
-        )
-    store, shown = _pack_store(args.db, writes=True)
-    with store.store:
-        held = store.recheck(EvalsetStore(store.store, keys))
-    _print_json(held)
-    print(f"{len(held)} version(s) held in {shown}", file=sys.stderr)
     return 0
 
 
@@ -3631,333 +3249,6 @@ def cmd_store_purge(args: argparse.Namespace) -> int:
     with store.store:
         removed = store.purge()
     print(f"{removed} file(s) freed in {shown}", file=sys.stderr)
-    return 0
-
-
-def _outside_the_code(
-    path: Path, what: str = "a file of hidden cases", then: str = "move it, then add it"
-) -> None:
-    """Refuse a file of hidden cases (or, `what`, the sealed export of the sets) inside the
-    installed package or a checkout of Mendari's repository (ADR-0011): hidden sets live in the
-    deployment's database only, never where code is shipped or committed. The path is not
-    printed."""
-    resolved = path.resolve()
-    package = Path(__file__).resolve().parent
-    if resolved.is_relative_to(package) or any(_is_checkout(d) for d in resolved.parents):
-        raise MendariError(
-            f"{what} is kept outside Mendari's package and any checkout of its repository: {then}"
-        )
-
-
-def _is_checkout(directory: Path) -> bool:
-    """Whether `directory` is the root of a checkout of Mendari (its pyproject.toml names it)."""
-    project = directory / "pyproject.toml"
-    try:
-        text = project.read_text(encoding="utf-8") if project.is_file() else ""
-    except (OSError, UnicodeDecodeError):
-        return False
-    return re.search(r'(?m)^name\s*=\s*"mendari"\s*$', text) is not None
-
-
-def cmd_evalset_create(args: argparse.Namespace) -> int:
-    """A new draft hidden evaluation set of an organization for an agent (LP-11e): its header
-    (the agent's questions, labels and critical labels, and the set's name) sealed; chained. Its
-    id is printed, never its name."""
-    keys = _evalset_keys()
-    pack = resolve_pack(args.pack)
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        if store.store.organizations() and store.store.organization(args.org) is None:
-            raise MendariError(f"no organization {args.org} in {shown}: create it first")
-        made = store.create_set(args.org, pack, args.name, created_by=_command_line_actor())
-    _print_json(made)
-    print(
-        f"created in {shown}: add cases with `mendari evalset add {made['set']} FILE`",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_add(args: argparse.Namespace) -> int:
-    """Hand-written cases from a JSONL file outside the package and the repository, added to a
-    draft set, all or none (LP-11e). Prints each case's line and case hash, never its text."""
-    from mendari.core.evalsets import read_cases
-
-    keys = _evalset_keys()
-    path = Path(args.file)
-    _outside_the_code(path)
-    records = read_cases(path)
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        added = store.add_cases(
-            args.set_id, [record for _, record in records], lines=[line for line, _ in records]
-        )
-    _print_json(added)
-    print(f"{added['added']} case(s) added to {args.set_id} in {shown}", file=sys.stderr)
-    return 0
-
-
-def cmd_evalset_remove_case(args: argparse.Namespace) -> int:
-    """Remove a case of a draft set, with its index rows; chained (LP-11e)."""
-    keys = _evalset_keys()
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        removed = store.remove_case(args.set_id, args.case)
-    _print_json(removed)
-    print(f"removed from {args.set_id} in {shown}", file=sys.stderr)
-    return 0
-
-
-def cmd_evalset_rotate(args: argparse.Namespace) -> int:
-    """Re-seal the hidden sets under the current evaluation-set key, or (`--check`) show,
-    reading only, whether everything opens with it alone (LP-11f). JSON on stdout: key ids,
-    set ids, case hashes and counts, never a key or a value."""
-    from mendari.core.evalset_keys import evalset_keys
-    from mendari.core.evalsets import OFF
-
-    keys = evalset_keys()  # a malformed or half-set key fails before anything is opened
-    if args.check:
-        store, _ = _evalset_store(args.db, keys, writes=False)  # read-only: marks nothing
-        with store.store:
-            if keys is None:
-                raise MendariError(OFF)
-            checked = store.check()
-        _print_json(checked)
-        if checked["ready"]:
-            print("ready: everything opens with the current key alone", file=sys.stderr)
-        return 0 if checked["ready"] else 1
-    if keys is None:
-        raise MendariError(OFF)
-    if not args.to:
-        raise MendariError("give --to <key id>: evalset_keys.current in /api/health")
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        rotated = store.rotate(to=args.to, batch=args.batch)
-    _print_json(rotated)
-    if rotated["unopenable"]:
-        print(
-            f"{len(rotated['unopenable'])} row(s) holding a value no key here opens were left as "
-            "they are: add the key they name to MENDARI_EVALSET_READ_KEYS, then run again",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        f"done in {shown}: run `mendari evalset rotate --check` before dropping the read keys",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_reindex(args: argparse.Namespace) -> int:
-    """Rebuild the hidden-case index under the current index key, in one transaction; chained
-    (LP-11f). Prints the index key's id and counts."""
-    keys = _evalset_keys()
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        rebuilt = store.reindex()
-    _print_json(rebuilt)
-    print(
-        f"{rebuilt['count']} case(s) indexed under index key {rebuilt['key_id']} in {shown}",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_export(args: argparse.Namespace) -> int:
-    """The sealed export of every hidden set and case (LP-11f): ciphertext, ids and key ids, as
-    stored, to a new file only its owner reads, outside the package and any checkout. Needs no
-    key, opens nothing, chains nothing; the database is opened read-only. Prints the header:
-    counts and key ids."""
-    out = Path(args.out)
-    _outside_the_code(out, "an export of hidden sets", "write it elsewhere")
-    if out.exists():
-        raise MendariError(f"--out {out} exists: an export never overwrites a file")
-    store, _ = _evalset_store(args.db, None, writes=False)
-    with store.store:
-        lines = store.export()
-    try:
-        descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise MendariError(f"--out {out} exists: an export never overwrites a file") from None
-    except OSError as error:
-        raise MendariError(f"--out {out}: cannot write it ({type(error).__name__})") from None
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            for line in lines:
-                handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
-    except BaseException:
-        out.unlink(missing_ok=True)  # never a partial export left to be taken for a whole one
-        raise
-    _print_json(lines[0])
-    print(f"{len(lines) - 1} row(s) written to {out}: ciphertext and ids, no key", file=sys.stderr)
-    return 0
-
-
-def cmd_evalset_list(args: argparse.Namespace) -> int:
-    """Every hidden set (of `--org`), with its state and number of cases: ids and counts,
-    read-only, nothing opened (the keys are not needed; a malformed one still fails)."""
-    from mendari.core.evalset_keys import evalset_keys
-
-    store, _ = _evalset_store(args.db, evalset_keys(), writes=False)
-    with store.store:
-        _print_json(store.sets(args.org))
-    return 0
-
-
-# A bootstrap's resamples on the command line: enough for any interval, never a run for hours.
-MAX_RESAMPLES = 100_000
-
-
-def cmd_evalset_sample(args: argparse.Namespace) -> int:
-    """Draw cases of a draft set to label (LP-11h): seeded, within each stratum, a number per
-    stratum or in all; each drawn case's weight sealed with it; chained. Prints how many were
-    drawn, now and in all, and the seed: never a stratum or a case."""
-    keys = _evalset_keys()
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        drawn = store.sample(
-            args.set_id, per_stratum=args.per_stratum, cases=args.cases, seed=args.seed
-        )
-    _print_json(drawn)
-    print(
-        f"{drawn['drawn']} case(s) drawn from {args.set_id} in {shown}: give them labellers with "
-        "`mendari evalset assign`",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_assign(args: argparse.Namespace) -> int:
-    """Give each sampled case of a draft set two blind labellers, by user id, balanced; or
-    (`adjudicate`) each disputed case a third (LP-11h). Each a labeller of the set's
-    organization who does not manage its sets; chained. Prints each assignment: the case's
-    hash, its id, its labeller and its round."""
-    keys = _evalset_keys()
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        if args.evalset_command == "adjudicate":
-            made = store.adjudicate(args.set_id, args.labeller, seed=args.seed)
-        else:
-            made = store.assign(args.set_id, args.labeller, seed=args.seed)
-    _print_json(made)
-    print(
-        f"{made['assigned']} assignment(s) made and {made['withdrawn']} withdrawn in {shown}",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_progress(args: argparse.Namespace) -> int:
-    """How a set's labelling stands (LP-11h): its cases by status and each labeller's
-    assignments, by user id; read-only, nothing opened (the keys are not needed; a malformed
-    one still fails)."""
-    from mendari.core.evalset_keys import evalset_keys
-
-    store, _ = _evalset_store(args.db, evalset_keys(), writes=False)
-    with store.store:
-        _print_json(store.progress(args.set_id))
-    return 0
-
-
-def cmd_evalset_measure(args: argparse.Namespace) -> int:
-    """A draft set's rater agreement (`agreement`) or coverage (`coverage`), computed from its
-    labels and stored sealed as its aggregates, chained (LP-11h): counts and coefficients by
-    question and label, raters by user id, never a case. Text, or `--json`."""
-    from mendari.evals.coverage import coverage_text
-    from mendari.evals.rater_agreement import agreement_text
-
-    agreeing = args.evalset_command == "agreement"
-    seed, resamples = (args.seed, args.resamples) if agreeing else (0, 2000)
-    if not 1 <= resamples <= MAX_RESAMPLES:
-        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
-    keys = _evalset_keys()
-    pack = resolve_pack(args.pack) if args.pack else None
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        measured = store.measure(args.set_id, pack=pack, seed=seed, resamples=resamples)
-    report = measured["agreement" if agreeing else "coverage"]
-    if args.json:
-        _print_json(report)
-    else:
-        print(agreement_text(report) if agreeing else coverage_text(report))
-    print(
-        f"{measured['n']} case(s) of {args.set_id} measured in {shown}; their agreement and "
-        "coverage are stored sealed as the set's aggregates",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_freeze(args: argparse.Namespace) -> int:
-    """Freeze a draft set (LP-11i): every drawn case settled (an undrawn one removed with
-    `--drop-unsampled`, each removal chained), its content committed to with a salt and its
-    rotation rule fixed (both limits required: no default); chained. Prints the commitment and
-    each critical label's distinct positives, and warns, without refusing, under
-    `MIN_POSITIVES` (conflict 48: the key holder's aggregates, which name label words, never
-    chained). Never the content hash or a case."""
-    from mendari.evals.result import MIN_POSITIVES
-
-    keys = _evalset_keys()
-    pack = resolve_pack(args.pack) if args.pack else None
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        frozen = store.freeze(
-            args.set_id,
-            max_runs=args.max_runs,
-            max_age_days=args.max_age_days,
-            drop_unsampled=args.drop_unsampled,
-            pack=pack,
-        )
-    _print_json(frozen)
-    for item in frozen["critical"]:
-        if item["insufficient"]:
-            print(
-                f"warning: {item['question']}={item['label']} has {item['distinct']} distinct "
-                f"positive(s), under {MIN_POSITIVES}: too few to measure it (the set is frozen)",
-                file=sys.stderr,
-            )
-    print(
-        f"{frozen['n']} case(s) of {args.set_id} frozen in {shown} ({frozen['dropped']} not "
-        f"drawn left out): it grades at most {frozen['max_runs']} time(s) within "
-        f"{frozen['max_age_days']} day(s); keep its commitment",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_retire(args: argparse.Namespace) -> int:
-    """Retire a frozen or active set (LP-11i): checked against its commitment once more, then it
-    grades nothing more; chained. Nothing is published. Prints its id, state, commitment and
-    runs used."""
-    keys = _evalset_keys()
-    store, shown = _evalset_store(args.db, keys, writes=True)
-    with store.store:
-        retired = store.retire(args.set_id)
-    _print_json(retired)
-    print(
-        f"{args.set_id} retired in {shown} after {retired['runs']} grading run(s): it grades "
-        "nothing more, and nothing is published",
-        file=sys.stderr,
-    )
-    return 0
-
-
-def cmd_evalset_show(args: argparse.Namespace) -> int:
-    """A set's state, commitment, runs used and left, and its stored aggregates (LP-11i):
-    read-only, nothing chained (conflict 39). The aggregates are opened with the keys, which
-    show alone does not need (a malformed one still fails): without them they are left out."""
-    from mendari.core.evalset_keys import evalset_keys
-
-    keys = evalset_keys()
-    store, _ = _evalset_store(args.db, keys, writes=False)
-    with store.store:
-        shown = store.show(args.set_id)
-    _print_json(shown)
-    if keys is None and shown["aggregates"] is None and shown["state"] != "draft":
-        print(
-            "its aggregates are sealed: run with the evaluation-set keys to read them",
-            file=sys.stderr,
-        )
     return 0
 
 
@@ -4226,7 +3517,7 @@ GROUPS = (
         (),
         (
             *("data", "leaderboard", "calibrate"),
-            *("feedback", "evalset", "scoreboard", "written"),
+            *("feedback", "written"),
         ),
     ),
     Group(
@@ -4698,120 +3989,6 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument("--out", help="leaderboard file (default: <agent>/evals/leaderboard.json)")
     board.add_argument("--fresh", action="store_true", help="replace instead of merging")
 
-    scoreboard = sub.add_parser(
-        "scoreboard",
-        help="the scoreboard: an agent's configurations by arm; signing and verifying results; "
-        "running and storing them",
-    ).add_subparsers(dest="scoreboard_command", required=True)
-    scoreboard_arms = scoreboard.add_parser(
-        "arms",
-        help="an agent's provider configurations by arm: Mendari only, + specialised classifier, "
-        "+ general LLM, + both (from its manifest; nothing runs)",
-    )
-    _agent_argument(scoreboard_arms)
-    scoreboard_arms.add_argument("--json", action="store_true", help="print the JSON report")
-    scoreboard_arms.set_defaults(handler=cmd_scoreboard_arms)
-    scoreboard_sign = scoreboard.add_parser(
-        "sign",
-        help="the key holder's: sign scoreboard results in place with "
-        "$MENDARI_GRADING_SIGNING_KEY (never in CI)",
-    )
-    scoreboard_sign.add_argument("files", nargs="+", metavar="FILE", help="a result file")
-    scoreboard_sign.set_defaults(handler=cmd_scoreboard_sign)
-    scoreboard_verify = scoreboard.add_parser(
-        "verify",
-        help="check signed scoreboard results against public keys only (needs no secret)",
-    )
-    scoreboard_verify.add_argument("files", nargs="+", metavar="FILE", help="a result file")
-    trusted = scoreboard_verify.add_mutually_exclusive_group()
-    trusted.add_argument(
-        "--keys", help="the public keys file (default: scoreboard/keys.json, from the root)"
-    )
-    trusted.add_argument("--public-key", help="one public key instead: 32 bytes in base64")
-    scoreboard_verify.set_defaults(handler=cmd_scoreboard_verify)
-    scoreboard_run = scoreboard.add_parser(
-        "run",
-        help="run configurations of a maintained agent over its public scoring sets, and store "
-        "each result (unsigned) in the results store; a remote one by hand, never in CI",
-    )
-    _agent_argument(scoreboard_run, "agent id (namespace/name[@version])")
-    scoreboard_run.add_argument(
-        "--dataset",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="a public scoring set of the agent, by name (repeatable; default: each of them)",
-    )
-    chosen = scoreboard_run.add_mutually_exclusive_group()
-    chosen.add_argument(
-        "--config",
-        action="append",
-        default=[],
-        metavar="SLOT=VARIANT",
-        help="a slot's variant (repeatable, or comma-separated); the other slots take the "
-        "agent's defaults",
-    )
-    chosen.add_argument(
-        "--every-local", action="store_true", help="each local configuration of the agent"
-    )
-    scoreboard_run.add_argument(
-        "--again",
-        action="store_true",
-        help="run a result that is still current again (the new one supersedes it)",
-    )
-    scoreboard_run.add_argument(
-        "--replicates",
-        type=int,
-        metavar="N",
-        help="a remote configuration's replicates, 3 to 5 (a local one runs 1); replicate 1 is "
-        "the headline",
-    )
-    scoreboard_run.add_argument(
-        "--prices",
-        metavar="FILE",
-        help="the dated price table a remote configuration that calls a model is priced from "
-        "(scoreboard/prices/<date>.json)",
-    )
-    scoreboard_run.add_argument(
-        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
-    )
-    scoreboard_run.set_defaults(handler=cmd_scoreboard_run)
-    scoreboard_canary = scoreboard.add_parser(
-        "canary",
-        help="by hand, never in CI: a seeded draw of 30 test cases, decided once by a remote "
-        "configuration and compared with its replicates",
-    )
-    _agent_argument(scoreboard_canary, "agent id (namespace/name[@version])")
-    scoreboard_canary.add_argument(
-        "--config",
-        action="append",
-        default=[],
-        metavar="SLOT=VARIANT",
-        help="a slot's variant (repeatable, or comma-separated); the other slots take the "
-        "agent's defaults",
-    )
-    scoreboard_canary.add_argument(
-        "--size", type=int, default=30, help="cases drawn from the test set (the method's 30)"
-    )
-    scoreboard_canary.add_argument(
-        "--seed", type=int, required=True, help="the draw's seed, a whole number"
-    )
-    scoreboard_canary.add_argument(
-        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
-    )
-    scoreboard_canary.set_defaults(handler=cmd_scoreboard_canary)
-    scoreboard_add = scoreboard.add_parser(
-        "add", help="store a result made elsewhere in the results store, never over another"
-    )
-    scoreboard_add.add_argument("file", metavar="FILE", help="a result file")
-    scoreboard_add.add_argument(
-        "--supersedes", metavar="HASH", help="the stored result it supersedes (its name)"
-    )
-    scoreboard_add.add_argument(
-        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
-    )
-    scoreboard_add.set_defaults(handler=cmd_scoreboard_add)
-
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument(
         "--write", action="store_true", help="write DECISION_CARD.md into the agent's folder"
@@ -4870,13 +4047,6 @@ def build_parser() -> argparse.ArgumentParser:
         "chain must hold (with --public-key)",
     )
     verify.add_argument("--public-key", help="the checkpoint key's public half (base64)")
-    verify.add_argument(
-        "--evalsets",
-        action="store_true",
-        help="also check the hidden evaluation sets against their chained hashes (with "
-        "$MENDARI_EVALSET_KEY and $MENDARI_EVALSET_INDEX_KEY; with neither, each is counted "
-        "unchecked)",
-    )
     verify.set_defaults(handler=cmd_audit_verify)
     checkpoint = audit.add_parser(
         "checkpoint", help="verify from the last checkpoint and record the head as the next"
@@ -5009,16 +4179,6 @@ def build_parser() -> argparse.ArgumentParser:
     every.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
     every.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     every.set_defaults(handler=cmd_access_revoke, what="all")
-    grader = access.add_parser(
-        "grader-key", help="an organization's grading key (hidden evaluation sets; LP-11)"
-    )
-    grader.add_argument("--org", required=True, help="the organization it grades for")
-    grader.add_argument(
-        "--days", type=int, default=90, help="how long it lives (1 to 365; default 90)"
-    )
-    grader.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
-    grader.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    grader.set_defaults(handler=cmd_access_grader_key)
     end = access.add_parser(
         "end-sessions", help="break-glass: sign out every person, every EHR launch, or both"
     )
@@ -5730,30 +4890,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     store_verify.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_verify.set_defaults(handler=cmd_store_verify)
-    store_withdraw = store.add_parser("withdraw", help="withdraw a draft or held version")
+    store_withdraw = store.add_parser("withdraw", help="withdraw a draft")
     store_withdraw.add_argument("digest", help="the version's digest (sha256:...)")
     store_withdraw.add_argument("--org", required=True, help="the organization")
     store_withdraw.add_argument("--reason", required=True, help="why, kept on the chain")
     store_withdraw.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_withdraw.set_defaults(handler=cmd_store_withdraw)
-    store_held = store.add_parser(
-        "held", help="versions the hidden-set check held, with what each matched (operator's)"
-    )
-    store_held.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    store_held.set_defaults(handler=cmd_store_held)
-    for verb, what in (("release", "release a held version: a draft again"),
-                       ("dismiss", "withdraw a held version")):  # fmt: skip
-        cleared = store.add_parser(verb, help=what)
-        cleared.add_argument("digest", help="the version's digest (sha256:...)")
-        cleared.add_argument("--org", required=True, help="the organization")
-        cleared.add_argument("--reason", required=True, help="why, kept on the chain")
-        cleared.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-        cleared.set_defaults(handler=cmd_store_clear)
-    store_recheck = store.add_parser(
-        "recheck", help="the hidden-set check again over every draft (with the index key)"
-    )
-    store_recheck.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    store_recheck.set_defaults(handler=cmd_store_recheck)
     store_purge = store.add_parser(
         "purge", help="free the files of versions withdrawn more than 30 days ago"
     )
@@ -5906,151 +5048,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     round_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     round_list.set_defaults(handler=cmd_written_round_list)
-
-    evalset = sub.add_parser(
-        "evalset", help="hidden evaluation sets: the key holder's (LP-11)"
-    ).add_subparsers(dest="evalset_command", required=True)
-    evalset_create = evalset.add_parser(
-        "create", help="a new draft set of an organization for an agent"
-    )
-    _agent_argument(evalset_create)
-    evalset_create.add_argument("--org", required=True, help="the organization it belongs to")
-    evalset_create.add_argument("--name", required=True, help="the set's name (kept sealed)")
-    evalset_create.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_create.set_defaults(handler=cmd_evalset_create)
-    evalset_add = evalset.add_parser(
-        "add", help="add hand-written cases (a JSONL file outside the repository) to a draft set"
-    )
-    evalset_add.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_add.add_argument("file", help="the cases, one JSON record a line")
-    evalset_add.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_add.set_defaults(handler=cmd_evalset_add)
-    evalset_remove = evalset.add_parser("remove-case", help="remove a case of a draft set")
-    evalset_remove.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_remove.add_argument("case", help="the case's hash, as `mendari evalset add` printed it")
-    evalset_remove.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_remove.set_defaults(handler=cmd_evalset_remove_case)
-    evalset_list = evalset.add_parser(
-        "list", help="every set with its state and number of cases (ids and counts)"
-    )
-    evalset_list.add_argument("--org", help="only this organization's")
-    evalset_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_list.set_defaults(handler=cmd_evalset_list)
-    evalset_rotate = evalset.add_parser(
-        "rotate", help="re-seal the hidden sets under the current evaluation-set key"
-    )
-    evalset_rotate.add_argument(
-        "--to", help="the current key's id (evalset_keys.current in /api/health)"
-    )
-    evalset_rotate.add_argument(
-        "--batch", type=int, default=200, help="rows per batch (default 200)"
-    )
-    evalset_rotate.add_argument(
-        "--check",
-        action="store_true",
-        help="check, reading only: does everything open with the current key alone?",
-    )
-    evalset_rotate.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_rotate.set_defaults(handler=cmd_evalset_rotate)
-    evalset_reindex = evalset.add_parser(
-        "reindex", help="rebuild the hidden-case index under the current index key"
-    )
-    evalset_reindex.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_reindex.set_defaults(handler=cmd_evalset_reindex)
-    evalset_export = evalset.add_parser(
-        "export", help="the sealed sets and cases as stored (ciphertext and ids), no key needed"
-    )
-    evalset_export.add_argument("--out", required=True, help="a new file to write")
-    evalset_export.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_export.set_defaults(handler=cmd_evalset_export)
-    evalset_sample = evalset.add_parser(
-        "sample", help="draw cases of a draft set to label, seeded, within each stratum"
-    )
-    evalset_sample.add_argument("set_id", metavar="SET", help="the set's id")
-    drawn = evalset_sample.add_mutually_exclusive_group(required=True)
-    drawn.add_argument("--per-stratum", type=int, help="how many more to draw from each stratum")
-    drawn.add_argument("--cases", type=int, help="how many more to draw in all, by stratum size")
-    evalset_sample.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
-    evalset_sample.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_sample.set_defaults(handler=cmd_evalset_sample)
-    for name, what in (
-        ("assign", "give each sampled case two blind labellers, balanced"),
-        ("adjudicate", "give each disputed case a third blind labeller"),
-    ):
-        assigning = evalset.add_parser(name, help=what)
-        assigning.add_argument("set_id", metavar="SET", help="the set's id")
-        assigning.add_argument(
-            "--labeller",
-            action="append",
-            required=True,
-            help="a labeller's user id (user:...), once for each; never one who manages sets",
-        )
-        assigning.add_argument("--seed", type=int, default=0, help="the seed (default 0)")
-        assigning.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-        assigning.set_defaults(handler=cmd_evalset_assign)
-    evalset_progress = evalset.add_parser(
-        "progress", help="a set's cases by status and each labeller's assignments (counts)"
-    )
-    evalset_progress.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_progress.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_progress.set_defaults(handler=cmd_evalset_progress)
-    evalset_agreement = evalset.add_parser(
-        "agreement", help="the raters' agreement on a draft set, stored sealed (aggregates)"
-    )
-    evalset_coverage = evalset.add_parser(
-        "coverage", help="what a draft set's drawn cases cover, stored sealed (aggregates)"
-    )
-    for measuring in (evalset_agreement, evalset_coverage):
-        measuring.add_argument("set_id", metavar="SET", help="the set's id")
-        _agent_option(
-            measuring,
-            help="the set's agent (id or directory), if its id does not resolve here",
-        )
-        measuring.add_argument("--json", action="store_true", help="the report as JSON")
-        measuring.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-        measuring.set_defaults(handler=cmd_evalset_measure)
-    evalset_agreement.add_argument(
-        "--seed", type=int, default=0, help="the bootstrap's seed (default 0)"
-    )
-    evalset_agreement.add_argument(
-        "--resamples", type=int, default=2000, help="the bootstrap's resamples (default 2000)"
-    )
-    evalset_freeze = evalset.add_parser(
-        "freeze", help="freeze a draft set: its commitment and rotation rule fixed (LP-11i)"
-    )
-    evalset_freeze.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_freeze.add_argument(
-        "--max-runs", type=int, required=True, help="the most grading runs it serves (no default)"
-    )
-    evalset_freeze.add_argument(
-        "--max-age-days",
-        type=int,
-        required=True,
-        help="the most days from freezing it serves (no default)",
-    )
-    evalset_freeze.add_argument(
-        "--drop-unsampled",
-        action="store_true",
-        help="remove the cases never drawn (each removal chained) instead of refusing",
-    )
-    _agent_option(
-        evalset_freeze,
-        help="the set's agent (id or directory), if its id does not resolve here",
-    )
-    evalset_freeze.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_freeze.set_defaults(handler=cmd_evalset_freeze)
-    evalset_retire = evalset.add_parser(
-        "retire", help="retire a frozen or active set: it grades nothing more (LP-11i)"
-    )
-    evalset_retire.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_retire.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_retire.set_defaults(handler=cmd_evalset_retire)
-    evalset_show = evalset.add_parser(
-        "show", help="a set's state, commitment, runs used and left, and its aggregates"
-    )
-    evalset_show.add_argument("set_id", metavar="SET", help="the set's id")
-    evalset_show.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
-    evalset_show.set_defaults(handler=cmd_evalset_show)
 
     new = sub.add_parser(
         "new",

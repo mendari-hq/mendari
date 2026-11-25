@@ -1200,7 +1200,7 @@ function showUsage() {
 
 // -- activity (12g-ii) ---------------------------------------------------------------------------
 // The organization's administrative events (its keys, clients, approvals, holds, evaluation
-// reports, record, people and hidden evaluation sets) of the last ACTIVITY_DAYS days, newest
+// reports, record and people) of the last ACTIVITY_DAYS days, newest
 // first: what happened in words, about what, by whom, when. Never a payload's other values (a
 // hold's reason, an approval's reference). Asked for newest first (`order=desc`), page by page up
 // to ACTIVITY_PAGES, so a window with more events than that shows its newest, and says so. The
@@ -1236,26 +1236,11 @@ const ACTIVITY_TEXT = {
   "invitation.revoked": "Invitation revoked",
   "access.requested": "Asked to join",
   "access.handled": "Request to join answered",
-  "evalset.created": "Hidden evaluation set created",
-  "evalset.case_added": "Hidden evaluation case added",
-  "evalset.case_removed": "Hidden evaluation case removed",
-  "evalset.sampled": "Hidden evaluation set sampled",
-  "evalset.assigned": "Hidden evaluation case assigned",
-  "evalset.case_read": "Hidden evaluation case read by its labeller",
-  "evalset.labelled": "Hidden evaluation case labelled",
-  "evalset.measured": "Labellers' agreement measured",
-  "evalset.frozen": "Hidden evaluation set frozen",
-  "evalset.activated": "Hidden evaluation set activated",
-  "evalset.graded": "Hidden evaluation set read to grade an agent",
-  "evalset.retired": "Hidden evaluation set retired",
   "pack_version.created": "Agent store version added",
-  "pack_version.held": "Agent store version held for the operator's review",
-  "pack_version.released": "Agent store version released",
   "pack_version.withdrawn": "Agent store version withdrawn",
   "store_key.added": "Agent store author key registered",
   "store_key.revoked": "Agent store author key revoked",
   "store_dataset.created": "Agent store dataset added",
-  "store_dataset.held": "Agent store dataset held for the operator's review",
   "store_job.created": "Agent store evaluation job made",
   "pack_version.promoted": "Agent store version promoted to be served",
   "pack_version.retired": "Agent store version's promotion retired",
@@ -1270,7 +1255,7 @@ const ACTIVITY_TEXT = {
 const SUBJECT_TEXT = {
   key: "API key", client: "Client", governance: "Automation approval", registry_approval: "Registry approval",
   hold: "Automation hold", eval: "Evaluation report", org: "Organization", membership: "Member",
-  invitation: "Invitation", access: "Request to join", evalset: "Hidden evaluation set",
+  invitation: "Invitation", access: "Request to join",
   pack_version: "Agent store version", store_key: "Agent store author key",
   store_dataset: "Agent store dataset", store_job: "Agent store evaluation job",
   agent_connection: "Agent connection",
@@ -1278,7 +1263,7 @@ const SUBJECT_TEXT = {
 
 // Who acted: the first of these a payload has, or a kind's own (standards/audit_fhir.py _ACTORS).
 const ACTOR_KEYS = ["created_by", "rotated_by", "revoked_by", "set_by", "lifted_by", "approver", "changed_by", "removed_by", "handled_by", "ended_by", "actor", "user"];
-const ACTOR_KEY = { "client.keys_replaced": "replaced_by", "evalset.case_read": "labeller", "evalset.labelled": "labeller", "evalset.graded": "grader" };
+const ACTOR_KEY = { "client.keys_replaced": "replaced_by" };
 
 let activityAsked = 0; // the latest request: an older answer, arriving after it, is dropped
 

@@ -24,9 +24,6 @@ from mendari.server.app import create_app
 from tests.conftest import (
     encrypt_mode,
     encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    member,
 )
 from tests.test_spdx import COMMENTS, IDENTIFIER, NOT_OURS, VERBATIM
 
@@ -263,35 +260,20 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "membership.created",
     ),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/evals"): ("eval.recorded",),
-    # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
-    (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
     # Memberships mode under PHI mode encrypt: a grader's grades of a written output, as their
     # commitment (ADR-0025).
     (ENGINE, "POST", "/api/written/labelling/{assignment_id}"): ("written.graded",),
-    # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
-    (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
-    (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
-    (ENGINE, "POST", "/api/evalsets/{set_id}/adjudication"): ("evalset.assigned",),
-    # A grading run (LP-11l): each read of the set chained before its run receives the cases,
-    # and a frozen set's first activates it. The run itself stores nothing.
-    (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
     # An organization's pack store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
-    # version, and held at once when it holds a hidden case; a draft withdrawn; authors' keys.
-    (ENGINE, "POST", "/api/store/versions"): ("pack_version.created", "pack_version.held"),
-    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): (
-        "pack_version.created",
-        "pack_version.held",
-    ),
-    (ENGINE, "POST", "/api/store/copies"): ("pack_version.created", "pack_version.held"),
-    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): (
-        "pack_version.created",
-        "pack_version.held",
-    ),
+    # version; a draft withdrawn; authors' keys.
+    (ENGINE, "POST", "/api/store/versions"): ("pack_version.created",),
+    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): ("pack_version.created",),
+    (ENGINE, "POST", "/api/store/copies"): ("pack_version.created",),
+    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): ("pack_version.created",),
     (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("pack_version.withdrawn",),
     (ENGINE, "POST", "/api/store/keys"): ("store_key.added",),
     (ENGINE, "DELETE", "/api/store/keys/{key_id}"): ("store_key.revoked",),
     # Its datasets and evaluation jobs (LP-20g): a job's last slice records its report.
-    (ENGINE, "POST", "/api/store/datasets"): ("store_dataset.created", "store_dataset.held"),
+    (ENGINE, "POST", "/api/store/datasets"): ("store_dataset.created",),
     (ENGINE, "POST", "/api/store/jobs"): ("store_job.created",),
     (ENGINE, "POST", "/api/store/jobs/{job_id}/advance"): ("eval.recorded",),
     # Promotion (LP-20h): the version served, and the one it replaced retired with it.
@@ -309,7 +291,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     ),
     # A version added from the deployment's registry (MENDARI_REGISTRY_URL, with the store on):
     # verified, then kept as any new version is.
-    (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created", "pack_version.held"),
+    (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created",),
     # An agent's connection for an organization (ADR-0021): set or changed, and cleared.
     # An operator may allow its origin too, where the deployment's list does not name it.
     (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): (
@@ -340,8 +322,6 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
     (ENGINE, "GET", "/api/agents/{namespace}/{name}/feedback/export"): ("input.read",),
-    # A labeller shown their next hidden case, each time, before it is sent (LP-11j).
-    (ENGINE, "GET", "/api/labelling/next"): ("evalset.case_read",),
     # A grader shown their next written output, each time, before it is sent (ADR-0025).
     (ENGINE, "GET", "/api/written/labelling/next"): ("written.item_read",),
 }
@@ -423,8 +403,8 @@ def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[R
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
-    """Every route of every app, the engine with sign-in, Backend Services, memberships mode and
-    hidden evaluation sets on (its most)."""
+    """Every route of every app, the engine with sign-in, Backend Services and memberships mode
+    on (its most)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -438,15 +418,11 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
-    evalset_on(monkeypatch)
     found: set[Route] = set()
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),
         REGISTRY: create_registry_app(tmp_path / "registry.db"),
     }
-    with encrypted_store(tmp_path / "engine.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(apps[ENGINE], base_url="https://mendari.test"), reader)
     with TestClient(apps[REGISTRY]):  # runs the app's lifespan, which closes its store
         registrys = _routes(apps[REGISTRY], REGISTRY)
     for name, app in apps.items():

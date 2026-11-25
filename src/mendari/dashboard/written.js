@@ -2,10 +2,10 @@
 // Written output (ADR-0025). Two things, both over `/api/written`:
 //
 // - The grader's screen (`#written`, "Written output" in the section list): a person holding
-//   `label` grades, blind, what an agent wrote, against the agent's rubric. It is the labelling
-//   screen (labelling.js) with a grader's words: the text to grade, what the agent was given,
-//   and each criterion with its instructions and each level's anchor. It never shows a judge's
-//   grade or anyone else's: the server sends neither.
+//   `label` grades, blind, what an agent wrote, against the agent's rubric. It is the blind
+//   grading screen (labelling.js) with a grader's words: the text to grade, what the agent was
+//   given, and each criterion with its instructions and each level's anchor. It never shows a
+//   judge's grade or anyone else's: the server sends neither.
 // - The rounds panel (`roundsPanel`, the Evaluations view's "Written output" tab): each round
 //   of the agent with its state and counts and, once closed, its report: per criterion,
 //   clinicians' pass share, the judge's agreement with clinicians (over the levels, and on pass

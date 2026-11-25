@@ -16,7 +16,7 @@ from mendari.evals.pack_tests import PROBE_TESTS
 from mendari.hub import archive
 from mendari.server import store_routes
 from mendari.server.app import create_app
-from tests.conftest import DASHBOARD, encrypt_mode, encrypted_store, evalset_on, member
+from tests.conftest import DASHBOARD, encrypt_mode, encrypted_store, member
 from tests.probe_agents import MANIFEST, build_agent
 from tests.test_probe import found_test
 
@@ -33,7 +33,6 @@ def test_a_stored_version_runs_and_counts_the_probes_tests(
     encrypt_mode(monkeypatch)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_AGENT_STORE", "on")
-    evalset_on(monkeypatch)
     root = build_agent(tmp_path / "agent", manifest={"id": f"{ORG}/probe-triage"})
     assert MANIFEST["id"] != f"{ORG}/probe-triage"
     (root / PROBE_TESTS).write_text(yaml.safe_dump([found_test()]), encoding="utf-8")

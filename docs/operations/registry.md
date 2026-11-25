@@ -779,7 +779,7 @@ mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-ch
 `mendari registry checkpoint` prints a `mendari.registry-checkpoint/1` statement: the head, the
 day (UTC), the key's id and an Ed25519 signature over those and the format. The format is the
 statement's own, so a recall, a counter-signature, the engine's audit checkpoint
-(`mendari.checkpoint/1`) or a scoreboard result signed by the same key is never read as one.
+(`mendari.checkpoint/1`) signed by the same key is never read as one.
 The command opens the database read-only and stores nothing in it (a copy there could be
 rewritten with the chain); it never makes a missing database. It refuses to sign when the chain
 does not verify and, with `--previous`, when the chain no longer holds the last statement's

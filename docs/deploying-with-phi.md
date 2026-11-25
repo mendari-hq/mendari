@@ -646,12 +646,6 @@ never a key); decisions and the chain itself are never touched. In this order:
 With Neon preview branches, each branch is a copy: run steps 4 and 5 on any branch a deployment
 still uses, or recreate the branches afterwards.
 
-*The evaluation-set keys* (`mendari evalset rotate`, `mendari evalset reindex`). Hidden
-evaluation sets have keys of their own (section 8), rotated the same way: reader first, swap,
-re-seal, check, drop. A new index key means rebuilding the hidden-case index at once. The steps
-are in [the hidden evaluation sets' runbook](operations/evalsets.md#rotating-the-evaluation-set-key);
-a PHI rotation never touches the sets, nor theirs a kept input.
-
 *The input hash key.* Set the new `MENDARI_INPUT_HASH_KEY` and redeploy. The first record
 hashed under it starts a new epoch, chained (`input_hash.epoch`, with the key id before it).
 Hashes are never re-keyed: a keyed hash cannot be recomputed without its input, and the chain
@@ -724,7 +718,7 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
-| A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained), and a grader's over written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
+| A labeller's calls grading written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
 | An agent author's writes to the agent store (`/api/store`, with `MENDARI_AGENT_STORE=on`: an upload's parts, copies, edits, tests, jobs' slices) | person | 240 an hour, 60 at once |
 
 `MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
@@ -970,15 +964,6 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
   still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,
-  `evalset.case.read` and `evalset.labelled` (in memberships mode with the evaluation-set keys:
-  a labeller shown their next hidden case, and their label, each with the set's id only; a label
-  refused as `no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
-  `evalset.adjudication.assigned` (likewise: an organization's administrator drawing a hidden
-  set's cases, assigning them and adjudicating disputes, each with the set's id and how many; one
-  refused as `no_set`, an unknown set or another organization's, with no id), `evalset.graded`
-  (with the evaluation-set keys, in either account mode: an organization's grading key running an
-  agent over one of its hidden sets, with the set's id and how many cases were graded; or refused
-  with its fixed reason, such as `set_changed`, with the set's id, and `no_set` with no id),
   `input.erased`,
   `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
@@ -1064,9 +1049,6 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
 | `CRON_SECRET` | unset: no scheduled purge, checkpoint or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention`, `/api/internal/checkpoint` and `/api/internal/monitor` (otherwise unused, with a warning: they stay off) | 3 |
 | `MENDARI_CHECKPOINT_KEY` | unset: nothing signed or published | 32 random bytes in base64, the Ed25519 key that signs the daily checkpoint (`GET /api/audit/checkpoint`); a malformed one stops the server | 3 |
-| `MENDARI_EVALSET_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64: seals hidden evaluation sets (LP-11, [ADR-0011](decisions/ADR-0011-hidden-evaluation-sets.md)); set with `MENDARI_EVALSET_INDEX_KEY` or not at all, unlike every other key here; the server then needs sign-in and, on Vercel, Production only (with Vercel's system variables exposed, so `VERCEL_ENV` reads `production`). A malformed, half-set or reused key stops the server | 3 |
-| `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
-| `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_REGISTRY_URL` | unset: the console offers no registry | The agent registry the console's Agents view searches and adds from, and the one `mendari pull` reads: https (plain http to this machine only), with no user or password in it; anything else stops the server, naming the setting and never its value. Adding a version from it also needs `MENDARI_AGENT_STORE=on` ([Adopting an agent](guides/adopting-an-agent.md)) | 5 |
 | `MENDARI_AGENT_CONNECTIONS` | `on` | `off`: no organization sets its agents' connections in the console; what was set before is neither shown nor called, and every agent answers through the deployment's own `MENDARI_AGENT_URL`, or from its canned examples. Anything but `on` or `off` stops the server ([ADR-0021](decisions/ADR-0021-an-agents-connection-set-in-the-console.md)) | 5 |
