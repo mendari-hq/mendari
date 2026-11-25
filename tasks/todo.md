@@ -126,14 +126,22 @@ README or the front ends, outside an explicit list of those names.
   - [x] Phase 2: the tests on the new fixtures (2A to 2F).
   - [x] Phase 3.1: the former agents, their data, generators, support and scripts out; the
     fixtures folder is `tests/fixtures/agents` (`9dda7607`).
-  - [ ] Phase 3.2: the removed features out, one engineer per feature group, everywhere
+  - [x] Phase 3.2: the removed features out, one engineer per feature group, everywhere
     (`notes/wave6/phase32-slices.md`): S1 hidden sets and the scoreboard, S2 the removed
     providers and the training commands, S3 Da Vinci, PAS, X12, OMOP and the fictional code
-    systems, S4 the community path, S5 one spec version with guard, derive and the policy file.
-    Then the dead code left between them.
-  - [ ] Phase 4: the rename codemod (rehearsed now on `9dda7607`), then the prose sweep.
-  - [ ] Phase 5: README, CLAUDE.md, one spec page, CHANGELOG 0.1.0, ADR-0026, one vocabulary
-    rule.
+    systems, S4 the community path, S5 one spec version with guard, derive and the policy file
+    (merged `0c15dab9` to `fa400124`, about 30,000 lines out).
+  - [x] Phase 3.3: what the removals left (`90b3a80b`, `2bab0b1d`): Jev, Naive Bayes and the
+    Vercel Connect exchange, `server/paths.py`, the trained-model plumbing, orphaned names.
+    With it, two fixes found on the way: the console's agent picker dropped store agents
+    (`c044df33`), and NOTICE named code systems no package carries any more (`38979547`).
+    Whole suite 8,459 passed, browser 419.
+  - [x] Phase 4.1: the rename codemod, rehearsed on `9dda7607`, run on the final tree with one
+    hand edit (`61599b6d`, `2ee44bc4`): whole suite (SQLite and Postgres) 8,455 passed, browser
+    419, the Hub's lint, typecheck, build and 48 end-to-end tests, `mendari demo`.
+  - [ ] Phase 4.2 and 5, the words, four engineers (`notes/wave6/phaseW-roles.md`): W1 prose in
+    code, W2 the root files, W3 the docs site and one spec page, W4 ADR-0026 and one
+    vocabulary rule.
   - [ ] Phase 6: full verification, the pull request, the merge, the production wipe and
     refill.
 - [x] **Last.** The README and the docs caught up with every wave; the grade taken again.
