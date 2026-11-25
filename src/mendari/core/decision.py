@@ -605,7 +605,7 @@ class Decision:
 
         The check of a pack on the community engine (`Pack.bounded`: a community pack, or one
         from a registry) holds to its input limits (`origin.shape_problem`) and to a time
-        budget: the decision's, or one of its own when called alone (`mendari omop`). It checks
+        budget: the decision's, or one of its own when called alone. It checks
         the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
         budget spent before any error is found raises `OutOfTime` (the decision abstains);
         alone, it is a reason."""
