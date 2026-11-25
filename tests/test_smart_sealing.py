@@ -351,7 +351,7 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
         # The CI ZAP job writes a person's row straight into the store, and it still works.
         with AuditStore(db_target) as store:
             sid = "zap-session-id"
-            row = {"sub": "zap", "name": "zap", "roles": ["admin"], "org": "default"}
+            row = {"sub": "zap", "name": "zap", "claims": {"roles": ["admin"]}, "org": "default"}
             store.smart_put(sid, "user", row, int(time.time()) + 7200)
             assert store.smart_get(sid, "user") == row
             viewer = signed_in(store, role="viewer")

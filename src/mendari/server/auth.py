@@ -1174,12 +1174,9 @@ class Auth:
         issuer = str(session.get("iss") or self.settings.issuer)
         person = person_id(issuer, str(session["sub"]))
         claims = session.get("claims")
-        # The roles as the settings give them now; a session from before claims were kept has
-        # the roles of its sign-in, and ends within 8 hours of the deploy.
-        if isinstance(claims, dict):
-            roles = roles_from(claims, self.settings)
-        else:
-            roles = frozenset(session["roles"])
+        # The roles as the settings give them now, from the claims kept at sign-in: a session
+        # that keeps none has no role.
+        roles = roles_from(claims, self.settings) if isinstance(claims, dict) else frozenset()
         if not roles:  # taken out of the role map since signing in: access ends at once
             security_log.event(
                 "auth.credential.refused", outcome="refused", reason="no_role", actor=person
@@ -1647,7 +1644,6 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 "name": name,
                 "actor": chain_name(options.issuer, claims),
                 "claims": kept_claims(claims, options),
-                "roles": sorted(roles),  # what the release before this one reads
                 "org": org,
             },
             int(time.time()),

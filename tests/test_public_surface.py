@@ -239,7 +239,7 @@ def test_a_session_from_before_the_issuer_was_stored_is_of_the_configured_issuer
 ) -> None:
     settings = AuthSettings(IDP, "c", None, "roles", {}, None, None)
     with AuditStore(tmp_path / "a.db") as store:
-        old = {"sub": "u1", "name": "Nurse Kim", "roles": ["viewer"], "org": "default"}
+        old = {"sub": "u1", "name": "Nurse Kim", "claims": {"roles": ["viewer"]}, "org": "default"}
         store.smart_put("sid", "user", old, int(time.time()) + 60)
         scope = {
             "type": "http",
