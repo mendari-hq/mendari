@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions: what an agent asks to have done besides answer (spec 0.4, ADR-0023).
+"""Actions: what an agent asks to have done besides answer (spec §13, ADR-0023).
 
 An agent's manifest declares the actions it may propose, each with an effect
 (`core/spec.py` `ActionSpec`). The agent proposes some with its answers, or a caller asks about
@@ -37,7 +37,7 @@ MAX_PROPOSED = 16  # the actions one response proposes
 MAX_ARGUMENT_CHARS = 16_000  # one action's arguments, as canonical JSON
 MAX_ARGUMENT_DEPTH = 8
 MAX_PROBLEMS = 10  # what one refused proposal says of its arguments
-# An action's name, declared or proposed (spec 0.4 sections 2 and 4.2).
+# An action's name, declared or proposed (spec sections 13.1 and 13.6).
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
 # The same shape as an API description states it (a JSON Schema `pattern` has no `\Z`).
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
@@ -186,7 +186,7 @@ def plain_hash(arguments: Any) -> str:
 
 
 def shape_problem(name: Any, arguments: Any) -> str | None:
-    """Why this is not a proposal spec 0.4 section 4.2 allows, or None: the name's shape, and
+    """Why this is not a proposal spec section 13.6 allows, or None: the name's shape, and
     arguments that are a JSON object within the limits. For both ways in: a response that
     breaks it is malformed (`invalid_response`), a request that does is refused (422). Never
     echoes the name or a value."""
@@ -230,8 +230,8 @@ def _depth(value: Any, limit: int) -> int | None:
 
 
 def proposals_problem(raw: Any) -> str | None:
-    """Why the `actions` of an agent's response are not what the contract allows (spec 0.4
-    section 4.2), or None: a list of at most `MAX_PROPOSED` objects, each `name` and optional
+    """Why the `actions` of an agent's response are not what the contract allows (spec
+    section 13.6), or None: a list of at most `MAX_PROPOSED` objects, each `name` and optional
     `arguments` and no other key, each within `shape_problem`."""
     if raw is None:
         return None

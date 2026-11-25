@@ -904,10 +904,10 @@ def test_the_record_the_spec_and_the_guide_say_what_the_engine_says() -> None:
     record = (
         docs / "decisions" / "ADR-0024-a-checked-confidence-and-a-second-signal.md"
     ).read_text(encoding="utf-8")
-    # The spec's pages (0.4's, or the one page they become).
+    # The spec's one page.
     pages = sorted((docs / "spec").glob("agent-manifest*.md"))
-    spec = "\n".join(page.read_text(encoding="utf-8") for page in pages)
-    assert not (docs / "spec" / "agent-manifest-0.4-second-signal.md").exists()  # one 0.4 page
+    assert pages == [docs / "spec" / "agent-manifest.md"]
+    spec = pages[0].read_text(encoding="utf-8")
     guide = (docs / "guides" / "calibration-and-a-second-signal.md").read_text(encoding="utf-8")
     assert record.startswith(
         "# ADR-0024: A confidence that was checked, and a second signal that only lowers "

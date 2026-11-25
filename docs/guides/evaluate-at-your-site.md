@@ -15,7 +15,7 @@ and what your AI governance committee reads about the agent is
 ## What leaves your site, and what stays
 
 What is shared is a `mendari.site-report/1`: whole counts only, counted from your run's ledger
-([the format](../spec/evaluation-reports.md#shared-site-reports-mendarisite-report2)). Per
+([the format](../spec/evaluation-reports.md#shared-site-reports-mendarisite-report1)). Per
 question, how many cases were labelled and right, the confusion matrix and the confidence
 deciles; how many cases each outcome had; how many were automated with a wrong
 recommendation; each critical label's cases, detected and automated; and the dataset's size.
@@ -47,8 +47,9 @@ error, Brier scores, latency and cost, and your keys and secrets.
 
 A new key, later: `mendari site key --new`, give the new `site-key.json` to the registry, and
 revoke the old key there. The old private key is kept beside the new one
-(`site_key.<hex>.pem`, the command says where); delete it once the old key is revoked. If a key may have been copied, revoke it as compromised: every
-report it signed then leaves the pooled figures.
+(`site_key.<hex>.pem`, the command says where); delete it once the old key is revoked. If a
+key may have been copied, revoke it as compromised: every report it signed then leaves the
+pooled figures.
 
 ## Each evaluation: a ticket, the run, the signed report
 
@@ -73,8 +74,8 @@ mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --share
 
 The configuration is the deterministic arm (every provider decides on your machines) unless
 you name variants with `--provider SLOT=VARIANT`. A configuration that calls a provider off
-your machines (an LLM, an agent's service) is shared only with `--consent-remote`, recorded in the ticket and
-the report; it is never pooled with a local one.
+your machines (an LLM, an agent's service) is shared only with `--consent-remote`, recorded in
+the ticket and the report; it is never pooled with a local one.
 
 ## Read before sending
 

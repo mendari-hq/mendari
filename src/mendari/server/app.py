@@ -1517,7 +1517,7 @@ def create_app(
             "leaderboard": None if agent.origin == "hub" else leaderboard.load(agent),
             "card_markdown": card_of(agent),
             "datasets": [*agent.manifest.evaluation.datasets, *local_datasets(agent)],
-            # What the agent may ask to have done (spec 0.4), each with how it is gated for
+            # What the agent may ask to have done (spec §13.4), each with how it is gated for
             # this organization now. Absent for an agent that declares none.
             **declared_actions(agent, vouched=decision.vouched()),
         }
@@ -1626,7 +1626,7 @@ def create_app(
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`.
 
-        An agent whose manifest declares written outputs (spec 0.4) answers with `outputs` too:
+        An agent whose manifest declares written outputs (spec §15) answers with `outputs` too:
         what it wrote, by name. They are returned here and are not kept with the decision."""
         decided = decision_for(f"{namespace}/{name}").decide(
             payload, shadow=_is_shadow(request, shadow)
@@ -1660,7 +1660,7 @@ def create_app(
 
         A note whose data does not decode, or that is only a link (`url`), cannot be read: the
         decision is ABSTAIN with the reason (`undecodable`, `not_fetched`). This route never reads
-        a link, so a spec 0.3 reference the record does not hold is `not_fetched` too.
+        a link, so a reference the record does not hold is `not_fetched` too (spec §9.4).
         `decision.data_coverage` says what the mapping looked for and found, as counts and the
         agent's own codes."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(
@@ -2815,8 +2815,8 @@ def create_app(
         read. A structure error in what was sent is a `400`. When a key cannot be read (a failed
         read, an OperationOutcome, a value that is not a resource, a resource or search page
         that is not R4), the hook still answers `200`: the decision is ABSTAIN with the key and a
-        fixed reason, it is recorded with its `data_coverage` record, and its card says so. A spec
-        0.3 agent also reads, from that `fhirServer` only and under its base, what a link the
+        fixed reason, it is recorded with its `data_coverage` record, and its card says so. An
+        agent also reads, from that `fhirServer` only and under its base, what a link the
         record does not hold points to (a note's Binary, a followed reference): at most 50 notes
         and 50 followed references a decision and 100 reads a request, inside the decision's
         deadline, each read once a request; a link it does not read abstains the same way. A

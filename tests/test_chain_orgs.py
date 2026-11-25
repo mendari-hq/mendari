@@ -34,7 +34,7 @@ from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
-# An agent that proposes actions (spec 0.4): this message's decision waits for a reviewer with an
+# An agent that proposes actions (spec §13): this message's decision waits for a reviewer with an
 # action held (`action.proposed`), which its review resolves (`action.resolved`).
 PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 HELD = "Please renew my prescription."

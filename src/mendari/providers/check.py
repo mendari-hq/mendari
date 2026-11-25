@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check: answer with one variant, check with another, and never automate when they disagree
-(ADR-0024; spec 0.4).
+(ADR-0024; spec §14.4).
 
     checked:
       type: check
@@ -24,7 +24,7 @@ and usage reach both members. A second member that fails is recorded as a compos
 member's failure (`<member>:<code>` on each question), which the policy never automates over.
 A first member that fails fails the slot: the member that checks never answers in its place.
 
-The actions the first member proposes (spec 0.4) are the slot's, as its answers are; the second
+The actions the first member proposes (spec §14.4) are the slot's, as its answers are; the second
 member's own are never taken, since it never answers in the first's place. Where the second
 member is one that proposes actions too (an `agent` variant), the two are held
 against each other (`_proposals`): a proposal of the first that the second did not make, with

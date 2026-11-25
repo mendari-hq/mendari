@@ -124,7 +124,7 @@ class _Found:
 
 
 def unreadable_notes(mapping: FhirMapping, indexed: Indexed) -> dict[str, dict[str, int]]:
-    """Each `base64_text` or (spec 0.3) `attachment_text` field (a list's as `<list>.<field>`)
+    """Each `base64_text` or `attachment_text` field (a list's as `<list>.<field>`)
     whose attachments could not be read, with a count by reason. For `base64_text`: data present
     that does not decode (`undecodable`), or only a `url` and no data (`not_fetched`); for
     `attachment_text`, `fhir.read_attachment`'s reason. Fields whose notes all read are left
@@ -297,7 +297,7 @@ def _prefetch(
 
 
 def _focus_codes(mapping: FhirMapping) -> list[str]:
-    """The agent's own codes `focus_where` looks for: its `in` values, or (spec 0.3, LP-23k) its
+    """The agent's own codes `focus_where` looks for: its `in` values, or (spec §9.6, LP-23k) its
     code set's codes, sorted; none without `focus_where`."""
     where = mapping.focus_where
     if where is None:

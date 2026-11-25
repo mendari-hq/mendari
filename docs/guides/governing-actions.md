@@ -11,8 +11,8 @@ channel. Your caller, the code that runs the agent's tools, runs an action, and 
 was released.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
-rules are in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), and the reasons in
-[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
+rules are in [the agent manifest spec](../spec/agent-manifest.md#13-actions), section 13, and
+the reasons in [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
 
 ## See it in a minute
 
@@ -36,11 +36,9 @@ reviewer confirmed the decision. An action the agent never declared was blocked.
 
 ## 1. Declare what the agent may do
 
-Add an `actions` section to `agent.yaml`, and set `spec_version: "0.4"`. The demo agent's:
+Add an `actions` section to `agent.yaml`. The demo agent's:
 
 ```yaml
-spec_version: "0.4"
-# ...
 actions:
   assign_queue:
     description: Put the message in the refill, scheduling or front-desk queue.
@@ -285,8 +283,6 @@ Erasing a decision's input erases them, and retention removes them, each with it
 event. `mendari audit verify --notes` checks each kept set against the commitment its event
 chained. The audit view of the console lists a decision's actions above its events, and the
 FHIR export carries both event kinds, as codes only.
-
-No table or column was added for any of this: a database from before verifies as it did.
 
 ## 8. On the Decision Card
 

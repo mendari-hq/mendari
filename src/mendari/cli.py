@@ -256,7 +256,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
         _print_json({"decision": result.to_dict(), "task": task})
     else:
         decided = decision.decide(payload)
-        # What the agent wrote (spec 0.4), shown to whoever ran the command; never recorded.
+        # What the agent wrote (spec §15), shown to whoever ran the command; never recorded.
         written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
         _print_json({**decided.to_dict(), **written})
     return 0

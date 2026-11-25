@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Decisions that carry proposed actions (spec 0.4 sections 4 and 5): the first way in.
+"""Decisions that carry proposed actions (spec sections 13.5 to 13.7): the first way in.
 
 The fixture agent `tests/fixtures/mini-agents/actions-mini` declares one action of each effect,
 and its canned agent proposes them. Here each proposal is followed to its disposition, under

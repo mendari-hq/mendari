@@ -486,7 +486,7 @@ def _risk(agent: Agent, deployment: Deployment | None) -> dict[str, Any]:
 
 
 def _actions(agent: Agent) -> list[dict[str, Any]]:
-    """The actions the agent declares (spec 0.4), each with its effect and how the runtime
+    """The actions the agent declares (spec §13), each with its effect and how the runtime
     gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
     declared = []
     for name, spec in agent.manifest.actions.items():
@@ -508,7 +508,7 @@ def _actions(agent: Agent) -> list[dict[str, Any]]:
 
 
 def _written(agent: Agent) -> list[dict[str, Any]]:
-    """What the agent writes besides its answers (spec 0.4), from the manifest: each output,
+    """What the agent writes besides its answers (spec §15), from the manifest: each output,
     where its text comes from, and each rubric it is graded against, with its criteria, whether
     a model judge is named, and the floors a judge is held to. Empty: it declares none."""
     from mendari.evals import written
@@ -657,7 +657,7 @@ def _oversight(
         "actions": _actions(agent),
         "confidence": _confidence(agent),
         "second_signal": _second_signal(agent),
-        # What it writes and how that is graded (spec 0.4): empty where it declares none.
+        # What it writes and how that is graded (spec §15): empty where it declares none.
         "written": _written(agent),
         "review_queue": (
             None

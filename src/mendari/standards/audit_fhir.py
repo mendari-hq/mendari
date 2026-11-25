@@ -85,7 +85,7 @@ _EVENTS = {
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
     "card.feedback": ("C", "Card feedback recorded (CDS Hooks)"),
     # An action an agent proposed or a caller asked about, and its release or denial by the
-    # decision's reviewer (spec 0.4): authorized and recorded here, run elsewhere.
+    # decision's reviewer (spec §13.9): authorized and recorded here, run elsewhere.
     "action.proposed": ("C", "Action proposed"),
     "action.resolved": ("U", "Action released or denied by review"),
 }

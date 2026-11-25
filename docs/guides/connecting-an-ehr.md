@@ -228,7 +228,7 @@ read.
 
 An agent can read a note that is only a link to a Binary, and what a reference points to: the
 payer behind `Coverage.payor`, the drug behind `medicationReference`
-([the mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
+([the mapping](../spec/agent-manifest.md#94-following-a-reference)). When the record does not hold them, Mendari
 reads them from the same `fhirServer`, with the same token:
 
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
@@ -417,45 +417,34 @@ docker compose --profile signin run --rm --use-aliases cds-client
 
 **The standard hooks, on data shaped as an EHR returns it.** The demo agent's hook is its own
 (`mendari-message-received`). The standard hooks (`patient-view`, `order-sign`) are held by
-the test suite and CI on what the product does not bundle: the test fixtures' agents, and a
-vendor-shaped EHR profile (`tests/support/ehr_profile.py`). Its synthetic patients follow the
-shapes of Epic's and Oracle Health's public FHIR documentation, and hold none of their data:
+the test suite on what the product does not bundle: the chart-summary test fixture and its
+`order-sign` twin, on a vendor-shaped EHR (`tests/support/chart_ehr.py`) served inside the test,
+with no network. Its synthetic patients follow the shapes an EHR such as Epic returns, and hold
+none of its data:
 
-- a note is a DocumentReference that links to a Binary (`attachment.url`), as plain text, HTML or
-  RTF;
-- a Condition carries the site's own diagnosis code (a fictional system) and ICD-10-CM, the
-  site's coding first for some patients and second for others;
-- a medication is a MedicationRequest naming a Medication coded in RxNorm, with its dates in a
-  dosage `boundsPeriod`;
-- `Coverage.payor` refers to an Organization that holds the site's identifier for the payer;
-- a referral's category carries the site's order type beside the referral code;
+- a note is a DocumentReference whose attachments only link to Binaries, as plain text, HTML or
+  RTF, in one rendition or two (HTML with an RTF twin of the same note);
+- a Condition carries the site's own diagnosis code first, beside ICD-10-CM;
+- a medication is a MedicationRequest naming a Medication coded in RxNorm by reference, with its
+  dates in a dosage `boundsPeriod`;
 - no SNOMED CT anywhere.
 
-Each resource has an id of the profile's own, and none carries the sandbox's tag or a synthetic
-case id, as an EHR's data would not: the sandbox's worker, SMART launch and Bulk check never
-read it. In a checkout, `sandbox/fixtures.compose.yml` adds the fixtures to the compose
-sandbox: the engines serve the fixture agents too, and `cds-client` seeds the profile and
-calls every standard hook of the agents it has patients for, once per patient, with the same
-signed client. CI's `sandbox-e2e` runs that too:
-
-```bash
-F="-f docker-compose.yml -f sandbox/fixtures.compose.yml"
-docker compose $F --profile signin up -d --wait engine launcher engine-signin
-docker compose $F --profile signin run --rm --use-aliases cds-client
-```
+Each fixture decides through its own hook, as an EHR calls it (no prefetch, the FHIR server and
+its token named), the profile's server answering the engine's reads (`tests/test_ehr_profile.py`).
 
 **What an agent cannot read in these shapes.** An agent reads a note that is only a link from
-the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
-the decision abstains for a patient whose note is RTF (`could not read notes: unsupported_type`,
-an `info` card), the one unread thing that run allows. A payer's reference is followed to its
-Organization, but the Organization holds only the site's own payer id, which no site code map
-translates (a map translates codings only).
+the FHIR server (its Binary, as text/plain or text/html, and of a note kept in two renditions
+the readable one); an RTF note alone is not read, so the decision abstains for a patient whose
+note is RTF (`could not read notes: unsupported_type`, an `info` card). And an EHR that keeps
+every medication as an active MedicationRequest, its dates in the dosage's bounds, gives a
+medication the patient's record ended as active, with the same dates. The test pins both, each
+with why.
 
 ## Site codes
 
 An EHR often codes things its own way: a local code system, or another code of a standard one.
 An agent names sets of its own codes (`code_sets`) and reads a field through one
-(`code_set`, [the spec](../spec/agent-manifest-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
+(`code_set`, [the spec](../spec/agent-manifest.md#96-code-sets)). `MENDARI_SITE_CODES`
 says how a site's codes translate into an agent's, one organization at a time. Off until you set
 it: unset, no code is translated and every decision is made as before.
 

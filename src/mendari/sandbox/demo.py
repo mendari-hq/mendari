@@ -4,7 +4,7 @@
 One story, in six numbered sections and an ending:
 
 1. It routes a few patient portal messages through the agent under its policy.
-2. It shows what the agent asked to do with them (spec 0.4): the demo agent declares two
+2. It shows what the agent asked to do with them (spec §13): the demo agent declares two
    actions and its canned answers propose them. A write is released with an AUTO decision, a
    message to the patient is held until a reviewer confirms the decision, and an action the
    agent never declared is blocked. Mendari authorizes each and runs none.

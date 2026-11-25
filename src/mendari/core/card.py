@@ -319,7 +319,7 @@ _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
 
 
 def _written(agent: Agent) -> list[str]:
-    """The card's Written outputs section (spec 0.4 sections 16 to 19): each text the agent
+    """The card's Written outputs section (spec sections 15.1 to 15.6): each text the agent
     writes, each rubric it is graded against (every criterion's instructions and every level's
     anchor, as a clinician and the judge read them) and the floors a judge is held to. Text
     only: the card shows no figure of a judge. Nothing for an agent that declares none, so its
@@ -389,7 +389,7 @@ def _written(agent: Agent) -> list[str]:
 
 
 def _actions(agent: Agent) -> list[str]:
-    """The card's Actions section (spec 0.4): each action the agent may propose, what it does,
+    """The card's Actions section (spec §13): each action the agent may propose, what it does,
     its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
     Nothing for an agent that declares none, so its card is what it always was."""
     declared = agent.manifest.actions

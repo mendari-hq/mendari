@@ -12,7 +12,7 @@ pull request from a fork. It prints counts and case ids, never a case's text.
 
 !!! note "Before the first release"
     The action is in Mendari's repository (`action.yml`), and it is used by the repository's
-    name and a release's tag. Until the repository is public and its first release is tagged,
+    name and a release's tag. The repository is public; until its first release is tagged,
     the lines below cannot be resolved from another repository.
 
 ## The few lines

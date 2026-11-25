@@ -1,12 +1,11 @@
 # Evaluation reports, ledgers and paired comparisons
 
-This page specifies what an evaluation run writes: the report (`mendari.eval/2`), the per-case
-ledger its result is computed from (`mendari.ledger/1`), and a paired comparison of two runs
-(`mendari.compare/1`). It supersedes the report format of the
-[agent spec 0.2](agent-manifest-0.2.md) (`mendari.eval/1`), which still loads. The key
-words MUST, SHOULD and MAY are used as in that spec. These formats name the agent with the key
-`pack`, the word Mendari used before: hashed and signed records hold that key, so it keeps its
-name.
+This page specifies what an evaluation run writes: the report (`mendari.eval/1`), the per-case
+ledger its result is computed from (`mendari.ledger/1`), a paired comparison of two runs
+(`mendari.compare/1`), and the formats a site, a publisher and a registry exchange about an
+agent's evaluations. The key words MUST, SHOULD and MAY are used as in the
+[agent manifest spec](agent-manifest.md), whose §8 says what an evaluation measures. These
+formats name the agent with the key `agent`: its id, version and digest.
 
 ## The report: `mendari.eval/1`
 
@@ -30,7 +29,8 @@ publisher's upload
 `{"status": "unknown", "reason": ..., "findings": []}`, as for a benchmark that cannot be
 compared, and says why.
 
-The result MUST carry everything a `mendari.eval/1` report carries, except case ids, and adds:
+The result MUST carry what the [agent manifest spec](agent-manifest.md#8-evaluation) lists for a
+report (§8), without case ids, and:
 
 - `ledger`: the ledger's id (`sha256:` of its bytes) and its number of cases;
 - `seeds`: the bootstrap seed, the number of resamples (2,000) and the interval level (0.95);
@@ -43,14 +43,12 @@ The result MUST carry everything a `mendari.eval/1` report carries, except case 
   of the mean of per-case Brier scores), and `calibration.equal_mass`: the expected calibration
   error over ten equal-count bins, tied confidences averaged, with `status: not_estimable` when a
   bin would hold fewer than 30 cases. The equal-width bins table is kept;
-- per critical label, `proportion` beside `detection_rate`, and `missed_cases` (ledger hashes)
-  in place of `missed_ids`;
+- per critical label, `proportion` beside `detection_rate`, and `missed_cases` (ledger
+  hashes);
 - `misclassified`, its cases named by ledger hash (`case`), never by id;
 - `models`: per question, the models that answered and how often (each answer's provider
-  model, [agent spec 0.2](agent-manifest-0.2.md), §4.2), beside `providers`, the
-  configured model per slot. Reports and ledgers made before this was recorded (2026-10-07) by
-  an `llm` slot (alone or in a composite) name the configured model there instead; a report's
-  engine version does not tell them apart.
+  model, [the agent manifest spec](agent-manifest.md#42-answers), §4.2), beside `providers`, the
+  configured model per slot.
 
 Interval bounds and probabilities are stored to 6 decimal places, so a result is the same on
 every platform. Changing what a figure measures MUST change the format and say which published
@@ -64,7 +62,7 @@ cases support. It is in `run`, outside the result: it depends on the run's optio
 and their confidence) and on what each decision kept in memory (answers a ledger rounds), so
 `result_sha256`, the ledger and every signed record are unchanged by it, and it cannot be
 recomputed from the ledger. It MUST NOT hold case text or a case id. It is advice: no decision
-reads it, and nothing edits a manifest from it. A report written before the block has none.
+reads it, and nothing edits a manifest from it.
 
 It counts two risks, each as the result counts it:
 
@@ -150,13 +148,14 @@ ledger ids, the agent digest, the dataset's hash and the organization: ids and h
 
 ## How a figure is shown
 
-Every proportion a person reads, on a card, on the command line or on the dashboard, is shown
+Every proportion a person reads, on a card, on the command line or in the console, is shown
 as k of n with its exact interval: `596 of 600 [98.3-99.8%]`. The interval is worked out from k
 and n each time it is shown, never read from a stored (6-place) bound, so every surface prints
 the same text. A bound is printed with as many digits as it needs (up to 4) never to read 0 or
 100% when it is neither; one closer still reads `<0.0001` or `>99.9999`. A share of no cases
-says "no cases"; a share whose count is not known (a rate stored without it) says "n/a". Next to a critical label with fewer than 100 positives (the evidence rule), the
-figure says "insufficient evidence". The only other percentages are thresholds and tolerances,
+says "no cases"; a share whose count is not known (a rate stored without it) says "n/a". Next
+to a critical label with fewer than 100 positives (the evidence rule), the figure says
+"insufficient evidence". The only other percentages are thresholds and tolerances,
 which are settings, not shares of cases.
 
 An agent's known failure modes are its author's words, not computed. The bundled demo agent
@@ -168,8 +167,9 @@ A server works out the figures of what it serves, in Python (`mendari.evals.figu
 browser only formats them. A figure is `{k, n, low, high}`: k of n with its unrounded exact
 interval (`low` and `high` null when n is 0). A figure is null when what it is of is not known,
 or when its counts are not a whole k of a whole n (a rate outside [0, 1] or not a share of its n
-cases, a count above 10^9). The card and the command line follow the same rule. Figures are never stored: they are recomputed from the stored report,
-leaderboard or registry version on every read, so one published before needs no migration.
+cases, a count above 10^9). The card and the command line follow the same rule. Figures are
+never stored: they are recomputed from the stored report, leaderboard or registry version on
+every read.
 
 | Where | Key | Holds |
 |---|---|---|
@@ -177,27 +177,25 @@ leaderboard or registry version on every read, so one published before needs no 
 | `GET /api/agents/{namespace}/{name}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
 | `POST /api/agents/{namespace}/{name}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
 | `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
-| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: an agent pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and an agent from a registry's benchmark figures are null |
+| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: an agent pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and an agent from a registry's benchmark figures are null |
 | `GET /v1/agents/{namespace}/{name}`, `GET /v1/agents/{namespace}/{name}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the agent's test set, labelled "publisher's own test set: regression check, not a ranking" |
 | `GET /v1/agents/{namespace}/{name}` | `latest.figures` | `benchmark` and `leaderboard`, always null: a registry shows no uploaded figure |
 | `GET /v1/agents/{namespace}/{name}/{version}` | `figures` | the same, always null |
 | `GET /v1/search` | each item's `figures` | `benchmark`, always null |
 
-Since LP-18 a registry stores and shows no benchmark or leaderboard a publisher uploads
+A registry stores and shows no benchmark or leaderboard a publisher uploads
 ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): `figures`
-keeps its shape for clients that read it, with null values. Its one figure is the regression
+is there, with null values, so a client reads one shape. Its one figure is the regression
 check's, which nothing ranks on.
 
 A report's figures are each over what the card shows it over: accuracy over the labelled
 cases, each outcome and automation over all cases, false automation over the labelled cases,
 precision over the cases predicted with the label and recall over its support, a subgroup's
 accuracy over its labelled members, each calibration bin's correct cases, and each sweep row's
-automated cases over the scored ones and correct cases over the automated. A report from
-before its counts were stored has each figure it can prove: the sweep's counts from the
-calibration bins, a subgroup's accuracy only when every case is labelled. `figures` is a run
+automated cases over the scored ones and correct cases over the automated. `figures` is a run
 key: a served report's `result_sha256` is still its result's hash.
 
-A browser that prints a figure (the dashboard's `ui.js`) ports `render.shown` and is checked
+A browser that prints a figure (the console's `ui.js`) ports `render.shown` and is checked
 against `tests/fixtures/shown.json` (written and checked by `scripts/shown_fixture.py`): the text
 Python prints for 2,401 figures and 601 bounds, including the exact rounding ties where
 JavaScript's `toFixed` and Python's formatting disagree. Its bounds' last bits are the
@@ -225,8 +223,7 @@ flags only. No rate, no fraction and no case leaves the site; the registry compu
 it shows from the counts (`mendari.evals.figures.site`). It is counted from the run's ledger
 (`mendari.evals.share.counted_report`), never as a rate times n, and every count passes one
 suppression function (`suppress`) that the sender runs before writing or sending and the
-registry runs again, refusing a payload it would change. A registry refuses
-`mendari.site-report/1`, which carried rates, and names this format in its answer.
+registry runs again, refusing a payload it would change.
 
 It holds the agent (id, version, digest), each slot's provider (variant, type, model), the
 policy (risk level, thresholds as whole basis points: 0.85 is 8500, and whether a governance
@@ -378,7 +375,7 @@ version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (o
 
 ```json
 {"format": "mendari.publisher-evaluation/1",
- "agent": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
+ "agent": {"id": "mendari/portal-message-agent", "version": "0.3.0", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
  "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
              "provenance": "synthetic", "labelled_by": "The script that wrote the cases"},
@@ -392,28 +389,24 @@ version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (o
  "signature": "<base64>"}
 ```
 
-- **Two formats.** `/2` adds what an evaluation page needs beside the counts:
-  `dataset.provenance` (what the agent's manifest says its data was built from,
-  `card.provenance`: `synthetic`, `de_identified`, `site_records`, or null; the registry
-  refuses a record that says otherwise than the manifest in the signed archive),
-  `dataset.labelled_by` (who labelled the cases, in the publisher's words: one printable line
-  of at most 200 characters, or null), `engine` (the Mendari release that ran the evaluation)
-  and `claimed.failed_cases` (how many cases a provider failed on, at most the dataset's n:
-  there the engine sends the case to a person, so those cases say nothing of the
-  configuration). `mendari.publisher-evaluation/1` is the same record without those four, and
-  is not changed: the format is in the signed bytes, so a record of one never verifies as the
-  other; a registry takes either, stores what it was sent, and shows a `/1` record with what
-  it does not state as not stated. The command line signs `/2`.
+- **Beside the counts**, what an evaluation page needs: `dataset.provenance` (what the agent's
+  manifest says its data was built from, `card.provenance`: `synthetic`, `de_identified`,
+  `site_records`, or null; the registry refuses a record that says otherwise than the manifest
+  in the signed archive), `dataset.labelled_by` (who labelled the cases, in the publisher's
+  words: one printable line of at most 200 characters, or null), `engine` (the Mendari release
+  that ran the evaluation) and `claimed.failed_cases` (how many cases a provider failed on, at
+  most the dataset's n: there the engine sends the case to a person, so those cases say nothing
+  of the configuration).
 - **Closed.** No other field is taken; every name is one the agent defines.
 - **`configuration`** names a variant for every provider slot. **`dataset`** is a dataset the
   manifest declares (never a path), its file's SHA-256 and its number of cases (at least 100).
-- **`report`** is the run's [`mendari.site-report/2`](#shared-site-reports-mendarisite-report2)
+- **`report`** is the run's [`mendari.site-report/1`](#shared-site-reports-mendarisite-report1)
   counts (`counted_report`): whole, with no cell suppressed, as a public set holds no patient.
   `remote_consent` is whether the configuration calls a provider off the machine (a type that is
-  not `rules`, or a composite with one).
+  not `rules`, or a `check` with one).
   `governance_override` is false: an evaluation measures the agent's own policy.
 - **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD,
-  and in `/2` the cases a provider failed on) and **`models`** (the models that answered, as
+  and the cases a provider failed on) and **`models`** (the models that answered, as
   the ledger names them) are the publisher's own word, shown labelled so; they are not counts.
 - **Signature.** Ed25519 with one of the namespace's publisher keys over
   `mendari-publisher-evaluation-v1\0`, the format, `\0`, then the canonical JSON of every other
@@ -450,7 +443,7 @@ signed records and nothing else.
   latency, cost and failed cases, labelled as claimed; the key that signed it, and whether the
   registry ran it again.
 - **`comparison`**, for each dataset: the configurations in the order of
-  [`mendari.rank/1`](#leaderboards-mendarileaderboard2-and-mendarirank1) without its cost
+  [`mendari.rank/1`](#leaderboards-mendarileaderboard1-and-mendarirank1) without its cost
   (fewest critical cases automated, then the worst critical label's detection, then false
   automation, then accuracy), a `status` (`ordered`, `tied`, `one_configuration`,
   `no_critical_label`, `insufficient_evidence`), the measure that decided the first against the
@@ -496,12 +489,13 @@ same records (dataset hash and size), in this order:
 5. a lower cost per decision, then the configuration's name, so the order is total.
 
 Accuracy never ranks alone. Each bound is worked out from the row's k and n, never read from
-the row: a board can come from a registry upload. A row measured on another agent digest has the standing
-`earlier version` and no rank: its AUTO and false automation followed that version's policy. When
+the row: a board can come with an agent pulled from a registry, as its publisher wrote it. A row
+measured on another agent digest has the standing `earlier version` and no rank: its AUTO and
+false automation followed that version's policy. When
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.
 
-**How a leaderboard is shown (since LP-17g, a display change).** The agent's own sets are
+**How a leaderboard is shown.** The agent's own sets are
 public: they are in the repository and in the package, so a configuration can be tuned to
 them. A public set is a regression check, never a ranking, so no surface prints a rank (a board
 can also hold a site's own file, `--dataset PATH`, and nothing on it is graded either):
@@ -511,16 +505,16 @@ can also hold a site's own file, `--dataset PATH`, and nothing on it is graded e
   tables have no Rank column. A row measured on an earlier version of the agent says so beside
   its configuration.
 - `mendari leaderboard` prints the same opening and the same tables.
-- The dashboard's Provider comparison says the same. It has no rank column, and its cost chart
+- The console's Provider comparison says the same. It has no rank column, and its cost chart
   names the deployed configuration and every configuration no other beats on both cost and
   accuracy.
 
 The rows are listed in `ranking.grouped`'s order, a listing order: those that rank as data
 (measured on this version of the agent, on records where a critical label has at least 100
 positives) first, in `mendari.rank/1`'s order, the critical cases caught first; then every
-other row, by configuration name. A table of rows all measured on earlier versions is therefore in order of configuration name. The data and the API do not
-change: each row keeps its `rank` and `standing`, and `GET /api/agents/{namespace}/{name}` serves them as
-before.
+other row, by configuration name. A table of rows all measured on earlier versions is therefore
+in order of configuration name. Each row still holds its `rank` and `standing` in the data, and
+`GET /api/agents/{namespace}/{name}` serves them.
 
 ## Paired comparisons: `mendari.compare/1`
 
@@ -574,7 +568,7 @@ more positives there than it holds distinct.
 ## Written output: `mendari.written/1`, its ledger and its grades
 
 What an evaluation of an agent's written output writes
-([agent manifest spec 0.4](agent-manifest-0.4.md), sections 16 to 20;
+([the agent manifest spec](agent-manifest.md#15-written-output), section 15;
 [ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md)). The reference
 implementation is `mendari.evals.written`.
 

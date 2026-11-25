@@ -12,8 +12,8 @@
             │   │                 rules│llm│agent          rules, thresholds, caps  │    │
             │   └──────────────────────────────────────────┬───────────────────────┘    │
             │                                              ▼                             │
-            │   AuditStore (SQLite): decisions · hash-chained events · review queue ·    │
-            │                        eval reports                                         │
+            │   AuditStore (SQLite/Postgres): decisions · hash-chained events · review ·  │
+            │                        queue · eval reports                                 │
             │   Dashboard (static HTML/JS)  ◄── /api/stats /api/review /api/audit /api/evals│
             └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -81,9 +81,8 @@
 
 ## Trust boundaries
 
-- **Agent content is code-adjacent.** Regexes, models and policies change behaviour. Agents are
-  identified by digest and SHOULD be reviewed like code. v0.1 loads agents only from local
-  paths.
+- **Agent content is code-adjacent.** Patterns, prompts, calibrations and policies change
+  behaviour. Agents are identified by digest and SHOULD be reviewed like code.
 - **Agents from a registry are verified before use** (`hub/client.py`):
   - the archive's SHA-256 recorded by the registry;
   - every file's hash in the signed manifest;
@@ -109,8 +108,8 @@
 - **Remote providers** (LLMs, agents) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
-  forbids following it, and the response schema is fixed by the agent. Their responses are validated strictly and bounded in size. A batched
-  call sends the union of its variants' `state_fields`; a variant that must not share its
+  forbids following it, and the response schema is fixed by the agent. Their responses are
+  validated strictly and bounded in size. A batched call sends the union of its variants' `state_fields`; a variant that must not share its
   state sets `batch: false`. An owned agent's variant without `state_fields` sends the whole
   input; an agent the deployment does not own (a registry's, a store's) must name them, and runs on
   the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
@@ -119,8 +118,10 @@
   an agent is refused for a problem, an owned one warned.
   - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every LLM and agent
     request to an origin it does not list is refused before it is opened (`invalid_endpoint`),
-    and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off it stops startup. Unset, the endpoints are
-    only the deployment's own variables, as before.
+    and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off it stops startup. Unset, an LLM calls the
+    endpoint the deployment's variables name, and an agent its organization's own connection
+    (public addresses only, `providers/reach.py`), else an owned agent's own `endpoint`, else
+    `MENDARI_AGENT_URL`.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in
@@ -136,7 +137,7 @@
   single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
   Bulk.
   - The server's origin must be on `MENDARI_FHIR_ALLOWED_SERVERS`. It is empty by default, so
-    CDS Hooks then works from prefetch only, as in v0.1.
+    CDS Hooks then works from prefetch only.
   - Plain http is allowed only for loopback and single-label (compose) hosts.
   - Requests stay under the server's base URL, redirects are refused, and responses are capped
     at 5 MB of JSON.
@@ -150,7 +151,8 @@
   - The `id_token` is verified with the server's JWKS: RS256 or ES384 only, with `iss`, `aud`,
     `exp` and `nonce` checked.
   - Access tokens stay in the database (`smart_sessions`, keyed by the SHA-256 of the browser's
-    opaque id, expiring with the token; not encrypted at rest until the v0.6 PHI mode).
+    opaque id, expiring with the token), each row sealed under a key derived from the browser's
+    own cookie (`core/session_seal.py`): the database alone opens none.
   - The session cookie is HttpOnly, Secure and SameSite=Lax. No refresh tokens are requested.
   - A decision is only made for a resource whose subject is the launch's patient.
 - **Bulk exports** (`standards/bulk.py`) go through the same allow-list, and so do the status URL

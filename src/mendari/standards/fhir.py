@@ -10,7 +10,7 @@ for patient records with many Conditions, Observations or MedicationStatements. 
 Bundle, a single resource, or a CDS Hooks prefetch object whose values may themselves be search
 Bundles; all of them are flattened, and resources are de-duplicated by type and id.
 
-The mapping (docs/spec/agent-manifest-0.3.md, LP-23g) also has the ``[system=<uri>]``
+The mapping (docs/spec/agent-manifest.md section 9, LP-23g) also has the ``[system=<uri>]``
 predicate, which keeps the items of one code system (a coding, an identifier); `paths`, tried in
 order until one gives a value; `follow`, one reference hop resolved inside the record and never
 fetched (a path of the field's own type read in place, `own_type`, LP-23k); the
@@ -65,7 +65,7 @@ AGENT_TAG_SYSTEM = "https://mendari.co/fhir/CodeSystem/agent-version"
 AGENT_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/agent-version"
 MANUAL_TRIAGE = "manual-triage"  # the performer when there is no recommendation
 DISPLAY_LIMIT = 250
-# A path segment: an element name, then at most one of `[n]`, `[*]` and (spec 0.3)
+# A path segment: an element name, then at most one of `[n]`, `[*]` and (spec §9.2)
 # `[system=<uri>]`, a uri as `code_systems` declares one.
 _SEGMENT = re.compile(
     r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)"
@@ -98,7 +98,7 @@ MAX_CODE_SET_CODES = 200
 # load rather than exhausting the server when the terminology is built.
 MAX_PERFORMER_CODES = 10_000
 
-# `medication_period` (spec 0.3 §2.7, LP-23 conflict 39, with the changes the owner, a
+# `medication_period` (spec §9.8, LP-23 conflict 39, with the changes the owner, a
 # physician, chose on 2026-11-07 in answer to notes/clinician-review-medication-period.md):
 # when a MedicationRequest's drug is taken. It starts at its first dosage instruction's bounds,
 # else when it was written, and stops at those bounds' end, else at its start plus the bounds'
@@ -155,10 +155,10 @@ class ResourceRule(_Model):
 
 
 class FieldMapping(_Model):
-    """One mapped value: `path`, or (spec 0.3) `paths` tried in order, the first that gives a
-    value winning. With `follow` (0.3), a path to a Reference is followed first, inside the
+    """One mapped value: `path`, or `paths` tried in order, the first that gives a value
+    winning (spec §9.3). With `follow`, a path to a Reference is followed first, inside the
     record, and the paths are read in the resource it reaches, but a path of the field's own
-    type (`own_type`), read where the field is. `code_set` (0.3) picks a coding of one of the
+    type (`own_type`), read where the field is. `code_set` picks a coding of one of the
     mapping's code sets; `map` turns what was found into the agent's value."""
 
     path: str | None = None
@@ -185,14 +185,14 @@ class FieldMapping(_Model):
 
 
 class MedicationPeriod(_Model):
-    """The item keys a MedicationRequest's derived start and stop go to (spec 0.3)."""
+    """The item keys a MedicationRequest's derived start and stop go to (spec §9.8)."""
 
     start: str = Field(min_length=1)
     end: str = Field(min_length=1)
 
 
 class ListSource(_Model):
-    """One resource type of a list (spec 0.3 `resources`): its fields, relative to the
+    """One resource type of a list (spec §9.7 `resources`): its fields, relative to the
     resource, and for a MedicationRequest optionally `medication_period`."""
 
     fields: dict[str, FieldMapping] = {}
@@ -211,7 +211,7 @@ class ListSource(_Model):
 
 
 class ListMapping(_Model):
-    """A list target: `resource` and its `fields`, or (spec 0.3) `resources`, several types
+    """A list target: `resource` and its `fields`, or (spec §9.7) `resources`, several types
     into one list, each with its own fields, items in the order the types are given."""
 
     resource: str | None = None
@@ -234,7 +234,7 @@ class ListMapping(_Model):
 
 
 class CodeSet(_Model):
-    """A set of the agent's own codes in one code system (spec 0.3 `code_sets`)."""
+    """A set of the agent's own codes in one code system (spec §9.6 `code_sets`)."""
 
     system: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:)\S+$")
     codes: list[str] = Field(min_length=1)
@@ -260,7 +260,7 @@ class TaskTemplate(_Model):
 
 class FocusFilter(_Model):
     """Which resources of the focus type count, e.g. referrals among all ServiceRequests: those
-    whose value at `path` is one of `in`, or (spec 0.3, LP-23k) whose codings at `path` give a
+    whose value at `path` is one of `in`, or (spec §9.6, LP-23k) whose codings at `path` give a
     code of the mapping's code set `code_set`, a site's translations into it included
     (`FhirAdapter.is_focus`)."""
 
@@ -530,7 +530,7 @@ class FhirAdapter:
 
     def is_focus(self, resource: Mapping[str, Any], *, site_codes: SiteCodes | None = None) -> bool:
         """Whether a resource is one the agent decides about: of the focus type and, with
-        `focus_where`, one of its values at its path; or (spec 0.3) a code of its code set among
+        `focus_where`, one of its values at its path; or (spec §9.6) a code of its code set among
         the codings at its path, read as a `code_set` field reads them, a site's translations
         into the set (`site_codes`, LP-23i) included. A decision about a focus that counts only
         through a translation is never AUTO (`read`'s `translated`, LP-23k)."""
@@ -910,7 +910,7 @@ def _unread_format(
 def read_attachment(
     attachment: Any, *, container: Any = None, record: Mapping[str, Any] | None = None
 ) -> tuple[str | None, str | None]:
-    """An Attachment's text and, when it could not be read, why (spec 0.3 `attachment_text`).
+    """An Attachment's text and, when it could not be read, why (spec §9.5 `attachment_text`).
 
     Its content is its inline `data` or, with only a `url`, a Binary that url names inside the
     record (`resolve`: contained in `container`, a Bundle entry, `Binary/<id>`, or one a linked
@@ -957,7 +957,7 @@ def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[
     """Each `attachment_text` field of the mapping's `fields` whose text in `value` (the input
     `FhirAdapter.read` gave) is longer than the `maxLength` the agent's input `schema` gives that
     field (found by `properties`, one part of its dotted target at a time), sorted, each taken
-    out of `value` (spec 0.3 §2.4). The texts of all of a patient's notes, joined, can be longer
+    out of `value` (spec §9.5). The texts of all of a patient's notes, joined, can be longer
     than the schema allows one field, which would refuse the whole input (a BLOCK, which shows no
     card unless the agent's card template names `refused`); without the field, the decision
     abstains instead (`could not read <field>: too_large`), for a person, as for a note it could
@@ -1058,7 +1058,7 @@ def pick_code(
     values: Iterable[Any], code_set: CodeSet, translations: Iterable[Any] = ()
 ) -> str | None:
     """The first of a code set's own codes among `values` (Codings, or CodeableConcepts whose
-    codings are read), by the set's system and code: spec 0.3's `code_set` selector. A coding
+    codings are read), by the set's system and code: the `code_set` selector (spec §9.6). A coding
     of another system counts only through `translations` (a site's `{system, code, as}`,
     LP-23i), and then only as an `as` the set lists; a coding of the set's own system among
     `values` wins over a translated one. (A field with `paths` reads every path for the set's
@@ -1122,7 +1122,7 @@ def _system_code(coding: Mapping[str, Any]) -> tuple[str, str] | None:
 
 
 def medication_period(request: Mapping[str, Any]) -> tuple[Any, Any]:
-    """A MedicationRequest's (start, stop) by spec 0.3's `medication_period`: the start is its
+    """A MedicationRequest's (start, stop) by `medication_period` (spec §9.8): the start is its
     first dosage instruction's `timing.repeat.boundsPeriod.start`, else `authoredOn`; the stop is
     that `boundsPeriod.end`, else the start plus that timing's `boundsDuration` (`stop_after`),
     else None (unknown), never inferred from its status."""
@@ -1209,7 +1209,7 @@ def read_field(
     list resource's type, which its relative paths start from): each of its paths in order, the
     first that gives a value winning, so a later path is not read at all. A value a site's
     translation gave (`code_set`, LP-23i) wins only when no path gives one of the set's own
-    codes (spec 0.3 §2.5): the paths after it are read for one, and when none gives one the
+    codes (spec §9.6): the paths after it are read for one, and when none gives one the
     first translated value is the field's, its code set added to `reading.translated`. A
     `follow` is resolved once for the field, whatever number of paths it tries, and the paths
     are read in the resources it reached, but a path that starts with the field's own type
@@ -1246,7 +1246,7 @@ def read_field(
 
 
 def own_type(mapped: FieldMapping, kind: str | None) -> str | None:
-    """The type a followed field reads from itself (spec 0.3 §2.3, LP-23k): a list field's
+    """The type a followed field reads from itself (spec §9.4, LP-23k): a list field's
     resource type, or a top-level field's `follow` path's (`Coverage` for `Coverage.payor[0]`).
     A path of a followed field that starts with it is read where the field is, so a field may
     fall back from what its reference reaches to its own resource (a MedicationRequest's
@@ -1310,7 +1310,7 @@ def _value(
 
 def listed(source: ListSource, resource: Any) -> bool:
     """Whether a resource of a list source's type can be an item of the list: all can but, when
-    its source derives a MedicationRequest's period (spec 0.3 §2.7), a request entered in error,
+    its source derives a MedicationRequest's period (spec §9.8), a request entered in error,
     one whose `intent` is `proposal`, `plan` or `option` (not an order to give the drug), and
     one whose `doNotPerform` is true (an order not to give it). What a resource left out so
     holds is not read: no linked read is made for it (LP-23h), and nothing it could not read is

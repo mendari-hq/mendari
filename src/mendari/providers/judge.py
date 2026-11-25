@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The model judge of a rubric (spec 0.4 section 18.2, ADR-0025): one object that grades a
+"""The model judge of a rubric (spec section 15.4, ADR-0025): one object that grades a
 written text against a rubric's criteria and raises nothing for an expected failure.
 
 The judge is the `llm` provider asked the rubric's criteria as its questions: the deployment's

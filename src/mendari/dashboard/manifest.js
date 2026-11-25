@@ -5,7 +5,7 @@ import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
-// An agent's words for its questions and labels (spec 0.2 `display`, `names`), else the key as
+// An agent's words for its questions and labels (spec §4.3 `display`, `names`), else the key as
 // words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
 // author's claim, so the code stays one click away: `named` puts it beside the name, shown only
 // once someone presses "Show codes" (`codesToggle`).
@@ -202,7 +202,7 @@ export function labelTone(question, label) {
   return "";
 }
 
-// -- proposed actions (spec 0.4) -------------------------------------------------------------------
+// -- proposed actions (spec §13) -------------------------------------------------------------------
 // What an agent asked to have done, and what may be done with each: released (the caller may run
 // it), held (it waits for the decision's reviewer), blocked or denied. Mendari runs none.
 const DISPOSITION_TEXT = { released: "Released", held: "Held", blocked: "Blocked", denied: "Denied" };

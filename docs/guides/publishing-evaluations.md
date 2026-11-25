@@ -107,11 +107,6 @@ Never published: a case's text, a case's id, the ledger, calibration error and B
 subgroups, and anything about who approved a governance override (an evaluation measures the
 agent's own policy, and one run under an override is refused).
 
-`mendari.publisher-evaluation/1`, the format before this one, had no `provenance`,
-`labelled_by`, `failed_cases` or `engine`. A registry still takes it from an older client, and a
-record stored in it still verifies and is still shown: what it does not state reads "not
-stated".
-
 ## What the registry checks
 
 Before it stores a record: that one of your namespace's keys signed it and the key is not

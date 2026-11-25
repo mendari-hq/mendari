@@ -7,8 +7,8 @@ can read, capped by a risk level the runtime enforces, with every decision in a 
 audit trail. What Mendari needs to know about the agent is written in a folder of plain text,
 whose manifest is `agent.yaml`. This guide builds one, step by step.
 
-You need Mendari installed and a text editor. Until the first release is on PyPI, install it
-from a clone of the repository (`git clone https://github.com/mendari-hq/mendari.git`, then
+You need Mendari installed and a text editor. Mendari is not on PyPI yet: install it from a
+clone of the repository (`git clone https://github.com/mendari-hq/mendari.git`, then
 `uv sync` in it and put `uv run` before each command below, or `pip install .` in it). The
 agent's folder can live anywhere: commands take its path, and `MENDARI_AGENTS_PATH` lets
 `mendari serve` find it.
@@ -163,6 +163,7 @@ An `agent` variant takes only these keys; any other is refused by `mendari valid
 | `state_fields` | The input fields sent to the agent (dotted, `message.body`): the minimum necessary. Without it the whole input is sent. |
 | `mock_file` | A JSON or YAML file in the folder with canned answers for offline use (step 7). |
 | `endpoint` | A fixed https URL for the agent. Usually left out: the deployment sets `MENDARI_AGENT_URL` instead (step 8). |
+| `calibration`, `repeat` | A calibration of the agent's confidence, and asking each case several times: [Calibration and a second signal](calibration-and-a-second-signal.md). |
 
 A slot answers 1 to 64 questions.
 
@@ -190,8 +191,8 @@ when `MENDARI_AGENT_TOKEN` is set, `authorization: Bearer <token>`:
 }
 ```
 
-`pack_id` is the agent's id: the key keeps the name it had before, as stored and signed records
-hold it. `input` holds only the `state_fields`; `system_prompt` and `instructions` are present
+`agent_id` is the agent's id, and `service_id` the variant's name for your service. `input`
+holds only the `state_fields`; `system_prompt` and `instructions` are present
 when the manifest sets them; a `score` question also carries its `levels`. The request may be at
 most 100,000 characters.
 
@@ -320,15 +321,17 @@ MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval my-agent --data
 
 - **Canned answers never automate on a server with sign-in.** While `MENDARI_AGENT_URL` is
   unset, the agent answers from its `mock_file`. That is fine on your machine (`mendari demo`,
-  `mendari test`, `mendari eval`, and `mendari serve` in open mode decide as before), but a
-  server with sign-in on (as every production deployment is) never automates on those answers:
+  `mendari test`, `mendari eval`, and `mendari serve` in open mode decide as the policy says),
+  but a server with sign-in on (as every production deployment is) never automates on those answers:
   an `AUTO` decision becomes `HUMAN_REVIEW`, and its reasons end with
   `canned answers: MENDARI_AGENT_URL is not set; a person decides`, in the dashboard and the
   audit trail alike. A rule's `BLOCK` (final at once) goes to a person as well, the reason
-  `canned answers: MENDARI_AGENT_URL is not set: a person decides instead of its rule's BLOCK`. Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
+  `canned answers: MENDARI_AGENT_URL is not set: a person decides instead of its rule's BLOCK`.
+  Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
 
-An agent you publish to a registry is one the deployment that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the
-deployment's `MENDARI_AGENT_URL` is used), and its `timeout_seconds` is held to at most 15
+An agent you publish to a registry is one the deployment that runs it does not own: there it
+must name `state_fields`, may not set `endpoint` (the deployment's `MENDARI_AGENT_URL` is used),
+and its `timeout_seconds` is held to at most 15
 ([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
 
 ## 9. Set the policy: when a person must look
@@ -397,7 +400,7 @@ mendari data check my-agent my-cases.jsonl  # or one file
 It fails on each input the schema refuses and each label that is not one of its question's
 answers, naming the case by id, and reports without failing: how many cases carry each label
 (as k of n with its exact interval, "too few to estimate" under 100), duplicates, and overlap
-with the agent's own training data. Its report holds ids and counts, never a case's text.
+with the agent's own `train` and `calibration` datasets. Its report holds ids and counts, never a case's text.
 
 ```bash
 mendari eval my-agent --dataset examples
@@ -449,7 +452,7 @@ answer: each matching pattern adds its weight to a label's score, and `negatable
 "no chest pain" does not count. Patterns are Python regular expressions matched with case
 ignored, at most 2,000 characters each and 500 in a manifest; keep them simple, since `re` has
 no time limit. Text is read in its plain form first (curly apostrophes, no-break spaces and the
-like become a keyboard's characters; [the spec, §5](../spec/agent-manifest-0.2.md#5-providers),
+like become a keyboard's characters; [the spec, §5.3](../spec/agent-manifest.md#53-the-plain-form),
 lists what changes). An agent from a registry or an agent store runs its patterns on RE2:
 see [Patterns run on RE2](#patterns-run-on-re2).
 
@@ -556,8 +559,8 @@ Habits that keep patterns precise and honest:
 
 - **Self-contained.** Every file the manifest names stays inside the folder (a symbolic link out
   of it is refused), and a hidden folder such as `.venv` beside it is ignored. The files named
-  by `inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets` and each
-  provider's `config`, `calibration` and `mock_file` are in the
+  by `inputs.schema`, `inputs.fhir`, `tests`, `evaluation.datasets`, `evaluation.grades`, a
+  judge's `mock_file` and each provider's `config`, `calibration` and `mock_file` are in the
   digest; none of them may be in `evals/`, a hidden folder or `__pycache__`, or be a
   `DECISION_CARD.md`. `evaluation.benchmark`, a published result about the agent, is the
   opposite: it lives in `evals/`.
@@ -576,8 +579,9 @@ Habits that keep patterns precise and honest:
   endpoint and key come from the deployment, never from the manifest: a variant that names
   environment variables (`api_key_env`, `endpoint_env` and the like) is refused.
 
-A registry's publish and an organization's agent store run the same validation. Each problem names its file and a place in it, never a case's text. If you edit an
-agent a server has loaded, restart the server: until then reads of the edited file are refused.
+A registry's publish and an organization's agent store run the same validation. Each problem
+names its file and a place in it, never a case's text. If you edit an agent a server has
+loaded, restart the server: until then reads of the edited file are refused.
 
 ## 13. FHIR and CDS Hooks
 
@@ -588,8 +592,8 @@ and declares the hook `mendari-message-received`. Each `cds_hooks.prefetch` temp
 or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}`): no absolute URL,
 `..`, operation or fragment. A card summary or Task text uses bare placeholders (`{request}`),
 and every text a card can give must be under 140 characters. Selecting codings by system,
-fallback paths, following a reference and code sets are in the mapping's own document
-([the FHIR mapping](../spec/agent-manifest-0.3.md)). How an EHR connects is in
+fallback paths, following a reference and code sets are in the spec
+([the FHIR mapping](../spec/agent-manifest.md#91-the-fhir-mapping)). How an EHR connects is in
 [Connecting an EHR](connecting-an-ehr.md).
 
 ## 14. Publish the card
@@ -675,8 +679,7 @@ stronger evidence.
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
-The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), the FHIR
-mapping in [its own document](../spec/agent-manifest-0.3.md), and actions, a calibrated
-confidence, a second signal and written output in [their own](../spec/agent-manifest-0.4.md).
+The full format is in the [agent manifest spec](../spec/agent-manifest.md): the manifest, the
+FHIR mapping, actions, a calibrated confidence, a second signal and written output.
 An agent says `spec_version: "0.4"`, the one version Mendari reads, as `mendari new` writes
 it.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions in the audit trail, and their review (spec 0.4 sections 6 and 7, ADR-0023).
+"""Actions in the audit trail, and their review (spec sections 13.8 and 13.9, ADR-0023).
 
 The chain records every proposal and its resolution: ids, the declared name, the effect, the
 disposition, a reason code and a hash of the arguments. It never holds the arguments, nor a name
@@ -610,7 +610,7 @@ def test_authorizing_needs_a_store_and_a_well_formed_question() -> None:
 
 
 def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
-    """An agent that declares no actions, as none did before spec 0.4 (the triage fixture):
+    """An agent that declares no actions (the triage fixture):
     whatever is asked of it is blocked, as undeclared."""
     triaged = Decision(load_agent(TRIAGE_DIR), store=store)
     result = triaged(message("Can you send a refill for metformin to my pharmacy?"))

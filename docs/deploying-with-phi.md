@@ -32,8 +32,8 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
   and reports the agents as start-up found them: `200` with `status` `ready`, or `degraded` while
   an agent did not load or build (signed-in `/api/health` lists it under `invalid`); `503`
   `unready` when the database does not answer within about 3.5 seconds or no agent is served. It
-  names fixed codes only (under `checks`, `database`: `ok` or `unreachable`; and `packs`, the
-  agents under the key's former name: `ok`, `degraded` or `none`), never an error's text. Use it
+  names fixed codes only (under `checks`, `database`: `ok` or `unreachable`; and `agents`: `ok`,
+  `degraded` or `none`), never an error's text. Use it
   for readiness (Kubernetes' `readinessProbe`, a load balancer's target health) and for status
   pages and uptime checks.
   Each instance reads the database at most once every 5 seconds whoever asks and keeps the
@@ -187,7 +187,7 @@ Give each key the least it needs:
   else. FHIR reads use SMART v2 scopes for what is served (`system/Task.rs`,
   `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`,
   `system/NamingSystem.r`, or `system/*.rs`); deciding, at every entry point (`$decide`, CDS
-  Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
+  Hooks and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
   recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
   Hooks services needs `{"role": "service", "preset": "cds-hooks"}` (below).
   Deciding implies finding what to decide with: a decide-scoped key also reads the two lists of
@@ -297,13 +297,6 @@ other sources hold everything the agent should see. Check what
 [Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer) lists before you
 set it.
 
-**Upgrading from a release without key expiry (before Phase 4).** The first start of this
-release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
-Existing keys keep their role until then, even `reviewer`, `governance` or `admin`, but no key
-may manage keys. Replace them with `viewer` or `service` keys, with scopes, before they expire,
-and revoke any you no longer need now. A key written by an older instance still running during
-the rollout has no expiry and is refused until the next start gives it one.
-
 **EHR launches (SMART on FHIR, optional, off by default).** With sign-in on, a clinician the
 EHR launches Mendari for is named by the EHR's own sign-in, in the organization you register
 for that EHR's FHIR base, and may view the patient, or view and decide, as you register it:
@@ -384,7 +377,7 @@ granted (the same scopes as keys; left out, everything the role can use):
 ```bash
 curl -X POST https://mendari.example.org/api/auth/clients \
   -H 'cookie: __Host-mendari_session=…' -H 'content-type: application/json' \
-  -d '{"name": "ehr-crd", "role": "service",
+  -d '{"name": "ehr-hooks", "role": "service",
        "scope": "https://mendari.co/fhir/scope/decide system/Task.rs",
        "jwks": {"keys": [{"kty": "RSA", "kid": "ehr-2026", "n": "…", "e": "AQAB"}]}}'
 ```
@@ -447,20 +440,11 @@ logged as `auth.origin.refused` (§7), with a reason code and the request id
 (`no_fetch_metadata` for a read without the header).
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
-that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
-EHR launches the app again. Phase 4b signed nobody out: sessions from before it kept their
-8 hours (and took up the idle limit at their next request), their old cookie name was read for
-them for one release, and a sign-in in flight at the deploy completed once without the browser
-cookie. Since 2026-11-22 neither is accepted: on a host that uses `__Host-` names the plain
-`mendari_session` and `mendari_smart` are never read, and a pending sign-in without the browser
-cookie's digest is refused.
-
-The release that seals EHR launch rows (ADR-0006) signs nobody out either: people's sessions
-and sign-ins are untouched. An EHR launch in flight at the upgrade, or a launch session from
-before it, does not open and ends: the clinician launches once more from the EHR. Rolling back
-past that release leaves rows the older code cannot read, which breaks only `/api/smart/*`;
-delete them after the rollback, `DELETE FROM smart_sessions WHERE kind IN ('session',
-'pending')`, and EHR launches start again.
+that changes how they are keyed ends every session: people sign in again, and an EHR launches
+the app again. On a host that uses `__Host-` names, the plain `mendari_session` and
+`mendari_smart` are never read, and a pending sign-in without the browser cookie's digest is
+refused. An EHR launch's rows are sealed under the browser's own cookie (ADR-0006): a row that
+does not open ends its launch, and the clinician launches once more from the EHR.
 
 ## 3. PHI mode
 
@@ -524,11 +508,9 @@ Under `encrypt`:
 - viewers, services and governance see that an input exists, not what it says;
 - the audit trail's list never carries inputs;
 - a decision recorded under `off`, before the switch, kept its input (and its evidence) inside
-  its chained record, and every record written before 2026-10-02 kept its evidence there, in any
-  mode. Under `hash` and `encrypt` these are shown as a sealed input is: to reviewers and admins
-  only, each read chained. Nothing can delete them without breaking the chain, so retention and
-  erasure leave them (those older records' input issues and reasons can also name a resource by
-  its logical id, which is withheld the same way). Choose one: keep that database, read-gated as
+  its chained record. Under `hash` and `encrypt` these are shown as a sealed input is: to
+  reviewers and admins only, each read chained. Nothing can delete them without breaking the
+  chain, so retention and erasure leave them. Choose one: keep that database, read-gated as
   described, or retire it: note the chain's head hash (`mendari audit verify`), keep an ids-only
   FHIR export if you want the history (`/api/audit/export/fhir`), and start a new, empty database
   under `encrypt`;
@@ -715,7 +697,7 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | Signing in (`/auth/login`, the SMART launch) | client address | 300 a minute, 120 at once |
 | The token endpoint, before its body is read | client address | 60 a minute |
 | Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
-| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
+| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
 | A labeller's calls grading written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
@@ -761,8 +743,8 @@ its limit; no case data). Quotas start over at local midnight (`MENDARI_TIMEZONE
 **A daily cap per principal.** `MENDARI_PRINCIPAL_DAILY_LIMIT=1000` caps the decisions each
 principal asks for a day: a person, an API key, a Backend Services client, an EHR launch. Each
 request that decides counts one, and a CDS Hooks order hook one per draft order, whatever the
-answer; acknowledging the notice, a PAS submission and a DTR package do not count, and neither
-does a request the rate limits refuse. Unlike a quota, it refuses: past it the request is
+answer; acknowledging the notice does not count, and neither does a request the rate limits
+refuse. Unlike a quota, it refuses: past it the request is
 answered `429` with `Retry-After` (until local midnight) before any work, so one leaked key, or
 one runaway integration, cannot spend its organization's day. Like a rate limit, the refusal
 covers every message, an emergency included: an integration must send what Mendari refuses to a
@@ -809,7 +791,7 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; a community or registry agent must declare them) |
+| Remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; an agent from a registry or a store must declare them) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Agent ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |

@@ -30,10 +30,6 @@ mendari registry verify --db var/registry.db                # read-only; exit 1 
 | `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per namespace (burst 30; all of a namespace's tokens share it), site reports 60 an hour per namespace (burst 10), site ticket requests and withdrawals 60 an hour per address (burst 10) before the signature is read and 20 an hour per site key (burst 5) after. A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
 | `MENDARI_REGISTRY_REGRESSION` | `on` | `off` publishes without the regression check. |
 
-`MENDARI_REGISTRY_ADMIN_TOKEN` is no longer read (LP-19g). Set, the registry logs once at
-startup that it is unused and names the commands that replace it; unset it
-([From a registry with an administrator token](#from-a-registry-with-an-administrator-token)).
-
 Every answer carries a CSP that loads nothing, refuses framing, is never cached, and sends HSTS
 but on this machine. A refusal by the limits is `429` with `Retry-After`, before the body is
 read.
@@ -203,8 +199,7 @@ version and removes a cached copy.
    ([Holding automation](automation-hold.md)): a hold takes effect within seconds, with no read.
 4. **Afterwards**, remove the recalled version from each server's agent cache
    (`agents/<namespace>/<name>/<version>` under `MENDARI_CACHE_DIR`, `~/.cache/mendari` unless
-   set; a version pulled before 2026-11 is in the folder the cache had then,
-   `packs/<namespace>/<name>/<version>`, where it is still read), or pull a fixed version.
+   set), or pull a fixed version.
    A new version has a new digest, so it waits for its organization's approval.
 5. **If it must never be served,** delete it as well.
 
@@ -227,10 +222,9 @@ An agent pulled from a registry never automates until your organization approves
 digest, at every risk level (2 and 3 need their governance approval too, and 4 never
 automates); until then its own rule's BLOCK goes to a person. Approve it on its Decision Card
 (the Automation approval section: where it came from, the digest served, any recall, then a
-dialog naming the digest) or with `POST /api/registry-approvals` (`pack_id`, `pack_digest`, a
-`reference` such as the committee's minutes; the two keys name the agent and keep the word
-Mendari used before, as stored records hold them); `DELETE /api/registry-approvals/{id}` revokes
-it at once. Both need the `approve` permission and are chained. An approval names one digest and
+dialog naming the digest) or with `POST /api/registry-approvals` (`agent_id`, `agent_digest`, a
+`reference` such as the committee's minutes); `DELETE /api/registry-approvals/{id}` revokes it
+at once. Both need the `approve` permission and are chained. An approval names one digest and
 lasts until revoked. It never lifts a recall, a hold or a risk level's cap.
 
 | Setting | Default | What it does |
@@ -268,9 +262,7 @@ publisher.key --evaluate NAME` publishes the version and every configuration's e
 one step, and `mendari eval AGENT --dataset NAME --publish --key publisher.key` one
 configuration ([Publishing an agent's evaluations](../guides/publishing-evaluations.md)). Each
 sends a `mendari.publisher-evaluation/1` record
-([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation2);
-a `/1` record from an older client is still taken, and shown with what it does not state as
-not stated)
+([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation1))
 to `POST /v1/agents/{namespace}/{name}/{version}/evaluations` with the namespace's publisher
 token, which is checked before the body is read (at most 256 KB; writes count against the
 namespace's `registry_write` rate). Then, in order, each refusal naming the field and never a
@@ -284,7 +276,7 @@ value:
    the evaluation's digest the version's; every slot with a variant the version declares, and
    the counts' names the agent's;
 4. the dataset: one the manifest declares, in the signed archive, with the SHA-256 and n given,
-   and, in a `/2` record, the provenance the manifest states (`card.provenance`) and no other;
+   and the provenance the manifest states (`card.provenance`) and no other;
    the counts whole (no null cell: a public set is not suppressed), adding up, under the
    agent's own policy, and `remote_consent` exactly whether the configuration calls a model;
 5. a configuration whose every provider is local is run again in the regression check's
@@ -316,7 +308,7 @@ listed as not verified, with no figure, model or claim of its own, and takes par
 below.
 
 **The evaluation page and the badge.** Three more reads, each public and counted against the
-read limit. They are newer than the routes' renaming, so each answers at this one path only:
+read limit:
 
 - `GET /v1/agents/{namespace}/{name}/evaluation` (`mendari.agent-evaluation/1`,
   [the format](../spec/evaluation-reports.md#an-agents-evaluation-in-public-mendariagent-evaluation1)),
@@ -381,36 +373,13 @@ mendari registry revoke-token --db var/registry.db ID --reason "the runner was r
 - `tokens` shows each token's organization, owner, name, expiry, when and by whom it was
   revoked, and the last day it was used (in the deployment's time zone). That day is kept
   outside the chain; revoke a token nobody uses.
-- A token from before owned tokens (one an administrator issued over HTTP until LP-19g) has
-  no owner or expiry and cannot be revoked, so it no longer writes: the registry answers it as
-  any unknown token (`403`), and it reads what the public reads. Its row and its chained event
-  stay, so `mendari registry verify` still passes. Mint an owned token in its place.
-
-### From a registry with an administrator token
-
-LP-19g removed the shared administrator token and its routes. On a registry that had them:
-
-1. Unset `MENDARI_REGISTRY_ADMIN_TOKEN` (set, it is only logged as unused).
-2. For each namespace a token from before publishes to, mint an owned one
-   (`mendari registry token --namespace N --org ORG --reason …`) and hand it to the publisher:
-   the old one is refused from the upgrade on. `mendari registry tokens` lists what was minted.
-3. Replace each call to a route that is gone with its command
-   ([What the operator does](#what-the-operator-does)): `POST /v1/namespaces` with `claim`
-   (and `approve` after the first publish), `PATCH /v1/namespaces/{namespace}` with
-   `publisher-type`, `POST /v1/namespaces/{namespace}/tokens` with `token`, `POST …/review`
-   with `review`, an administrator's `POST …/yank` with `recall`, and `POST …/delete` with
-   `delete`. Each of those routes now answers `404` or `405`. A publisher's own signed recall
-   (`mendari yank`) is unchanged.
-
-Namespaces made before stay listed (they have no claim), and nothing in the database changes.
 
 ## Namespace claims
 
 A claim links a namespace to an organization. It is `pending` until it is approved or refused,
 once, and until it is approved nothing of the namespace is served to anyone but its own token
 and a reviewer: to everyone else it answers as a namespace that does not exist (the same `404`),
-in every read, search, the recall list and health's agent count. A namespace with no claim (one
-from before claims, which an administrator made over HTTP until LP-19g) is listed as before.
+in every read, search, the recall list and health's agent count.
 
 ```bash
 mendari registry claim --db var/registry.db --namespace acme --org acme \
@@ -522,15 +491,14 @@ expired, withdrawn or reported), that the key is a live key of the ticket's site
 over the exact fields, the nonce, that the report's agent, digest, configuration, size and
 consent are the ticket's, its names, and that suppression changes nothing. The report and the
 ticket's `reported` status are written in one transaction, chained `report.shared` (with the
-site, key, ticket and the body's SHA-256) and `site.ticket_reported`. A publisher token no
-longer shares a report (401, naming `mendari site init`).
+site, key, ticket and the body's SHA-256) and `site.ticket_reported`. A publisher token shares
+no report (401, naming `mendari site init`).
 
 `GET /v1/agents/{namespace}/{name}/reports` lists the signed reports (`verified: true`, each
 with its site, key, ticket, whether a correction superseded it and whether its key was revoked
 as compromised, and its figures worked out from its counts) and how many are superseded;
 `GET …/reports/{id}` serves the signed record, to check against the site's key. A correction
-asks for a ticket naming the report it supersedes (`supersedes`); both stay listed. Unsigned
-reports stored before LP-22f stay in `hub_reports` and are no longer served.
+asks for a ticket naming the report it supersedes (`supersedes`); both stay listed.
 
 A submission carried by hand is taken by the operator through the same checks (but the
 secret): `mendari registry accept-report --db … submission.json`.
@@ -724,13 +692,12 @@ Known limits, stated plainly:
 - **A cached copy is re-checked by a running server, not by the command line.** A server
   asks each registry its agents came from whether it publishes a signing key, in the same read
   as its recalls ([above](#recalls-and-deletions)). Once the registry has one, a copy pulled
-  while it had none (`accepted: null`), or before counter-signatures, stops automating: its
+  while it had none (`accepted: null`) stops automating: its
   decisions go to a person with a reason that says to pull it again, and `mendari pull` of the
   same version checks the counter-signature and lets it automate again, with no restart. The
   copy stays in the cache. A registry the server cannot read changes nothing new (what was
   known stands until it is stale, as for recalls). `Decision.from_hub` and `mendari decide`
-  still load a cached copy without asking the registry, as before: the check for them runs at
-  `mendari pull`.
+  load a cached copy without asking the registry: the check for them runs at `mendari pull`.
 - **No freshness and no revocation.** A record has no expiry and is never withdrawn: a deleted
   version's record still verifies (the deletion is what stops it being served), and someone who
   can write the database can serve an older accepted version as the latest. Recalls
@@ -829,8 +796,6 @@ last hash) the same way and compare by hand.
   ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); its
   configuration is written ([The hosted shape](#the-hosted-shape)), and turning it on anywhere,
   the registry's signing key, the Hub's project and DNS are the owner's.
-- **Site reports** are signed and checked on receipt (LP-22f, [Signed reports](#signed-reports));
-  the Hub shows none until LP-22h.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
   it because it ships with them (the Mendari registry's key ships from 2026-11-15).
 - **`GET /v1/yanks` is not paged.**

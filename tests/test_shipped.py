@@ -172,7 +172,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
-    # A caller's question about one action for a recorded decision (spec 0.4): chained the
+    # A caller's question about one action for a recorded decision (spec §13.8): chained the
     # first time it is asked; asking again answers how it stands and chains nothing.
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/actions"): ("action.proposed",),
     # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over

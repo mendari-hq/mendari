@@ -199,9 +199,7 @@ would like your view on.
 
 **What did not change.** No schema change. People's sign-in rows (`user`, `oidc-pending`) are
 not sealed: they hold no token, and sealing them would sign everyone out. Nobody is signed out,
-and open mode with no EHR registered launches as before. A launch in flight at the upgrade
-starts again once; rolling back past the sealing breaks only `/api/smart/*` until the launch
-rows are deleted (`deploying-with-phi.md` §2).
+and open mode with no EHR registered launches as before.
 
 **Where we would most like your eyes.**
 - Trusting each registered EHR's sign-in, keyed by the `iss` the EHR sends. Whether an EHR binds

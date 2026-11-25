@@ -2,8 +2,8 @@
 #
 # FHIR R4 -> the agent's input: one Patient and their chart, as a patient-view hook, `$decide`,
 # the SMART launch or a Bulk export gives it. Built to read a record the way an EHR writes one,
-# with 0.2's fields (an age from a birth date, a mapped code, texts joined) and spec 0.3's record
-# reading (docs/spec/agent-manifest-0.3.md, which a 0.4 agent may use): a coding found by its
+# with plain fields (an age from a birth date, a mapped code, texts joined) and the spec's record
+# reading (docs/spec/agent-manifest.md, section 9): a coding found by its
 # code system wherever it sits (`[system=...]`), fallback `paths`, one reference followed
 # (`follow`), clinic notes as plain text or HTML, inline or in a Binary (`attachment_text`), the
 # agent's own codes (`code_sets`, which a site code map may feed), one list read from two
@@ -57,7 +57,7 @@ fields:
     transform: join
   notes:
     # Plain text and HTML, inline or in the Binary the attachment's url names; an RTF, PDF or
-    # CDA note cannot be read, and the decision abstains (spec 0.3 §2.4).
+    # CDA note cannot be read, and the decision abstains (spec §9.5).
     path: DocumentReference.content.attachment
     transform: attachment_text
 
@@ -111,7 +111,7 @@ lists:
         # The drug's code from the Medication its reference names (read from the EHR on a hook or
         # the SMART launch when the record does not hold it), else from the request's own
         # concept; its name from the request itself. When the drug is taken is the spec's stated
-        # rule (§2.7): the first dosage instruction's bounds, else when the request was written.
+        # rule (§9.8): the first dosage instruction's bounds, else when the request was written.
         fields:
           code:
             follow: medicationReference

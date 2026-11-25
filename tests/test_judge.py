@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The model judge of a rubric (`providers/judge.py`, spec 0.4 section 18.2). With a fake model
+"""The model judge of a rubric (`providers/judge.py`, spec section 15.4). With a fake model
 endpoint (`httpx.MockTransport`, as tests/test_llm.py): the request holds the criteria's text as
 the manifest writes it, the written text and only the context it was given; a tie goes to the
 lower level; each failure is counted under its code and never raised. The canned fixture's cases

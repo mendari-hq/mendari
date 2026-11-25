@@ -307,7 +307,7 @@ def test_a_site_code_is_translated_only_into_a_code_its_set_declares(tmp_path: P
     check, a translation into a code its set does not list, or into another set's code, gives
     the field nothing and translates nothing; a translation feeds its own set's fields only; and
     the set's own code wins over a translated one wherever it is, on the same path or a later
-    one (spec 0.3 §2.5), so a record whose own codes give a field its value reads the same with
+    one (spec §9.6), so a record whose own codes give a field its value reads the same with
     the map as without it. A translated code counts only when no path gives an own one, the
     first path's then."""
     adapter = FhirAdapter.for_agent(load_agent(site_agent(tmp_path)))

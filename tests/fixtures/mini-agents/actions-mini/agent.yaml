@@ -1,4 +1,4 @@
-# Test fixture for actions (spec 0.4): the five actions of the spec's example, one of each
+# Test fixture for actions (spec §13): the five actions of the spec's example, one of each
 # effect, and an `agent` variant whose canned answers propose them. Not a real agent.
 spec_version: "0.4"
 id: mendari-test/actions-mini

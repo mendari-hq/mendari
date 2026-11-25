@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """What a site's EHR does not offer, declared per FHIR server (`MENDARI_EHR_DECLARATIONS`).
 
-An agent may read one list from several resource types (spec 0.3 list `resources`: the trial
+An agent may read one list from several resource types (spec §9.7 list `resources`: the trial
 agent's medications from MedicationStatement and MedicationRequest). Some EHRs do not offer one
 of them at all: Epic has no R4 MedicationStatement API, so its read is refused, and today any
 prefetch key that cannot be read makes the decision ABSTAIN. A site may declare what its EHR

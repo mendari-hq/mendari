@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The critical-label invariant, held for every maintained agent (spec 0.2, §8): here the
+"""The critical-label invariant, held for every maintained agent (spec §8): here the
 agents the tests bundle, the test fixtures' (`mendari-test/triage`, `clinical-review`,
 `chart-summary`).
 

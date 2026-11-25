@@ -1803,7 +1803,7 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
     assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
 
 
-# -- proposed actions are part of what the policy decided from (spec 0.4) -------------------------
+# -- proposed actions are part of what the policy decided from (spec §13) -------------------------
 
 ACTIONS_MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 STOP = "action 'renew_prescription' (order) is never released without a person"

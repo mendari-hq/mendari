@@ -82,11 +82,8 @@ nav:
       - Agent store: operations/agent-store.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
-      - Agent manifest spec 0.4 (actions, calibration, a second signal, written output): spec/agent-manifest-0.4.md
-      - Agent manifest spec 0.3 (FHIR mapping): spec/agent-manifest-0.3.md
-      - Agent manifest spec 0.2: spec/agent-manifest-0.2.md
+      - Agent manifest: spec/agent-manifest.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md
-      - Agent manifest spec 0.1: spec/agent-manifest-0.1.md
       - Architecture: architecture.md
   - Security:
       - Threat model: security/threat-model.md

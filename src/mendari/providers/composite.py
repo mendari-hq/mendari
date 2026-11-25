@@ -157,7 +157,7 @@ class CompositeProvider(Provider):
         composite takes (a check's: its first member's); else none is taken."""
         costs = [output.cost_usd for output in outputs.values()]
         if actions is None:
-            # A member's proposals are not taken (spec 0.4 section 4.2): each is carried
+            # A member's proposals are not taken (spec section 14.4): each is carried
             # refused, so it is blocked and the decision goes to a person.
             actions = tuple(
                 replace(action, refused="composite_member")
