@@ -173,6 +173,13 @@ def orders_request() -> dict[str, Any]:
     return order_hook(SHOWCASE, checked("o1", "0DJD8ZZ"), checked("o2", "0DJ08ZZ"))
 
 
+def inbox_request() -> dict[str, Any]:
+    """The message hook's request (`mendari-message-received`, a refill with its Communication
+    and sender as prefetch): one card from the triage fixture's service.
+    `tests/test_agent_calibration.py` sends it to a calibrated agent's hook."""
+    return message_hook()
+
+
 # Each fixture's hook, called with a request that gives at least one card.
 HOOKS: dict[str, Callable[[], dict[str, Any]]] = {
     TRIAGE: message_hook,  # a refill: the pharmacy's card
