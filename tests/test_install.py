@@ -62,15 +62,13 @@ def test_the_plain_install_brings_what_the_server_needs() -> None:
     assert {"name": "uvicorn"} in _locked()["dependencies"]
 
 
-def test_the_server_extra_is_still_accepted_and_adds_nothing() -> None:
-    # An extra a project does not declare is a warning from pip and an error from uv.
-    assert _project()["optional-dependencies"] == {"server": []}
-    locked = _locked()
-    assert locked["metadata"]["provides-extras"] == ["server"]
-    assert "optional-dependencies" not in locked
-    # Who still asks for it: the image, and the release's check of what TestPyPI serves.
-    assert "--extra server" in (ROOT / "Dockerfile").read_text()
-    assert "--extra server" in (ROOT / ".github" / "workflows" / "release.yml").read_text()
+def test_there_is_no_extra_and_nothing_asks_for_one() -> None:
+    # An extra a project does not declare is a warning from pip and an error from uv: the image
+    # and the release's check of what TestPyPI serves install the plain project.
+    assert "optional-dependencies" not in _project()
+    assert "optional-dependencies" not in _locked()
+    for path in (ROOT / "Dockerfile", ROOT / ".github" / "workflows" / "release.yml"):
+        assert not re.search(r"--extra\b", path.read_text()), path
 
 
 def test_no_page_tells_a_reader_to_install_the_server_extra() -> None:
