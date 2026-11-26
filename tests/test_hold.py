@@ -260,6 +260,17 @@ def test_a_database_url_is_shown_without_its_password() -> None:
         assert _shown(url) == shown, url
 
 
+def test_a_dsn_password_of_backslashes_is_masked_in_linear_time() -> None:
+    """A quoted value that never closes, full of backslashes, took exponential time: the pattern
+    let a backslash be read two ways (CodeQL py/redos), and fifty of them ran for minutes. A
+    quoted value's two alternatives are disjoint now, so the scan is linear."""
+    from mendari.cli import _LIBPQ_SECRET, _shown
+
+    assert "(?:\\\\.|[^'\\\\])*" in _LIBPQ_SECRET.pattern  # an escape, or neither quote nor \\
+    assert _shown("host=db password='" + "\\" * 5000) == "host=db password=***"
+    assert _shown("host=db password='a\\'b' user=x") == "host=db password=*** user=x"
+
+
 def test_no_command_prints_its_database_argument_as_given() -> None:
     """`--db` may be a URL with its password in it: a message names it through `_shown`
     (the operator's token command once printed the whole URL, password included)."""

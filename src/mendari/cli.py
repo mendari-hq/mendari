@@ -1229,7 +1229,7 @@ def _read_store(target: str, *, phi: Any = None) -> AuditStore:
 
 
 _LIBPQ_SECRET = re.compile(
-    r"(?i)\b(password|pass|passwd|sslpassword)\s*=\s*(?:'(?:\\.|[^'])*'|\S+)"
+    r"(?i)\b(password|pass|passwd|sslpassword)\s*=\s*(?:'(?:\\.|[^'\\])*'|\S+)"
 )
 
 
