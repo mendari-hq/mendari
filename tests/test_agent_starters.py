@@ -66,7 +66,7 @@ def test_each_starter_carries_the_kit_as_it_is_in_mendari(name: str) -> None:
     for needed in ("agent.py", "api/index.py", "requirements.txt", "vercel.json", "README.md"):
         assert (folder / needed).is_file(), needed
     requirements = (folder / "requirements.txt").read_text()
-    # Mendari is not on PyPI: a bare `mendari` requirement would install someone else's package.
+    # The starter carries the kit and never installs the whole of Mendari for it.
     assert not any(
         line.strip().split(">")[0].split("=")[0].strip() == "mendari"
         for line in requirements.splitlines()

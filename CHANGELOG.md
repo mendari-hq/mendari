@@ -7,7 +7,7 @@ no section, or whose section is not the newest. Changes to an agent are in the a
 
 ## 0.1.0
 
-The first release (not yet published), a research preview: everything in it runs on synthetic
+The first release, a research preview: everything in it runs on synthetic
 data. Mendari is not a medical device, and must not hold real PHI or decide about real patients
 until its external security review has happened. What the release contains:
 

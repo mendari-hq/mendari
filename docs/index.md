@@ -39,8 +39,10 @@ governed agent is a folder of plain text:
 
 ## In one minute
 
-In a clone of the [repository](https://github.com/mendari-hq/mendari) (Mendari is not on PyPI
-yet), with [uv](https://docs.astral.sh/uv/):
+`pip install mendari` (Python 3.11+), then the commands below without `uv sync` and `uv run`,
+naming the demo agent (`mendari/portal-message-agent`) where they give its folder. Or, as CI runs
+them, in a clone of the [repository](https://github.com/mendari-hq/mendari) with
+[uv](https://docs.astral.sh/uv/):
 
 <!-- check: run quickstart -->
 ```bash
@@ -58,8 +60,8 @@ set `MENDARI_AGENT_URL` to your agent's endpoint and the same commands call the 
 an agent that fails or times out never automates. On a server with sign-in on, canned answers
 never automate either: without `MENDARI_AGENT_URL`, its decisions go to a person.
 
-One install brings the command line and the server (`uv sync`, or without uv `pip install .` in
-the clone): `uv run mendari serve` serves the demo agent, with the dashboard, on
+One install brings the command line and the server (`pip install mendari`; in a clone, `uv sync`
+or `pip install .`): `uv run mendari serve` serves the demo agent, with the dashboard, on
 `http://127.0.0.1:8000`, and `MENDARI_AGENTS_PATH` names the folders of your own agents to serve
 them as well. `uv run mendari demo` shows the whole loop in a minute: decisions, the review
 queue, the audit trail, an evaluation with its operating point, and a probe for the failures

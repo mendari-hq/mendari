@@ -46,9 +46,9 @@ cp /path/to/your/fullchain.pem /path/to/your/privkey.pem tls/
 ./mendari-site install
 ```
 
-Until a release is tagged, the script builds Mendari's image from the copy you cloned (a few
-minutes the first time). With a release, name its image by digest instead, so that what runs is
-exactly what was published:
+Without `--image`, the script builds Mendari's image from the copy you cloned (a few minutes the
+first time). Name a release's image by digest instead, so that what runs is exactly what was
+published:
 
 ```bash
 ./mendari-site install --image ghcr.io/mendari-hq/mendari-engine:v0.1.0@sha256:<digest>
