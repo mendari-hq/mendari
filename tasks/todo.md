@@ -114,7 +114,7 @@ README or the front ends, outside an explicit list of those names.
   less favourable grade stands); a review screen with a retention window (today a round's texts
   are erased when it closes); a better interval than the percentile bootstrap, which is slightly
   liberal on small samples (ADR-0025, Consequences).
-- [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
+- [x] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
   **Widened by the owner (2026-11-24):** packs and everything only they used go, the
   infrastructure agents need stays, nothing pre-release stays compatible, old data is replaced
   by new synthetic data. The plan, the decisions (G1 to G16, which win) and the inventory are in
@@ -151,8 +151,43 @@ README or the front ends, outside an explicit list of those names.
     (`notes/wave6/phase34-brief.md`); `decisions.org` and `eval_reports.org` are NOT NULL.
   - [x] Vercel settings of the engine's project cleaned (2026-11-25, the owner's go): the former
     name's and Jev's settings out of Production and Preview.
-  - [ ] Phase 6: full verification, the pull request, the merge, the production wipe and
-    refill, the demo agent's service redeployed with the new kit.
+  - [x] Phase 6: full verification, the pull request, the merge, the production wipe and
+    refill, the demo agent's service redeployed with the new kit. Done 2026-11-25 (US
+    Eastern), the owner's go (O10):
+    - **Merge.** #366, squashed as `d414386d` once every required check passed. CI needed one
+      fix first: its throwaway Postgres allowed 100 connections, and the full suite's workers
+      ran past that ("too many clients"), so it now allows 400, as the local container does
+      (`81f90ed9`). CodeQL stayed red on alerts `main` already had, under the same numbers.
+      `main`'s own failing test, which hard-coded a date, is fixed with it.
+    - **The refusal, live.** The engine deployed from `main` and refused the pre-release
+      database at start, with the message `core/db.py` gives (`PRE_RELEASE`), as designed.
+    - **Wipe.** The database's 74 tables in `public`, each one Mendari's own code made, were
+      dropped in one transaction; another schema there (the database provider's own) was not
+      touched. The engine's next cold start made both schemas with their marks
+      (`mendari-engine/1`, `mendari-registry/1`).
+    - **Refill.** `mendari access bootstrap` (the owner, admin of `default`) and the
+      `registry-review` organization, from a checkout of `d414386d`. The input-hash key the
+      commands used matched the deployment's (its key id, as on 2026-11-07). The owner accepted
+      an invitation as `registry_reviewer`. The `mendari` namespace was claimed from the command
+      line, the publisher key registered again, and `mendari/portal-message-agent@0.3.0`
+      published. The owner approved the claim in the console, so the registry counter-signed the
+      version with its own key. Its two evaluations on `test` (600 synthetic cases) followed:
+      `reader=agent` against the live service (signed by the publisher, not re-run: it calls a
+      model) and `reader=rules` (re-run by the registry: matched). The publisher type is
+      `verified`, and the one-day publish token is revoked.
+    - **Mistake.** The first evaluation run was sent before the claim's approval. A namespace
+      not yet listed takes no evaluation, so the registry refused both, and the live
+      configuration's model calls (about $4.50) were spent for nothing. The refill's order (push,
+      approval, then the evaluations) was right; I skipped its second push.
+    - **The demo agent's service.** It was redeployed with the new kit. The token the engine and
+      the service share was replaced in both, since a sensitive setting cannot be read back. One
+      live decision answered, and a wrong token failed closed (`credential_unavailable`).
+    - **Checks.** `mendari registry verify` (11 events) and `mendari audit verify` (10 events)
+      ok. The registry's health lists one agent. The Agent Hub's home, agent, evaluation and
+      publisher pages show 0.3.0. `scripts/status_checks.py`: readiness, sign-in, registry and
+      Hub ok. `decide` was skipped: production has no status key, as before the wipe.
+    - **Kept.** `MENDARI_OIDC_ROLE_MAP` and `MENDARI_OIDC_ROLE_CLAIM` stay set, ignored in
+      memberships mode, for a rollback (2026-11-07). The engine logs that it ignores them.
 - [x] **Last.** The README and the docs caught up with every wave; the grade taken again.
   **Grade, 2026-11-24, against the north star: B-** (it was C+ on 2026-11-23). Measured, not
   assumed: the repository is private with no stars or forks, `mendari` is not on PyPI, the live
@@ -174,8 +209,16 @@ README or the front ends, outside an explicit list of those names.
   - *Ecosystem: D* (unchanged). It moves only with what the owner holds: going public and
     PyPI, the external security review, a design-partner site, clinicians labelling the hidden
     set, and publishing the demo agent's current version and evaluation to the live registry.
-  **Engineering still open:** wave 6 (the owner's go); written output's phase 2 (above); the
-  CI run time; one walk through the console and the install by a person who did not build it.
+  **Engineering still open:** written output's phase 2 (above); the CI run time; one walk
+  through the console and the install by a person who did not build it. Found during wave 6:
+  - Some tests leave a store's connection pool open until garbage collection. That is the
+    likely cause of CI running out of Postgres connections, and of a rare local failure where a
+    pool is closed on the wrong thread.
+  - CodeQL's alerts that `main` already had (#1, #2, #5 to #18, #42 to #49) need triage.
+  - Dependabot cannot update the Ruby gems of `sandbox/inferno/scripted` (a path dependency),
+    which waits on the Inferno image rebuild.
+  - Production names no Agent Hub (`MENDARI_REGISTRY_HUB_URL`), so `mendari push` prints the
+    registry's own evaluation address instead of the Hub's page.
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
