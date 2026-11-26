@@ -340,10 +340,10 @@ class LlmProvider(Provider):
         if self.settings.temperature is not None:
             body["temperature"] = self.settings.temperature
         if self.settings.reasoning_effort is not None:
-            base = _base_url()
-            if "api.openai.com" in base:
+            host = (urlparse(_base_url()).hostname or "").lower()
+            if host == "api.openai.com":
                 body["reasoning_effort"] = self.settings.reasoning_effort
-            elif "ai-gateway.vercel.sh" in base or "openrouter.ai" in base:
+            elif host in ("ai-gateway.vercel.sh", "openrouter.ai"):
                 body["reasoning"] = {"effort": self.settings.reasoning_effort}
         return body
 

@@ -171,6 +171,30 @@ def test_model_precedence_and_options(
     assert (body["temperature"], body["reasoning"]) == (0, {"effort": "low"})
 
 
+@pytest.mark.parametrize(
+    ("base", "sent"),
+    [
+        ("https://api.openai.com/v1", {"reasoning_effort": "low"}),
+        ("https://openrouter.ai/api/v1", {"reasoning": {"effort": "low"}}),
+        # A host that only contains one of those names is neither (CodeQL py/incomplete-url-...).
+        ("https://api.openai.com.example.org/v1", {}),
+        ("https://example.org/openrouter.ai/v1", {}),
+    ],
+)
+def test_the_reasoning_key_follows_the_base_url_s_host(
+    triage_agent: Agent,
+    gateway: list[httpx.Request],
+    monkeypatch: pytest.MonkeyPatch,
+    base: str,
+    sent: dict[str, Any],
+) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", base)
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    router(triage_agent, reasoning_effort="low").answer(message(REFILL))
+    body = json.loads(gateway[-1].content)
+    assert {key: body[key] for key in ("reasoning_effort", "reasoning") if key in body} == sent
+
+
 def test_prompt_injection_cannot_change_the_contract(
     triage_agent: Agent, gateway: list[httpx.Request]
 ) -> None:

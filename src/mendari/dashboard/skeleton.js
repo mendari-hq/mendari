@@ -26,7 +26,7 @@ const SHAPES = {
 };
 
 export function skeleton(view) {
-  const shape = SHAPES[view] ?? (() => rows(4));
+  const shape = Object.hasOwn(SHAPES, view) ? SHAPES[view] : () => rows(4);
   return `<div class="skeleton" aria-hidden="true">${bar("title")}${bar("intro")}${shape()}</div>
     <p class="sr-only">Loading…</p>`;
 }

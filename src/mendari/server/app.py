@@ -370,7 +370,7 @@ STORE_BUILT_MAX = 64
 # read again.
 CONNECTION_CACHE_MAX = 4096
 # The scheduled jobs' bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
-MIN_CRON_SECRET = 16
+MIN_CRON_SECRET_LENGTH = 16
 # The longest a quota's alert holds the decision that reached the quota: one try.
 QUOTA_ALERT_TIMEOUT_S = 5.0
 # The scheduled monitor's time (the function's `maxDuration` is 300 s, vercel.json). It sends
@@ -586,13 +586,15 @@ def create_app(
     registry_app: FastAPI | None = None  # mounted with the routes, below
     registry_headers: Mapping[str, str] | None = None  # the mounted registry's own
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
-    if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
+    if cron_secret and (
+        len(cron_secret) < MIN_CRON_SECRET_LENGTH or cron_secret != cron_secret.strip()
+    ):
         # An optional job never stops the server: the jobs stay off, and health says so.
         phi_logger.warning(
             "CRON_SECRET is not used, so the scheduled purge, monitor and checkpoint are off: it "
             "needs at least %d random characters, with no spaces around them (Vercel Cron sends "
             "it as it is stored)",
-            MIN_CRON_SECRET,
+            MIN_CRON_SECRET_LENGTH,
         )
         cron_secret = ""
     body_limit = settings.max_body_bytes()  # likewise
