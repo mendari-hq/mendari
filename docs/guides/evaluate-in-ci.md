@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: examples
@@ -185,7 +185,7 @@ Change one by giving it another value, add `min-accuracy` or `max-false-automati
 one off with an empty value:
 
 ```yaml
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: test
@@ -216,7 +216,7 @@ lowest threshold at which the risk stays within the target, with a stated confid
 why no threshold does and what would change that.
 
 ```yaml
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: test
@@ -259,7 +259,7 @@ mendari eval . --dataset test --baseline none --out evals/baseline.json
 ```
 
 ```yaml
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: test
@@ -284,7 +284,7 @@ in the same pull request changes nothing about what it is compared with:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: git show "$BASE:evals/baseline.json" > "$RUNNER_TEMP/baseline.json"
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: test
@@ -307,7 +307,7 @@ your model.
 To evaluate the live agent, give the step its endpoint and its token:
 
 ```yaml
-      - uses: mendari-hq/mendari@v0.1.0
+      - uses: mendari-hq/mendari@v0.1.0rc1
         with:
           agent: .
           dataset: test

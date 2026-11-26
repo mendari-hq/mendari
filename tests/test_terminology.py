@@ -44,6 +44,19 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # its version is released). 0.1.0 is released: its fixed resources never change, and a change
 # needs a new version.
 PINNED = {
+    # The TestPyPI rehearsal (never merged): its resources carry its version.
+    "0.1.0rc1": {
+        "CodeSystem/decision-outcome": "1fb2523008c37c43",
+        "CodeSystem/audit-event": "7fe89a0a8dd7969f",
+        "CodeSystem/audit-administrative-event": "06aff8fd2dc486e2",
+        "CodeSystem/card-override-reasons": "18006bd6c216767b",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
+        "NamingSystem/agent-version": "1448a6d6492ce83f",
+        "CodeSystem/sandbox": "a1e3bb4a06253988",
+        "CodeSystem/message-channel": "7c0bfda759be9429",
+    },
     "0.1.0": {
         # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
         "CodeSystem/decision-outcome": "7688b8fb74597a15",
@@ -83,7 +96,7 @@ PINNED = {
         # events are `store_version.*` and `registry_agent.*`.
         "CodeSystem/audit-administrative-event": "eaacdc14fcb32d46",
         "NamingSystem/audit-subject": "5804d858d1fb1240",
-    }
+    },
 }
 
 
