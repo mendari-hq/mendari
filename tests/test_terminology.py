@@ -40,10 +40,9 @@ CLINICAL = "mendari-test/clinical-review"  # no FHIR mapping: no performer syste
 ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
 NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # The fixed resources' content for each Mendari version: a url|version must never name two
-# contents. Changing one of them means a new Mendari version (or, before its release, a new pin).
-# 0.1.0 is not released yet (no tag, not on PyPI): until it is, its fixed resources may still
-# change, and the pin moves with them (`input.erased`, LP-08). From the first tag, a change needs a
-# new version.
+# contents. Changing one of them means a new Mendari version (a pre-release's pin may move before
+# its version is released). 0.1.0 is released: its fixed resources never change, and a change
+# needs a new version.
 PINNED = {
     "0.1.0": {
         # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".

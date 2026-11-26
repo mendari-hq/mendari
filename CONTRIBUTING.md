@@ -41,14 +41,14 @@ explains why in the PR and updates its benchmark.
 
 Mendari maintains one agent, the demo agent, and takes no other into this repository: yours
 lives in a repository of your own, and you publish it to a registry under your organization's
-namespace ([The Agent Hub](README.md#the-agent-hub-publish-and-pull)). Mendari is not on PyPI yet:
-install it from a clone ([Install](README.md#install)). Start with
-`uv run mendari new <dir> --id <namespace>/<name>` and the
+namespace ([The Agent Hub](README.md#the-agent-hub-publish-and-pull)). Install Mendari with
+`pip install mendari` ([Install](README.md#install)). Start with
+`mendari new <dir> --id <namespace>/<name>` and the
 [authoring guide](docs/guides/authoring-an-agent.md), which needs no programming; what `new`
 writes includes a workflow that runs the same checks on every change
 ([Evaluating an agent on every change](docs/guides/evaluate-in-ci.md)). Commands take the
-agent's folder (`uv run mendari test <dir>`); to try it in the console, put that folder on the
-search path: `MENDARI_AGENTS_PATH=<dir> uv run mendari serve`. Publish it when:
+agent's folder (`mendari test <dir>`); to try it in the console, put that folder on the
+search path: `MENDARI_AGENTS_PATH=<dir> mendari serve`. Publish it when:
 
 - `mendari validate <dir>` and `mendari test <dir>` pass (a registry refuses a version that
   `mendari validate` refuses);

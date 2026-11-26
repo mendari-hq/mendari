@@ -7,9 +7,9 @@ can read, capped by a risk level the runtime enforces, with every decision in a 
 audit trail. What Mendari needs to know about the agent is written in a folder of plain text,
 whose manifest is `agent.yaml`. This guide builds one, step by step.
 
-You need Mendari installed and a text editor. Mendari is not on PyPI yet: install it from a
-clone of the repository (`git clone https://github.com/mendari-hq/mendari.git`, then
-`uv sync` in it and put `uv run` before each command below, or `pip install .` in it). The
+You need Mendari installed and a text editor: `pip install mendari` (Python 3.11+). In a clone
+of the repository (`git clone https://github.com/mendari-hq/mendari.git`), `uv sync` instead,
+and put `uv run` before each command below. The
 agent's folder can live anywhere: commands take its path, and `MENDARI_AGENTS_PATH` lets
 `mendari serve` find it.
 

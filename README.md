@@ -19,7 +19,7 @@ It is built for two groups, and for the loop between them:
   engine records what the agent would have automated), then share their results back as signed
   counts, never cases.
 
-> **Status: research preview** (package 0.1.0, not released). Everything here runs on synthetic
+> **Status: research preview** (0.1.0, the first release). Everything here runs on synthetic
 > data. Mendari is not a medical device, and it must not be used with real PHI or real patients:
 > its external security review has not happened yet ([Status and limits](#status-and-limits)).
 
@@ -83,8 +83,16 @@ decision to a person when the answers disagree, and never raises automation
 
 ## Install
 
-Mendari is not on PyPI yet. Install it from a clone of this repository; you need Python 3.11+
-and, for development, [uv](https://docs.astral.sh/uv/):
+Mendari needs Python 3.11+. One install brings the command line and the server
+(`mendari serve`), with no extra to name:
+
+<!-- check: skip index: the release workflow installs the published package on a clean runner and runs it; the install check below runs the same install from the clone -->
+```bash
+pip install mendari
+```
+
+To work on Mendari itself, or to run the commands below as they are written, clone the
+repository and use [uv](https://docs.astral.sh/uv/):
 
 <!-- check: skip ci: CI's checkout is this clone, and the quickstart job runs uv sync in it -->
 ```bash
@@ -93,8 +101,7 @@ cd mendari
 uv sync                          # the package, the server, and the test and lint tools
 ```
 
-Without uv, in the clone, into any Python 3.11+ virtual environment. One install is enough: it
-brings the command line and the server (`mendari serve`), with no extra to name:
+Without uv, in the clone, into any Python 3.11+ virtual environment:
 
 <!-- check: run install -->
 ```bash
@@ -104,6 +111,10 @@ pip install .
 `mendari --help` lists the commands to start with, and `mendari help all` every one.
 
 ## Five minutes: from the demo to your own agent
+
+The commands are written for a clone, as CI runs them. Installed with `pip install mendari`,
+leave out `uv sync` and `uv run`, and where a command names the demo agent's folder
+(`agents/portal-message-agent`), name the agent instead (`mendari/portal-message-agent`).
 
 ### 1. Run the demo
 
@@ -457,8 +468,8 @@ and how to report a vulnerability in
 
 ## Status and limits
 
-- **Research preview.** The package is 0.1.0 and not released: it is not on PyPI yet, so it
-  installs from a clone ([Install](#install)).
+- **Research preview.** 0.1.0 is the first release ([Install](#install)): what it reads and
+  writes is the baseline every later release reads, and nothing from before it is read.
 - **Synthetic data only.** Every agent, dataset and figure here is synthetic: the figures show
   that the evaluation works, not how an agent does on real patients.
 - **Not a medical device**, and not for emergencies: patients should call 911.

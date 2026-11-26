@@ -65,9 +65,9 @@ It never logs a request's input. The other starters, a plain HTTP service and La
 | `mendari_agent_kit.py` | The kit, a copy of `mendari.agent_kit` |
 | `requirements.txt`, `vercel.json` | The Anthropic SDK and FastAPI; Vercel routes every path to `api/index.py` |
 
-**Why a copy of the kit.** Vercel uploads only this folder, and Mendari is not on PyPI (a bare
-`mendari` requirement would install whatever else has that name). So the folder carries the kit
-as one file, which needs nothing but FastAPI; `tests/test_agent_starters.py` fails if it differs
+**Why a copy of the kit.** Vercel uploads only this folder, and the service needs the kit, not
+the whole of Mendari. So the folder carries the kit as one file, which needs nothing but FastAPI;
+`tests/test_agent_starters.py` fails if it differs
 from `src/mendari/agent_kit.py` by a byte. After changing the kit, copy it again:
 `cp src/mendari/agent_kit.py examples/claude-agent/mendari_agent_kit.py`.
 

@@ -50,6 +50,7 @@ SKIP_REASONS = {
     "long-running": "runs until stopped",
     "placeholder": "names something the reader supplies",
     "ci": "each line is a step of a CI job",
+    "index": "installs a release from PyPI",
 }
 QUICKSTART_LIMIT_S = 600  # the v1.0 exit: from the README to your own validation in 10 minutes
 
