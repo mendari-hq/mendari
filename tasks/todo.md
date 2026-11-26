@@ -211,14 +211,23 @@ README or the front ends, outside an explicit list of those names.
     set, and publishing the demo agent's current version and evaluation to the live registry.
   **Engineering still open:** written output's phase 2 (above); the CI run time; one walk
   through the console and the install by a person who did not build it. Found during wave 6:
-  - Some tests leave a store's connection pool open until garbage collection. That is the
-    likely cause of CI running out of Postgres connections, and of a rare local failure where a
-    pool is closed on the wrong thread.
-  - CodeQL's alerts that `main` already had (#1, #2, #5 to #18, #42 to #49) need triage.
-  - Dependabot cannot update the Ruby gems of `sandbox/inferno/scripted` (a path dependency),
-    which waits on the Inferno image rebuild.
-  - Production names no Agent Hub (`MENDARI_REGISTRY_HUB_URL`), so `mendari push` prints the
-    registry's own evaluation address instead of the Hub's page.
+  - [x] Some tests left a store's connection pool open until garbage collection: 408 pools in
+    387 tests, nearly all the engine's own store, which `create_app` keeps for the process's
+    life. That ran CI's Postgres out of connections and made a pool fail to stop when the
+    collector freed it on one of its own threads. An autouse fixture now closes every pool a
+    test opens; a pool audit over the whole suite finds none left open (#371).
+  - [x] CodeQL's alerts that `main` had are triaged (#370). Four changed:
+    - a regex that masks a DSN's password ran in exponential time;
+    - the LLM provider reads a base URL's host, not a substring;
+    - a dashboard lookup no longer reaches inherited names;
+    - a constant is named as the length it is.
+
+    The other twenty are dismissed with their reasons (by design, or test code). No alert is
+    open on `main`.
+  - [ ] Dependabot cannot update the Ruby gems of `sandbox/inferno/scripted` (a path
+    dependency), which waits on the Inferno image rebuild.
+  - [x] Production names its Agent Hub (`MENDARI_REGISTRY_HUB_URL`), so the registry's
+    evaluation answer links to the Hub's page, and `mendari push` prints it.
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
@@ -4288,7 +4297,21 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      with environment `testpypi`. Check after: each is listed as a pending publisher, and the
      name `mendari` is still free (it was on both on 2026-11-24). A pending publisher does not
      reserve the name, the first upload does, so step 8 should follow soon.
-8. **Release 0.1.0.** The README is the package's page on PyPI, and a release's page never
+8. **Release 0.1.0.** Done 2026-11-25 (US Eastern):
+   - The owner added the trusted publishers on PyPI and TestPyPI.
+   - The release PR (#369) and the CodeQL fixes (#370) were merged, and `v0.1.0` was tagged on
+     `31097791`.
+   - The rehearsal, `v0.1.0rc1` (a branch never merged, since deleted, its tag kept), went to
+     TestPyPI and passed `verify-testpypi`, and installed on macOS.
+   - The release run, with publish on and target `pypi` and the owner approving `pypi` and
+     `ghcr`, passed every job.
+   - PyPI holds 0.1.0's wheel and sdist. A clean `pip install mendari` runs `mendari test` on the
+     demo agent and on a new agent.
+   - **Left, the owner's:** GHCR made the `mendari-engine` package private (an anonymous pull is
+     refused). The organization's Packages → `mendari-engine` → Package settings → Change
+     visibility → Public.
+
+   As planned: The README is the package's page on PyPI, and a release's page never
    changes, so the install wording switches in the release's own commit, never after: a build
    PR, "the release PR", makes `pip install mendari` the install line and drops every "not on
    PyPI yet" (the README's "Install" and "Status and limits", `CONTRIBUTING.md`,
@@ -4317,7 +4340,12 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    the release job's "The sdist holds only what a source build needs" step passed; GitHub →
    the `mendari-hq` organization → Packages lists `mendari-engine` (make it public in its
    package settings if it is private).
-9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). The docs host is
+9. **Docs on GitHub Pages.** Done 2026-11-25: Pages is served from GitHub Actions (set through the
+   API), and the docs run from `main` deployed https://mendari-hq.github.io/mendari/.
+   **Left:** the build PR that points the README, the package's Documentation link (from the
+   next release) and `mendari new` at the site.
+
+   As planned (the deploy workflow is `docs.yml`, LP-15c). The docs host is
    GitHub Pages at `https://mendari-hq.github.io/mendari/` (confirmed by the owner on
    2026-11-07, in chat: "the patent gate is clear and I approve everything on my part"); a custom
    domain would need Pages → Custom domain, a DNS CNAME to `mendari-hq.github.io`, HTTPS
