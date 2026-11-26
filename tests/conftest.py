@@ -146,6 +146,29 @@ def _the_repositorys_own_agents_are_as_they_were() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_postgres_pool_outlives_its_test(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every Postgres connection pool a test opens is closed when the test ends, whoever opened
+    it: an app's own stores included, which `create_app` keeps for the process's life. An open
+    pool held its connections until the collector freed it, so a worker's tests ran the
+    database out of connections ("too many clients"), and a pool the collector freed on one of
+    its own threads failed to stop. A module or session fixture's pool, made before this
+    fixture, is that fixture's to close."""
+    from mendari.core.db import PostgresBackend
+
+    opened: list[PostgresBackend] = []
+    original = PostgresBackend.__init__
+
+    def tracked(self: PostgresBackend, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        opened.append(self)
+
+    monkeypatch.setattr(PostgresBackend, "__init__", tracked)
+    yield
+    for backend in opened:
+        backend.close()  # closing a closed pool does nothing
+
+
+@pytest.fixture(autouse=True)
 def _no_vercel_oidc_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test mints a Vercel OIDC token: without one in the environment, the vercel library
     would mint one through the developer's Vercel CLI login for a linked project (a `.vercel`
