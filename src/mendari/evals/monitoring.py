@@ -58,11 +58,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from mendari.alerts import (
-    AlertSettings,
-    check_webhook,  # noqa: F401 - where it was, for its callers
-    deliver,
-)
+from mendari.alerts import AlertSettings, deliver
 from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore, truth_label
 from mendari.core.card import benchmark
