@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from mendari import load_agent
 from mendari.cli import main
 from mendari.core import registry as registry_module
-from mendari.core.agent import MAX_YAML_CHARS, MAX_YAML_NODES, load_yaml
+from mendari.core.agent import MAX_YAML_CHARS, MAX_YAML_NODES, parse_yaml
 from mendari.core.registry import version_key
 from mendari.errors import AgentValidationError
 from mendari.evals.behaviour_tests import load_cases
@@ -379,9 +379,15 @@ def test_only_yaml_with_an_anchor_is_walked_for_its_expansion(
     plain, anchored = tmp_path / "plain.yaml", tmp_path / "anchored.yaml"
     plain.write_text("a: [1, 2]\nb: {c: 3}\n")
     anchored.write_text("a: &x [1, 2]\nb: *x\n")
-    assert agent_module.load_yaml(plain, "plain.yaml", "x") == {"a": [1, 2], "b": {"c": 3}}
+    assert agent_module.parse_yaml(plain.read_bytes(), "plain.yaml", "x") == {
+        "a": [1, 2],
+        "b": {"c": 3},
+    }
     assert walked == []
-    assert agent_module.load_yaml(anchored, "anchored.yaml", "x") == {"a": [1, 2], "b": [1, 2]}
+    assert agent_module.parse_yaml(anchored.read_bytes(), "anchored.yaml", "x") == {
+        "a": [1, 2],
+        "b": [1, 2],
+    }
     assert len(walked) == 1
 
 
@@ -406,11 +412,11 @@ def test_a_long_scalar_aliased_through_lists_is_refused_by_its_expanded_text(
         cpu_time() as spent,
         pytest.raises(AgentValidationError, match="expands to more than 32,000,000 characters"),
     ):
-        load_yaml(path, "tests/cases.yaml", "x")
+        parse_yaml(path.read_bytes(), "tests/cases.yaml", "x")
     assert spent() < 0.5
     within = tmp_path / "within.yaml"
     within.write_text(long_text_laughs(2, 1_000))  # 100,000 characters
-    assert len(load_yaml(within, "within.yaml", "x")["x_lists"]["l2"]) == 10
+    assert len(parse_yaml(within.read_bytes(), "within.yaml", "x")["x_lists"]["l2"]) == 10
     assert MAX_YAML_CHARS == 32_000_000
 
 
@@ -449,9 +455,9 @@ def test_control_characters_count_at_their_json_length(tmp_path: Path) -> None:
     nul = "\\0" * 200_000  # 400 KB of YAML, 200,000 characters, 1,200,000 as JSON
     path.write_text(f'- x_text: &s "{nul}"\n- {{message: {{body: [{", ".join(["*s"] * 30)}]}}}}\n')
     with pytest.raises(AgentValidationError, match="expands to more than 32,000,000 characters"):
-        load_yaml(path, "tests/cases.yaml", "x")
+        parse_yaml(path.read_bytes(), "tests/cases.yaml", "x")
     path.write_text(f'- x_text: &s "{nul}"\n- {{message: {{body: [{", ".join(["*s"] * 25)}]}}}}\n')
-    assert len(load_yaml(path, "tests/cases.yaml", "x")[1]["message"]["body"]) == 25
+    assert len(parse_yaml(path.read_bytes(), "tests/cases.yaml", "x")[1]["message"]["body"]) == 25
 
 
 def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path: Path) -> None:
@@ -592,7 +598,7 @@ def test_numbers_within_the_bounds_still_load(tmp_path: Path) -> None:
         "a: 190:20:30\nb: 0x_ff\nc: 1:2:3:4.5\nd: 1_000\ne: -017\nf: 0b101\n"
         f"g: {'9' * 4300}\nh: 6.02e+23\n"
     )
-    loaded = load_yaml(path, "n.yaml", "x")
+    loaded = parse_yaml(path.read_bytes(), "n.yaml", "x")
     assert loaded["a"] == 685230 and loaded["b"] == 255 and loaded["d"] == 1000
     assert loaded["c"] == pytest.approx(((1 * 60 + 2) * 60 + 3) * 60 + 4.5)
     assert (loaded["e"], loaded["f"], loaded["g"], loaded["h"]) == (
