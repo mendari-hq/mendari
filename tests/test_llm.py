@@ -482,6 +482,21 @@ def test_slightly_unnormalised_answers_are_renormalised(triage_agent: Agent) -> 
     assert usage["cost_usd"] == 0.0012
 
 
+def test_a_number_too_large_for_a_float_is_malformed_or_unknown(triage_agent: Agent) -> None:
+    """Python's `json` reads an integer of a few hundred digits as an `int`, which no float
+    holds: as a probability it is a malformed answer (`invalid_response`), as the float `1e400`
+    is; as a price it is one not to believe (unknown), never a raw error."""
+    questions = {"destination": triage_agent.manifest.questions["destination"]}
+    huge = 10**400
+    with pytest.raises(ProviderError, match="invalid_response"):
+        validate_response(completion({"destination": {**good(), "nurse": huge}}), questions)
+    priced = completion(
+        {"destination": good()},
+        usage={"prompt_tokens": 300, "completion_tokens": 40, "cost": huge},
+    )
+    assert validate_response(priced, questions)[1]["cost_usd"] is None
+
+
 # -- the model that answered (LP-10) -------------------------------------------------------------
 
 CONFIGURED = MODEL

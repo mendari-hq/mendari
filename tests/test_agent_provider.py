@@ -185,6 +185,29 @@ def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -
     assert fallback.answers["request"].label == "other"
 
 
+def test_a_mock_file_number_too_large_for_a_float_is_the_agents_problem(tmp_path: Path) -> None:
+    """YAML reads an integer of a few hundred digits as an `int`, which no float holds: in a
+    mock file, as a confidence or a price, it is the agent's problem, listed at load and by
+    `mendari validate` and refused when the variant is built, never a raw error."""
+    target = tmp_path / "huge-mock"
+    assert main(["new", str(target), "--id", "clinic/huge-mock"]) == 0
+    manifest = yaml.safe_load((target / "agent.yaml").read_text())
+    manifest["providers"]["reader"]["variants"]["agent"]["mock_file"] = "fixtures/mock_agent.yaml"
+    (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    huge = 10**400
+    for response, problem in (
+        (agent_response(request_conf=huge), "has malformed confidence"),
+        (agent_response(usage={"cost_usd": huge}), "usage cost is malformed"),
+    ):
+        mock = {"default": response}
+        (target / "fixtures" / "mock_agent.yaml").write_text(yaml.safe_dump(mock))
+        agent = load_agent(target)  # an agent the deployment owns: warned, not refused
+        assert any(problem in warning for warning in agent.warnings)
+        assert main(["validate", str(target)]) == 1
+        with pytest.raises(AgentValidationError, match=problem):
+            build_provider(agent, "reader", "agent")
+
+
 def test_offline_mock_file_respects_state_fields(tmp_path: Path) -> None:
     target = tmp_path / "filtered-mock"
     assert main(["new", str(target), "--id", "clinic/filtered-mock"]) == 0
@@ -443,6 +466,47 @@ def test_agent_response_validation_is_strict(http_agent: Agent, mutate: Any) -> 
     assert error.value.code == "invalid_response"
 
 
+def test_a_number_too_large_for_a_float_fails_closed_in_decision_and_audit(
+    http_agent: Agent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python's `json` reads an integer of a few hundred digits as an `int`, which no float
+    holds: as a confidence, a probability or a price it is a malformed answer
+    (`invalid_response`), as the float `1e400` is, so the decision fails closed and is
+    recorded, never a crash."""
+    huge = 10**400
+    questions = {
+        key: http_agent.manifest.questions[key]
+        for key in http_agent.manifest.providers["reader"].answers
+    }
+    for mutate in (
+        lambda b: b["answers"]["request"].update(confidence=huge),
+        lambda b: b["answers"]["urgent_symptoms"].update(probabilities={"yes": huge, "no": 0.96}),
+        lambda b: b.update(usage={"input_tokens": 1, "output_tokens": 1, "cost_usd": huge}),
+    ):
+        body = agent_response()
+        mutate(body)
+        with pytest.raises(ProviderError) as error:
+            validate_response(body, questions)
+        assert error.value.code == "invalid_response"
+
+    monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
+    answered = agent_response(request_conf=huge)
+    monkeypatch.setattr(
+        httpx.HTTPTransport,
+        "handle_request",
+        lambda self, request: httpx.Response(200, json=answered),
+    )
+    with AuditStore(tmp_path / "audit.db") as store:
+        result = Decision(http_agent, store=store).decide(message("Refill my metformin."))
+        assert result.outcome is Outcome.ABSTAIN
+        assert result.errors == {
+            "request": "invalid_response",
+            "urgent_symptoms": "invalid_response",
+        }
+        stored = store.get(result.id)
+        assert stored is not None and stored["record"]["errors"] == result.errors
+
+
 def test_agent_rejects_oversized_response(
     http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -451,6 +515,30 @@ def test_agent_rejects_oversized_response(
     with pytest.raises(ProviderError) as error:
         provider.answer(message("hello"))
     assert error.value.code == "invalid_response"
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+def test_a_request_json_cannot_carry_is_refused_before_it_is_sent(
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch, number: float
+) -> None:
+    """JSON has no NaN and no infinity: an input holding one, whatever let it through, cannot be
+    sent to the agent's service. The provider refuses it (`invalid_input`) and nothing is sent,
+    never a raw error out of the HTTP client's encoder."""
+    monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json=agent_response())
+
+    provider = make_agent_provider(http_agent, handler)
+    with pytest.raises(ProviderError) as error:
+        provider.answer({"message": {"subject": number, "body": "Refill my metformin."}})
+    assert error.value.code == "invalid_input" and sent == []
+    provider.answer(message("Refill my metformin."))  # a request that can be sent still is
+    assert len(sent) == 1 and json.loads(sent[0].content)["input"] == message(
+        "Refill my metformin."
+    )
 
 
 # -- security, SSRF, allow-list & secret isolation ------------------------------------------------

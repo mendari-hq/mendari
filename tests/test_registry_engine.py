@@ -34,7 +34,8 @@ from mendari.core.reference import bundled_dir, reference_agents, reference_dige
 from mendari.core.registry import SearchPath, discover, resolve_agent, version_key
 from mendari.core.spec import Outcome
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import _run, input_problems, load_cases
+from mendari.evals.behaviour_tests import _run, load_cases
+from mendari.evals.validation import input_problems
 from mendari.hub.client import agents_cache
 from mendari.providers import build_provider
 from mendari.server.app import create_app
@@ -507,8 +508,8 @@ def test_a_registry_agents_schema_errors_stop_at_100_with_short_reasons(tmp_path
     short = hub.decide({"message": bill, "meta": {}}).reasons
     assert short == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
     listed = local.decide({"message": bill, "meta": {}}).reasons
-    assert listed[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
-    assert len(listed) == 9  # one per missing name, as before
+    # Every missing name, once (not once per missing name: `tests/test_decision.py`).
+    assert listed == (f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required",)
 
 
 def test_mendari_test_stops_a_registry_agent_at_the_budget(tmp_path: Path) -> None:
@@ -529,7 +530,7 @@ def test_mendari_test_stops_a_registry_agent_at_the_budget(tmp_path: Path) -> No
     )
     hub = load_agent(root, origin="hub")
     with cpu_time() as spent:
-        found = input_problems(hub)
+        found = [str(problem) for problem in input_problems(hub)]
     assert spent() < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
     # Checked alone, outside a decision, its schema check has a budget too.
@@ -619,6 +620,31 @@ def test_discover_lists_a_refused_registry_agent_and_serves_the_others(tmp_path:
     assert detail["manifest"]["version"] == "9.9.9"
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "newest"),
+    [
+        # One folder, walked in path order: rc.1 is found before rc.2.
+        (("one", "9.9.9-rc.1"), ("one", "9.9.9-rc.2"), "9.9.9-rc.2"),
+        # A release on a later search path than its pre-release.
+        (("early", "9.9.9-rc.1"), ("late", "9.9.9"), "9.9.9"),
+    ],
+)
+def test_the_newest_of_an_agents_versions_is_by_semantic_version_precedence(
+    tmp_path: Path, first: tuple[str, str], second: tuple[str, str], newest: str
+) -> None:
+    """`version_key` ties a release and its pre-releases (so a pre-release may not take a
+    reference agent's place), and the newest of an agent's versions was whichever was found
+    first among those that tie: rc.1 served over rc.2, a pre-release over its release. The
+    engine orders them as the registry does (`precedence`)."""
+    for base, version in (first, second):
+        other = load_agent(copied(tmp_path / base, CLINICAL_DIR.name, version=version))
+    bases = dict.fromkeys((first[0], second[0]))  # each search path once, in order
+    paths = [SearchPath(tmp_path / base / "cache", "hub") for base in bases]
+    assert resolve_agent(other.id, paths).version == newest
+    client = TestClient(create_app(db_path=tmp_path / "e.db", agents_paths=paths))
+    assert client.get(f"/api/agents/{other.id}").json()["manifest"]["version"] == newest
+
+
 def test_decision_from_path_takes_the_origin_of_the_path(tmp_path: Path) -> None:
     """H3: a pulled agent loaded by its path (`Decision.from_path`) is still an agent from a
     registry, on its engine; a reference agent by its path is maintained."""
@@ -695,7 +721,7 @@ def test_mendari_test_runs_a_registry_agent_on_its_engine(tmp_path: Path) -> Non
     assert any(
         "its input is too large: more than 10,000 values, the most an agent from a registry reads"
         in problem
-        for problem in input_problems(hub)
+        for problem in map(str, input_problems(hub))
     )
     local = load_agent(root, origin="local")
-    assert not any("too large" in problem for problem in input_problems(local))
+    assert not any("too large" in str(problem) for problem in input_problems(local))

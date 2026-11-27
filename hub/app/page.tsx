@@ -10,8 +10,17 @@ type Params = { q?: string; risk?: string; standard?: string; publisher_type?: s
 
 const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
 
+// A risk level is a whole number. Anything else in the address (a hand-edited or stale link, or
+// the parameter given twice) is left out of the search: the registry refuses it, and its refusal
+// would be said as an outage.
+const RISK_LEVEL = /^\d$/;
+
 export default async function Home({ searchParams }: { searchParams: Promise<Params> }) {
-  const filters = await searchParams;
+  const given = await searchParams;
+  const filters: Params = {
+    ...given,
+    risk: typeof given.risk === "string" && RISK_LEVEL.test(given.risk) ? given.risk : undefined,
+  };
   let agents: AgentSummary[] = [];
   let unavailable = false;
   try {

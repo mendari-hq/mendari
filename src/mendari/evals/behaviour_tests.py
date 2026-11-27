@@ -181,27 +181,6 @@ def _value_problem(manifest: AgentManifest, expect: dict[str, Any]) -> str | Non
     return None
 
 
-def validate_agent(agent: Agent) -> None:
-    """`mendari validate` (`evals/validation.py`, the one validation function, LP-20b)."""
-    from mendari.evals.validation import validate
-
-    validate(agent)
-
-
-def dataset_problems(agent: Agent) -> list[str]:
-    """`validation.dataset_problems`, as lines."""
-    from mendari.evals.validation import dataset_problems
-
-    return [str(problem) for problem in dataset_problems(agent)]
-
-
-def input_problems(agent: Agent) -> list[str]:
-    """`validation.input_problems`, as lines."""
-    from mendari.evals.validation import input_problems
-
-    return [str(problem) for problem in input_problems(agent)]
-
-
 def run_behaviour_tests(decision: Decision) -> list[CaseOutcome]:
     return [_run(decision, case) for _, _, case in every_case(decision.agent)]
 

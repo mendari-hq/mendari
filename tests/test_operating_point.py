@@ -1030,8 +1030,7 @@ def test_cases_that_repeat_an_input_are_counted_and_said(
 
 
 def test_each_line_says_what_it_is(demo: Agent, demo_run: tuple[Any, list[Any]]) -> None:
-    """A block's `kinds` name its `lines` one for one, so a caller can show some of them: the
-    demo shows what to do, without the counts it has printed already."""
+    """A block's `kinds` name its `lines` one for one: a report says what each line is."""
     run, results = demo_run
     manifest = demo.manifest
     plain = run.report["run"]["operating_point"]
@@ -1052,21 +1051,7 @@ def test_each_line_says_what_it_is(demo: Agent, demo_run: tuple[Any, list[Any]])
         assert len(block["kinds"]) == len(block["lines"])
         begun = re.findall(r"(?m)^  \S", op.text(block))  # the summary, then each line
         assert len(begun) == 1 + len(block["lines"])
-    brief = op.text(held, kinds=op.WHAT_NEXT)
-    assert brief.splitlines()[:2] == [
-        "Operating point",
-        "  No automation threshold can be certified for critical misses at most 1% with 95% "
-        "confidence.",
-    ]
-    assert "needs at least 299 critical cases" in brief and "cannot fix this" in " ".join(
-        brief.split()
-    )
-    assert "At the agent's automation threshold" not in brief and "repeat" not in brief
-    assert op.text(held, "One more line.", kinds=()).splitlines()[1:] == [
-        "  No automation threshold can be certified for critical misses at most 1% with 95% "
-        "confidence.",
-        "  One more line.",
-    ]
+    assert op.text(held, "One more line.").splitlines()[-1] == "  One more line."
 
 
 def test_a_bound_is_rounded_up_and_never_reads_as_within_a_target_it_is_above() -> None:

@@ -180,6 +180,7 @@ def _with_entry(run: Any, change: Any) -> bytes:
         lambda entry: entry.pop(),  # five fields, not six
         lambda entry: entry.__setitem__(1, "not one of its labels"),
         lambda entry: entry.__setitem__(2, 1.5),  # a confidence over 1
+        lambda entry: entry.__setitem__(2, 10**400),  # a confidence no float can hold
         lambda entry: entry.__setitem__(3, [0.5]),  # one probability for several labels
         lambda entry: entry.__setitem__(4, 99),  # a model the header does not list
     ],

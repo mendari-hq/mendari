@@ -173,6 +173,22 @@ def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
             store.close()
 
 
+def test_a_snapshot_is_repeatable_read_for_its_own_transaction_only(store: AuditStore) -> None:
+    """`verify` reads in a snapshot: a REPEATABLE READ, READ ONLY transaction. The pooled
+    connection it ran on stays READ COMMITTED, so no exclusive session after it reads the
+    chain's head as it was before the writer it waited for (a fork, as above)."""
+    if store._db.kind != "postgres":
+        pytest.skip("Postgres-only behaviour")
+    asked = (
+        "SELECT current_setting('transaction_isolation') AS level, "
+        "current_setting('transaction_read_only') AS read_only"
+    )
+    with store._db.snapshot() as db:
+        assert db.one(asked) == {"level": "repeatable read", "read_only": "on"}
+    with store._db.session(exclusive=True) as db:
+        assert db.one(asked) == {"level": "read committed", "read_only": "off"}
+
+
 # -- verification reads the chain a page at a time ------------------------------------------
 
 
@@ -300,18 +316,16 @@ def test_a_decision_chained_after_the_events_were_read_is_no_break(
     store: AuditStore, decide: Decide, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`verify` reads the events, then the rows: a decision made, and another resolved, in
-    between have rows but none of the events read, and must not read as unchained or dropped."""
+    between (committed by other sessions) must not read as unchained or dropped. Every read is
+    of one snapshot, so neither is seen."""
     decide(ROUTINE)
     pending = decide(EMERGENCY)
-    opened = store._db.session
+    opened = store._db.snapshot
     written: list[str] = []
 
     @contextmanager
-    def session(*, exclusive: bool) -> Iterator[Any]:
-        with opened(exclusive=exclusive) as db:
-            if exclusive:
-                yield db
-                return
+    def snapshot() -> Iterator[Any]:
+        with opened() as db:
             read = db.all
 
             def all_(sql: str, params: Any = ()) -> list[dict[str, Any]]:
@@ -324,7 +338,7 @@ def test_a_decision_chained_after_the_events_were_read_is_no_break(
             monkeypatch.setattr(db, "all", all_)
             yield db
 
-    monkeypatch.setattr(store._db, "session", session)
+    monkeypatch.setattr(store._db, "snapshot", snapshot)
     verified = store.verify()
     assert written == ["once"]
     assert verified["ok"] is True, verified

@@ -15,15 +15,15 @@ Several versions of one id may be found, and the newest is served.
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from mendari.core.agent import Agent, has_manifest, load_agent, manifests_under
 from mendari.core.origin import Origin
 from mendari.core.reference import BUNDLED_DIRS, bundled_dir
-from mendari.core.spec import version_key  # also imported from here (the server, the hub)
+from mendari.core.spec import version_key  # also imported from here (the tests)
 from mendari.errors import AgentNotFoundError, MendariError
 
 _BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`
@@ -132,6 +132,42 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     return Discovery(agents=found, problems=problems)
 
 
+def precedence(version: str) -> tuple[Any, ...]:
+    """How an agent's versions are ordered, the newest last (the registry's, `newest`, and
+    `resolve_agent`'s): by semantic-version
+    precedence (SemVer 2.0.0, section 11), then as text. The numbers compare as integers would
+    (`version_key`, whatever their length); a release ranks above its pre-releases, whose
+    dot-separated identifiers compare in turn: digits as numbers and below the others, which
+    compare in ASCII order, and fewer identifiers first when the rest are equal; build metadata
+    counts for nothing. Versions of equal precedence (`1.2.0` and `1.02.0`) then compare as text,
+    so no order depends on the order rows or folders are read in. `version_key` alone ties a
+    release and its pre-releases, on purpose: one that ties a bundled agent's version may not
+    take its place (`core/agent.py`)."""
+    numbers, hyphen, pre = version.partition("+")[0].partition("-")
+    release = (1,) if not hyphen else (0, tuple(_identifier(part) for part in pre.split(".")))
+    return (version_key(numbers), release, version)
+
+
+def _identifier(part: str) -> tuple[int, int, str]:
+    """A pre-release identifier's place: digits as a number, below any other identifier, which
+    compares in ASCII order."""
+    if part.isascii() and part.isdigit():
+        digits = part.lstrip("0")
+        return (0, len(digits), digits)
+    return (1, 0, part)
+
+
+def newest(agents: Iterable[Agent]) -> dict[str, Agent]:
+    """The newest version of each agent, by id (`precedence`): what a server serves and what
+    `mendari monitor` checks of each agent found."""
+    found: dict[str, Agent] = {}
+    for agent in agents:
+        current = found.get(agent.id)
+        if current is None or precedence(agent.version) > precedence(current.version):
+            found[agent.id] = agent
+    return found
+
+
 def resolve_agent(ref: str, paths: Sequence[Path | SearchPath] | None = None) -> Agent:
     """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`."""
     as_path = Path(ref)
@@ -149,4 +185,4 @@ def resolve_agent(ref: str, paths: Sequence[Path | SearchPath] | None = None) ->
         raise AgentNotFoundError(
             f"no agent {ref!r} on the search path ({', '.join(where) or 'empty'})"
         )
-    return max(matches, key=lambda agent: version_key(agent.version))
+    return max(matches, key=lambda agent: precedence(agent.version))

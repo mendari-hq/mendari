@@ -4,7 +4,7 @@
 // while typing in form controls or while another dialog or drawer is open.
 
 import { drawerOpen } from "./drawer.js";
-import { $, esc, icon, state } from "./ui.js";
+import { $, esc, icon, state, WHOLE_DECISION_ID } from "./ui.js";
 
 const VIEW_SHORTCUTS = {
   o: "overview",
@@ -16,8 +16,6 @@ const VIEW_SHORTCUTS = {
   c: "card",
   t: "try",
 };
-
-const DECISION_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){0,3}(?:-[0-9a-f]{1,12})?$/i;
 
 const isTyping = (target) => {
   const el = target?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true']");
@@ -85,8 +83,8 @@ function buildItems(query, onSelectAgent) {
   const trimmed = query.trim();
   const q = trimmed.toLowerCase();
 
-  // Direct Decision ID jump when the user types or pastes a hex prefix / UUID.
-  if (DECISION_ID.test(trimmed) && isViewVisible("audit")) {
+  // A decision's whole id, typed or pasted, opens its record (a part of one names none).
+  if (WHOLE_DECISION_ID.test(trimmed) && isViewVisible("audit")) {
     items.push({
       group: "Decision",
       icon: "scroll-text",

@@ -424,13 +424,6 @@ class RegistryClient:
         submission secret come back."""
         return dict(self._json(self._http.post("/v1/tickets", json={"record": dict(record)})))
 
-    def withdraw_ticket(self, ticket_id: str, record: Mapping[str, Any]) -> dict[str, Any]:
-        response = self._http.post(f"/v1/tickets/{ticket_id}/withdraw", json={"record": record})
-        return dict(self._json(response))
-
-    def agent_tickets(self, agent_id: str) -> list[dict[str, Any]]:
-        return list(self._get(f"/v1/agents/{agent_id}/tickets")["tickets"])
-
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}
         response = self._http.post(f"/v1/namespaces/{namespace}/keys", json=body)

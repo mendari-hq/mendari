@@ -236,6 +236,56 @@ def test_the_cli_writes_ndjson(
     assert len(out.read_text().splitlines()) == 13  # 7 AuditEvents, 6 Provenances
 
 
+def test_the_cli_reads_its_bounds_as_times_such_as_a_backups_name(
+    tmp_path: Path, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--since` / `--until` were compared as text with the stored UTC times: the time in a
+    backup's name (`date -u +%Y%m%dT%H%M%SZ`, as `jobs.sh` names it, and what the runbook's
+    step after a restore exports from) exported nothing, and a `Z` time left out the events of
+    its own second, both silently. A time is read in ISO 8601, basic or extended, in UTC
+    unless it gives its offset."""
+    db = tmp_path / "a.db"
+    with AuditStore(db) as store:
+        trail(store, triage_agent)
+        times = [datetime.fromisoformat(event["created_at"]) for event in store.iter_events()]
+
+    def exported(*bounds: str) -> list[dict[str, Any]]:
+        assert main(["audit", "export", "--db", str(db), *bounds]) == 0
+        return [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+
+    every = exported()
+    first = min(times).replace(microsecond=0)  # the first event's second
+    after = max(times).replace(microsecond=0) + timedelta(seconds=1)
+    eastern = timezone(timedelta(hours=-5))
+    for since in (
+        first.strftime("%Y%m%dT%H%M%SZ"),  # a backup's name: mendari-<this>.dump
+        first.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        first.strftime("%Y-%m-%dT%H:%M:%S"),  # no zone: UTC
+        first.astimezone(eastern).isoformat(),
+    ):
+        assert exported("--since", since) == every, since
+        assert exported("--until", since) == [], since
+    for later in (after.strftime("%Y%m%dT%H%M%SZ"), after.astimezone(eastern).isoformat()):
+        assert exported("--since", later) == [], later
+        assert exported("--until", later) == every, later
+
+
+def test_the_cli_refuses_a_bound_that_is_no_time(
+    tmp_path: Path, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bound it cannot read was compared as text all the same and exported nothing, with exit
+    0: after a restore, an empty list of what to re-apply (revoked keys come back to life)."""
+    db = tmp_path / "a.db"
+    trail(AuditStore(db), triage_agent)
+    capsys.readouterr()
+    for flag in ("--since", "--until"):
+        for bad in ("yesterday", "27-11-2026", "2026-13-01", "0001-01-01T00:00:00+01:00"):
+            assert main(["audit", "export", "--db", str(db), flag, bad]) == 1, bad
+            captured = capsys.readouterr()
+            assert captured.out == "", bad
+            assert f"argument {flag}: not a time: {bad!r}" in captured.err, bad
+
+
 def test_reads_and_purges_of_encrypted_inputs_are_exported(
     tmp_path: Path, triage_agent: Agent
 ) -> None:

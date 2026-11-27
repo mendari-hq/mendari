@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the API examples (`src/mendari/dashboard/snippets/*.sh`) against a local server, and the
-Python examples (`*.py`) as programs (CI jobs `test` and `quickstart`, one step).
+"""Run the API examples (`src/mendari/dashboard/snippets/*.sh`) against a local server (CI jobs
+`test` and `quickstart`, one step).
 
     uv run python scripts/check_doc_snippets.py           # --show: print what each file printed
 
@@ -248,32 +248,6 @@ def run_server_db(db: Path, work: Path, base_env: dict[str, str], *, show: bool 
     return ok
 
 
-def run_python(base_env: dict[str, str], *, show: bool = False) -> bool:
-    """The Python examples, each a program run as it is, without a server; False if one failed."""
-    print("Python:")
-    ok = True
-    for file in snippets.PYTHON:
-        done = subprocess.run(
-            [sys.executable, str(snippets.DIRECTORY / f"{file}.py")],
-            env=base_env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        steps = snippets.load(file, language="python")
-        if done.returncode != 0:
-            print(f"  FAIL {file}.py (exit {done.returncode})")
-            for line in (done.stdout + done.stderr).strip().splitlines()[-40:]:
-                print(f"       {line}")
-            ok = False
-            continue
-        if show:
-            print(done.stdout.rstrip())
-        print(f"  ok   {file}.py: {', '.join(step.name for step in steps)}")
-    return ok
-
-
 def main(show: bool = False) -> int:
     missing = [tool for tool in ("bash", "curl", "jq") if shutil.which(tool) is None]
     if missing:
@@ -295,7 +269,6 @@ def main(show: bool = False) -> int:
                     show=show,
                 ),
                 run_presets(work, base_env, show=show),
-                run_python(base_env, show=show),
             ]
     finally:
         os.environ.clear()

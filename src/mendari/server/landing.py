@@ -181,21 +181,14 @@ def _code(code_id: str, text: str, label: str, *, kind: str = "Shell", copy: boo
 
 
 def _steps(
-    file: str,
-    prints: Mapping[tuple[str, str], list[tuple[str, Mapping[str, object]]]],
-    *,
-    language: str = "bash",
+    file: str, prints: Mapping[tuple[str, str], list[tuple[str, Mapping[str, object]]]]
 ) -> str:
     """One snippet file's steps as numbered items: a heading from the step's title, its commands,
     and for the quickstart's decision what it prints (`prints`, by file and step: a label and
-    the answer, once per kind of server shown). A Python file's steps follow its bash file's,
-    numbered on."""
+    the answer, once per kind of server shown)."""
     items = []
-    python = language == "python"
-    first = len(snippets.load(file)) + 1 if python else 1
-    kind = "Python" if python else "Shell"
-    for number, step in enumerate(snippets.load(file, language=language), first):
-        anchor = f"{file}-{step.name}" + ("-python" if python else "")
+    for number, step in enumerate(snippets.load(file), 1):
+        anchor = f"{file}-{step.name}"
         shown = "".join(
             _code(
                 f"code-{anchor}-prints" + (f"-{index}" if index else ""),
@@ -209,7 +202,7 @@ def _steps(
         items.append(
             f'<li class="docs-step"><h3 id="{anchor}"><span class="docs-step-number">{number}'
             f"</span> {escape(step.title)}</h3>"
-            f"{_code(f'code-{anchor}', escape(step.text), step.title, kind=kind)}{shown}</li>"
+            f"{_code(f'code-{anchor}', escape(step.text), step.title)}{shown}</li>"
         )
     return "".join(items)
 

@@ -38,7 +38,7 @@ from mendari.core.templates import (
     longest,
 )
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, terminology
 from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR, encrypt_mode
@@ -330,7 +330,7 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     assert owned.warnings == (problem,)
     assert manifest_template_problems(owned.manifest) == [problem]
     with pytest.raises(AgentValidationError, match=re.escape(problem)):
-        validate_agent(owned)
+        validate(owned)
     # An owned agent's summary that reads longer is cut under 140 on its card.
     cut = with_summary(tmp_path / "cut", "Soon: " + "x" * 140 + " ({on_anticoagulant})")
     (made,) = cds_hooks.invoke(Decision.from_path(cut), hook(SHOWCASE))["cards"]
@@ -462,6 +462,21 @@ def test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_o
     key = {"authorization": f"Bearer {made['key']}"}
     assert [link["type"] for link in _launch_links(signed, EHR_B, **key)] == ["smart"]
     assert _launch_links(signed, EHR_A, **key) == []
+
+
+def test_a_fhir_server_that_is_not_a_url_is_registered_for_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `fhirServer` that does not even split as a URL (`http://[`), with SMART on, is no EHR
+    registered for launches, never a 500: a card made from the prefetch has no `smart` link,
+    and a hook that would read from that server is refused as for one off the allow-list."""
+    _launch_setup(monkeypatch)
+    client = served(tmp_path)
+    for server, links in ((EHR_A, ["smart"]), ("http://[", [])):
+        (card,) = cards_of(client, TRIAGE, message_hook() | {"fhirServer": server})
+        assert [link["type"] for link in card["links"] if link["type"] == "smart"] == links
+    refused = client.post(CHART, json=hook(SHOWCASE, fhir_server="http://["))
+    assert refused.status_code == 422 and "allow-list" in refused.text
 
 
 @pytest.mark.parametrize("public", [None, PUBLIC])

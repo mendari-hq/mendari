@@ -9,7 +9,7 @@ import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, zoneShort } from "./ui.js";
+import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -34,6 +34,11 @@ const NOTE_STATUS = {
   missing: "Note (missing: verify the chain with --notes)",
 };
 
+// The trail is listed a page at a time, newest first (the route pages by `limit` and `offset`).
+// The filters search the decisions listed, and the count says how much of the trail that is.
+const PAGE = 100;
+
+
 let auditRows = [];
 let visibleIds = [];
 
@@ -42,6 +47,14 @@ views.audit = async (main, params) => {
   const agentId = state.agentId;
   auditRows = [];
   visibleIds = [];
+  // How many decisions the trail holds, by outcome, to say how much is listed (null when that
+  // could not be read); the rows the route has given (the next page's offset); and whether the
+  // last page was full, so that older decisions may be left.
+  const counts = api(`/api/stats?agent_id=${encodeURIComponent(agentId)}`).catch(() => null);
+  let total = null;
+  let given = 0;
+  let full = false;
+  let loads = 0; // listings started: an older page asked for under an earlier one is dropped
   main.innerHTML = `
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
@@ -61,7 +74,12 @@ views.audit = async (main, params) => {
       <span id="verify-result"></span>` : ""}
     </div>
     <p class="muted checkpoint" id="checkpoint"></p>
-    <div class="panel" id="audit-table"></div>`;
+    <div class="panel" id="audit-table"></div>
+    <div class="row mt-3" id="audit-more" hidden><button type="button" id="audit-older">Show older decisions</button></div>`;
+
+  // Older decisions are left to list; what is listed, when not all: "the newest 100 of 250 decisions".
+  const more = () => full && (total === null || auditRows.length < total);
+  const listedText = () => `the newest ${auditRows.length}${total === null ? "" : ` of ${total}`} decisions`;
 
   const paintTable = () => {
     const table = $("#audit-table");
@@ -76,26 +94,61 @@ views.audit = async (main, params) => {
     });
     visibleIds = filtered.map((r) => r.id);
     const active = Boolean(priority || query);
+    const partial = more();
     const reset = $("#audit-reset");
     if (reset) reset.hidden = !active;
     const count = $("#audit-count");
-    if (count) count.textContent = active ? `Showing ${filtered.length} of ${auditRows.length}` : "";
-    table.innerHTML = filtered.length
-      ? auditTable(filtered)
-      : `<div class="empty">${auditRows.length ? "No decisions match the current filter." : "No decisions recorded."}</div>`;
+    if (count) {
+      const listed = partial ? listedText() : auditRows.length;
+      count.textContent = active ? `Showing ${filtered.length} of ${listed}` : partial ? `Showing ${listed}` : "";
+    }
+    const none = !auditRows.length ? "No decisions recorded."
+      : partial ? `No decisions among the newest ${auditRows.length} match the current filter.`
+      : "No decisions match the current filter.";
+    table.innerHTML = filtered.length ? auditTable(filtered) : `<div class="empty">${none}</div>`;
     wire(table);
+    $("#audit-more").hidden = !partial;
   };
+
+  const listing = (filter, offset) => api(`/api/audit?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE}${offset ? `&offset=${offset}` : ""}${filter ? `&outcome=${filter}` : ""}`);
+  // Another agent or filter chosen meanwhile, or this view left (or shown anew): an answer is stale.
+  const shownTable = $("#audit-table");
+  const stale = (filter) => !shownTable.isConnected || state.agentId !== agentId || $("#outcome-filter")?.value !== filter;
 
   const load = async () => {
     const filter = $("#outcome-filter").value;
+    const asked = ++loads;
     storageSet("oh.audit.outcome", filter);
     try {
-      const rows = await api(`/api/audit?agent_id=${encodeURIComponent(agentId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-      const table = $("#audit-table");
-      // Another agent or filter chosen meanwhile, or the view left: this answer is stale.
-      if (!table || state.agentId !== agentId || $("#outcome-filter")?.value !== filter) return;
+      const [rows, stats] = await Promise.all([listing(filter, 0), counts]);
+      if (asked !== loads || stale(filter)) return;
       auditRows = rows;
+      given = rows.length;
+      full = rows.length === PAGE;
+      total = (filter ? stats?.outcomes?.[filter] : stats?.decisions) ?? null;
       paintTable();
+    } catch (error) {
+      if (state.agentId === agentId) toastError(error.message);
+    }
+  };
+
+  // The next page, after what is listed. Decisions made meanwhile move the pages down, so one
+  // already listed can come again: it is listed once.
+  const loadOlder = async () => {
+    const filter = $("#outcome-filter").value;
+    const asked = loads;
+    try {
+      const rows = await listing(filter, given);
+      if (asked !== loads || stale(filter)) return;
+      const listed = new Set(auditRows.map((r) => r.id));
+      const added = rows.filter((r) => !listed.has(r.id));
+      auditRows = [...auditRows, ...added];
+      given += rows.length;
+      full = rows.length === PAGE;
+      paintTable();
+      // The keyboard goes on from the first older decision the filters show.
+      const first = added.find((r) => visibleIds.includes(r.id));
+      if (first) $(`#audit-table button.open-record[data-id="${CSS.escape(first.id)}"]`)?.focus();
     } catch (error) {
       if (state.agentId === agentId) toastError(error.message);
     }
@@ -107,7 +160,15 @@ views.audit = async (main, params) => {
   });
   $("#outcome-filter").addEventListener("change", load);
   $("#priority-filter").addEventListener("change", paintTable);
-  $("#audit-search").addEventListener("input", paintTable);
+  $("#audit-search").addEventListener("input", (event) => {
+    const query = event.currentTarget.value.trim();
+    if (WHOLE_DECISION_ID.test(query)) {
+      event.currentTarget.value = ""; // it found its decision: the list is not filtered by it
+      location.hash = `#audit/${encodeURIComponent(query.toLowerCase())}`;
+    }
+    paintTable();
+  });
+  $("#audit-older").addEventListener("click", (event) => whileBusy(event.currentTarget, "Loading…", loadOlder));
   $("#audit-reset").addEventListener("click", () => {
     $("#priority-filter").value = "";
     $("#audit-search").value = "";
@@ -232,7 +293,12 @@ async function openRecord(id) {
   // names what is shown, so a slow answer never replaces a newer drawer.
   if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
-  const sameAgent = !r.agent_id || r.agent_id === state.agentId;
+  // The agent that made it: its row's (`agent_id`), as the record names it (`agent.id`). Opened
+  // by its id alone (the palette, a bare `#audit/<id>`), it can be another agent's than the one
+  // chosen: its codes are then shown as they are, never in the chosen agent's words, and it is
+  // not replayed into the chosen agent's Try it.
+  const recordAgent = found.agent_id ?? r.agent?.id;
+  const sameAgent = recordAgent === state.agentId;
   const recLabel = (code) => (sameAgent ? labelName(r.primary ?? state.detail.primary, code) : code);
   const at = visibleIds.indexOf(id);
   const prevId = at > 0 ? visibleIds[at - 1] : null;
@@ -262,6 +328,7 @@ async function openRecord(id) {
         <span>→ <b>${r.recommendation ? `${esc(recLabel(r.recommendation))}</b> <span class="mono muted">${esc(r.recommendation)}</span>` : "no recommendation</b>"}</span>
         ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
       <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
+      ${sameAgent ? "" : recordAgentNote(recordAgent)}
       ${guardrailTrace(r)}
       ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
@@ -269,7 +336,7 @@ async function openRecord(id) {
       ${r.data_coverage ? coveragePanel(id, r.data_coverage, r.ehr_declaration) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
-      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a)).join("")}
+      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, { own: sameAgent })).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       ${found.actions?.length ? `<h3>Actions</h3>
         <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>
@@ -284,7 +351,7 @@ async function openRecord(id) {
     state.replayDraft = {
       agentId: state.agentId,
       input: r.input,
-      original: { id: r.decision_id, outcome: r.decision?.outcome, recommendation: r.decision?.recommendation },
+      original: { id: r.id, outcome: r.outcome, recommendation: r.recommendation, primary: r.primary },
     };
     closeDrawer({ restoreFocus: false, closedByUser: false });
     location.hash = "#try";
@@ -292,7 +359,23 @@ async function openRecord(id) {
   shown.querySelectorAll("[data-step]").forEach((btn) => btn.addEventListener("click", () => {
     if (btn.dataset.step) location.hash = `#audit/${encodeURIComponent(btn.dataset.step)}`;
   }));
+  // Chosen as the picker chooses it: the address keeps `#audit/<id>`, so the record opens again
+  // over that agent's trail.
+  shown.querySelector("[data-record-agent]")?.addEventListener("click", (event) => {
+    const select = $("#agent-select");
+    select.value = event.currentTarget.dataset.recordAgent;
+    select.dispatchEvent(new Event("change"));
+  });
   wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
+}
+
+// Whose decision it is, when not the chosen agent's; where that agent is served here, a way to
+// show the decision with it (its words, its Try it).
+function recordAgentNote(agentId) {
+  const served = state.agents.find((a) => a.id === agentId);
+  return `<p class="callout neutral record-agent">Made by another agent, <b>${esc(served?.name ?? agentId)}</b>
+    <span class="mono">${esc(agentId)}</span>: its labels show as codes here.
+    ${served ? `<button type="button" data-record-agent="${esc(agentId)}">Show it with ${esc(served.name)}</button>` : ""}</p>`;
 }
 
 // Where what a decision keeps of its input is erased, on a patient's request or for a case

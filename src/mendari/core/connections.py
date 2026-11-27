@@ -395,7 +395,7 @@ class ConnectionStore:
                     db,
                     f"agent_connection:{connection_id}",
                     "agent_connection.origin_allowed",
-                    self.store._bound("agent_connection.origin_allowed", granted, org),
+                    self.store._bound(granted, org),
                 )
             payload = {
                 "agent_id": agent_id,
@@ -403,7 +403,7 @@ class ConnectionStore:
                 "token": sealed is not None,
                 "changed_by": by,
             }
-            chained = self.store._bound("agent_connection.set", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(
                 db, f"agent_connection:{connection_id}", "agent_connection.set", chained
             )
@@ -430,9 +430,7 @@ class ConnectionStore:
                 "allowed_at = NULL, changed_by = ?, changed_at = ? WHERE id = ?",
                 (by, _now(), row["id"]),
             )
-            chained = self.store._bound(
-                "agent_connection.cleared", {"agent_id": agent_id, "changed_by": by}, org
-            )
+            chained = self.store._bound({"agent_id": agent_id, "changed_by": by}, org)
             self.store._append(
                 db, f"agent_connection:{row['id']}", "agent_connection.cleared", chained
             )

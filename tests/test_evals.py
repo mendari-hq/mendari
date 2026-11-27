@@ -222,12 +222,13 @@ def test_a_baseline_without_its_counts_is_compared_with_n_a() -> None:
     "spoil",
     [
         lambda b: b["questions"][b["primary"]].update(accuracy=None),
+        lambda b: b["questions"][b["primary"]].update(accuracy=10**400),
         lambda b: b["questions"][b["primary"]].update(per_label=[1]),
         lambda b: b["questions"][b["primary"]].update(calibration={"ece": "low"}),
         lambda b: b.update(subgroups={"channel": [1]}),
         lambda b: b.update(decisions={"automation": {"false_automation_rate": "x"}}),
     ],
-    ids=["accuracy", "per-label", "calibration", "subgroups", "automation"],
+    ids=["accuracy", "accuracy-no-float", "per-label", "calibration", "subgroups", "automation"],
 )
 def test_a_baseline_with_malformed_figures_cannot_be_compared(
     spoil: Callable[[dict[str, Any]], None],

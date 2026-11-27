@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import json
+import math
+from pathlib import Path
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from mendari import Agent, AuditStore, Decision, Outcome
+from mendari import Agent, AuditStore, Decision, Outcome, load_agent
 from mendari.errors import AgentValidationError
 from tests.conftest import message
+from tests.support.engine import pulled, sorter
 
 
 def test_from_hub(triage: Decision) -> None:
@@ -103,3 +107,94 @@ def test_rejection_reasons_still_say_where_and_why(triage: Decision) -> None:
         "input rejected: message/body: does not match the pattern the schema requires",
         "input rejected: message/channel: is not one of the values the schema allows",
     )
+
+
+def test_a_reason_given_once_per_missing_name_is_listed_once(tmp_path: Path) -> None:
+    """jsonschema gives one error per name a `required` misses, each worded the same (it lists
+    every missing name). An agent the deployment owns listed that reason once per name: with
+    ten or more missing, they filled the ten reasons and the input's other problems were not
+    shown. Each reason is listed once, in the order found, as for an agent on the bounded
+    engine (`tests/test_bounded_budget.py`)."""
+
+    def many(schema: dict[str, Any]) -> None:
+        schema["required"] += [f"f{i}" for i in range(12)]
+        schema["properties"]["age"] = {"type": "integer"}
+
+    decision = Decision(load_agent(sorter(tmp_path, schema=many, agent_id="local/sorter")))
+    assert not decision.agent.bounded
+    assert decision.validate({"message": "my bill", "age": "forty"}) == [
+        f"(root): {', '.join(f'f{i}' for i in range(12))} is required",
+        "age: must be of type integer",
+    ]
+
+
+NOT_FINITE = "must be a finite number, not NaN or an infinity"
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_a_number_json_cannot_carry_is_refused_as_an_input_problem(
+    tmp_path: Path, value: float
+) -> None:
+    """Python's json reads NaN and the infinities, and so does the server, but no schema keyword
+    bounds them (every comparison with NaN is false: 30 <= NaN <= 45 held) and an agent's
+    service cannot be sent them (a decision crashed, a 500 with nothing recorded, or decided on
+    canned answers). Such an input is refused before any provider runs, as an input the schema
+    refuses, for an agent the deployment owns and one it does not, naming each place."""
+
+    def measured(schema: dict[str, Any]) -> None:
+        schema["properties"]["temperature"] = {"type": "number", "minimum": 30, "maximum": 45}
+        schema["properties"]["readings"] = {"type": "array", "items": {"type": "object"}}
+
+    folder = sorter(tmp_path, schema=measured)
+    inputs = {
+        "message": "my bill",
+        "temperature": value,
+        "readings": [{"pulse": 72.0, "oxygen": value}, {"Not A Field": value}],
+    }
+    places = ["readings/0/oxygen", "readings/1/*", "temperature"]
+    for agent in (load_agent(folder), pulled(folder)):
+        decision = Decision(agent)
+        assert decision.validate(inputs) == [f"{place}: {NOT_FINITE}" for place in places]
+        result = decision.decide(inputs)
+        assert result.outcome is Outcome.BLOCK and result.answers == {}
+        assert result.reasons == tuple(f"input rejected: {p}: {NOT_FINITE}" for p in places)
+    assert Decision(load_agent(folder)).validate({**inputs, "temperature": 37.5}) == [
+        f"{place}: {NOT_FINITE}" for place in places[:2]
+    ]
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_an_input_refused_for_a_number_json_cannot_carry_is_kept_as_json(
+    tmp_path: Path, value: float
+) -> None:
+    """The refused input was kept as Python writes it, a bare `NaN` token in the stored record,
+    which no JSON reader but Python's parses: an auditor's tool could not read the record or
+    recompute what the chain covers. It is kept with null in each such place (the reason names
+    them), and the decision's input hash is of what is kept. A caller who records the input
+    it holds itself (`AuditStore.record`) gets the same."""
+
+    def measured(schema: dict[str, Any]) -> None:
+        schema["properties"]["temperature"] = {"type": "number"}
+
+    store = AuditStore(tmp_path / "a.db")
+    agent = load_agent(sorter(tmp_path, schema=measured))
+    inputs = {"message": "my bill", "temperature": value, "readings": [value, 37.5]}
+    kept = {"message": "my bill", "temperature": None, "readings": [None, 37.5]}
+
+    def strict(text: str) -> Any:
+        def refused(token: str) -> Any:
+            raise ValueError(f"not JSON: {token}")
+
+        return json.loads(text, parse_constant=refused)
+
+    decided = Decision(agent, store=store).decide(inputs)
+    assert decided.outcome is Outcome.BLOCK
+    by_hand = Decision(agent).decide(inputs)
+    store.record(by_hand, inputs)
+    for result in (decided, by_hand):
+        with store._db.session(exclusive=False) as db:
+            row = db.one("SELECT record FROM decisions WHERE id = ?", (result.id,))
+        assert row is not None and strict(row["record"])["input"] == kept
+    assert decided.input_hash == store.phi.input_hash(kept)
+    assert store.verify()["ok"]
+    store.close()

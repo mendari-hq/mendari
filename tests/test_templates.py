@@ -14,7 +14,7 @@ from mendari import Decision, load_agent
 from mendari.core.spec import AgentManifest
 from mendari.core.templates import expansions, fill, template_problems, unknown_placeholders
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
 from tests.conftest import DEMO_AGENT_DIR, TRIAGE_DIR, fixture_agents
@@ -61,6 +61,27 @@ def test_placeholders_are_built_ins_or_questions() -> None:
         "specialty.x",
     ]
     assert unknown_placeholders("unbalanced {", questions) == ["unbalanced {"]
+
+
+@pytest.mark.parametrize("name", ["recommendation", "priority"])
+def test_a_question_named_like_a_built_in_placeholder_is_refused(name: str) -> None:
+    """`{recommendation}` and `{priority}` are the decision's own. A question of either name was
+    read as the question where a card summary's length is checked (`display_choices`) and as the
+    decision's where the card is filled (`fill_display`): a summary measured under CDS Hooks' 140
+    characters read longer. The manifest is refused, naming the question."""
+    raw = yaml.safe_load((TRIAGE_DIR / "agent.yaml").read_text())
+    raw["questions"][name] = {
+        "type": "boolean",
+        "instructions": "Is it so?",
+        "criteria": {"yes": "It is.", "no": "It is not."},
+    }
+    raw["providers"]["screen"]["answers"].append(name)
+    problem = (
+        f"question key {name!r} is taken by the built-in placeholder {{{name}}} (the decision's "
+        f"{name}): rename the question"
+    )
+    with pytest.raises(ValidationError, match=re.escape(problem)):
+        AgentManifest.model_validate(raw)
 
 
 def test_expansions_are_every_text_fill_can_give() -> None:
@@ -180,7 +201,7 @@ def test_a_wording_template_takes_bare_placeholders_only(tmp_path: Path, shape: 
         assert owned.warnings == (problem,)
         assert Decision(owned).decide_fhir(BUNDLE)[0].recommendation == "pharmacy"
         with pytest.raises(AgentValidationError, match=re.escape(problem)):
-            validate_agent(owned)
+            validate(owned)
 
     task = with_wording(tmp_path / "task", task=f"Route to {shape}")
     problem = f"fhir/mapping.yaml: task.description uses {shape}: {BARE}"
@@ -197,7 +218,7 @@ def test_a_wording_template_takes_bare_placeholders_only(tmp_path: Path, shape: 
     else:
         FhirAdapter.for_agent(owned)  # it serves, as before
         with pytest.raises(AgentValidationError, match=re.escape(problem)):
-            validate_agent(owned)
+            validate(owned)
 
 
 def test_fill_renders_a_template_as_it_always_did() -> None:

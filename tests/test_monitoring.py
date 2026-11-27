@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import Agent, AuditStore, Decision
+from mendari.alerts import check_webhook
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.agent import load_agent
@@ -29,7 +30,6 @@ from mendari.evals.monitoring import (
     MIN_REVIEWED,
     _alerts,
     _psi,
-    check_webhook,
     monitor,
     recorded_providers,
 )
@@ -356,6 +356,7 @@ def test_a_model_other_than_the_benchmarks_is_not_a_reference(
     [
         {"decisions": {"review": {"n": 598, "expected_override_rate": "0.005"}}},
         {"decisions": {"automation": {"n": 100, "accuracy": "0.95"}}},
+        {"decisions": {"automation": {"n": 100, "accuracy": 10**400}}},  # too large for a float
         {"agent": "mendari-test/triage"},
         {"providers": ["rules", "agent"]},
         {"policy": "none"},

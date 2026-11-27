@@ -186,18 +186,10 @@ def fhir_server_allowed(client: CdsClient, server: object) -> bool:
         return True
     if not isinstance(server, str):
         return False
-    base = _base(server)
+    base = normalize_base(server)
     if base is None or base not in client.fhir_servers:
         return False
-    return not client.iss_is_fhir_server or base == _base(client.iss)
-
-
-def _base(url: str) -> str | None:
-    """`smart.normalize_base`, None too for a URL it cannot even split (`http://[`)."""
-    try:
-        return normalize_base(url)
-    except ValueError:
-        return None
+    return not client.iss_is_fhir_server or base == normalize_base(client.iss)
 
 
 # -- keys -----------------------------------------------------------------------------------------
@@ -644,7 +636,7 @@ def _client(
     bases = _list(entry, "fhir_servers", MAX_BASES, refused, required=True)
     fhir_servers: list[str] = []
     for position, given in enumerate(bases, start=1):
-        base = _base(given)
+        base = normalize_base(given)
         if base is None:
             raise refused(f"fhir_servers {position} is not a FHIR base (http or https, no query)")
         if origin_of(base) not in servers:
@@ -683,7 +675,7 @@ def _client(
     pinned = entry.get("iss_is_fhir_server", False)
     if not isinstance(pinned, bool):
         raise refused("iss_is_fhir_server must be true or false")
-    if pinned and _base(iss) not in fhir_servers:
+    if pinned and normalize_base(iss) not in fhir_servers:
         raise refused("iss_is_fhir_server is set, but iss is not one of its fhir_servers")
     return CdsClient(
         id=client_id,

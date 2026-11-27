@@ -5,16 +5,27 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
+from mendari.core.origin import MARKER, ORIGIN_FORMAT
+from mendari.core.registry import resolve_agent
+from mendari.errors import MendariError
+from mendari.hub.client import agents_cache
 from mendari.mcp import PROTOCOL_VERSIONS, QUEUE_FIELDS, McpServer, serve
+from mendari.server import recalls
+from mendari.server.recalls import RecallWatch
+from tests.support.registry import BILL, OUTSIDE_ID
+from tests.test_registry_engine import outside_sorter
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT = "mendari/portal-message-agent"
@@ -346,3 +357,95 @@ def test_a_bad_authorization_is_a_tool_error_and_records_nothing(
     result = call(server, "authorize_action", arguments)
     assert result["isError"] is True and says in result["structuredContent"]["error"]
     assert server.store.verify()["events"] == 0
+
+
+REGISTRY = "https://hub.example.org"
+
+
+def pulled_and_approved(base: Path, store: AuditStore) -> Agent:
+    """An outside publisher's agent pulled from a registry, with an action that writes to a
+    record, approved for its digest in the trail: what a running server automates once its
+    registry has been read and recalls nothing (`server/recalls.py`)."""
+
+    def writes(manifest: dict[str, Any]) -> None:
+        manifest["actions"] = {"file_bill": {"description": "File it.", "effect": "write"}}
+
+    source = outside_sorter(base / "source", manifest=writes)
+    target = agents_cache() / OUTSIDE_ID / source.version
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source.root, target)
+    (target / MARKER).write_text(json.dumps({"format": ORIGIN_FORMAT, "registry": REGISTRY}))
+    pulled = resolve_agent(OUTSIDE_ID)
+    assert (pulled.origin, pulled.pulled["registry"]) == ("hub", REGISTRY)
+    store.approve_registry_agent(
+        agent_id=OUTSIDE_ID,
+        agent_digest=pulled.digest,
+        registry=REGISTRY,
+        approver="dr-a",
+        reference="minutes 4",
+    )
+    return pulled
+
+
+def test_an_agent_from_a_registry_is_held_until_its_registry_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mendari mcp` decided without a running server's recall check: an agent pulled from a
+    registry and approved in the trail automated, and its writes were released, before its
+    registry had been read for recalls, where the server holds it. As the command makes it,
+    the server reads the registry in the background, here one it cannot reach."""
+    read = threading.Event()
+
+    def unreachable(_: str) -> list[dict[str, Any]]:
+        read.set()
+        raise MendariError("unreachable")
+
+    monkeypatch.setattr(recalls, "fetch_yanks", unreachable)
+    with AuditStore(":memory:") as store:
+        pulled_and_approved(tmp_path, store)
+        server = McpServer(store)
+        held = call(server, "decide", {"agent": OUTSIDE_ID, "input": BILL})["structuredContent"]
+        assert held["outcome"] == "HUMAN_REVIEW"
+        unread = "its registry has not been checked for recalls yet"
+        assert any(unread in reason for reason in held["reasons"])
+        asked = {"agent": OUTSIDE_ID, "decision": held["id"], "action": "file_bill"}
+        gated = call(server, "authorize_action", asked)["structuredContent"]
+        assert (gated["disposition"], gated["reason"]) == ("held", "awaiting_review")
+        # The decision started the read in the background: done here, never after the test.
+        assert read.wait(timeout=30)
+
+
+def test_an_agent_its_registry_recalls_stops_automating_as_on_the_server(tmp_path: Path) -> None:
+    """Once its registry is read and recalls nothing, the approved agent automates and its write
+    is released; once the registry recalls its version, it is held again, and a new write for
+    the decision it automated before is no longer released, as a running server holds it."""
+    listed: list[dict[str, Any]] = []
+    with AuditStore(":memory:") as store:
+        pulled = pulled_and_approved(tmp_path, store)
+        watch = RecallWatch(
+            [pulled], fetch=lambda _: listed, fetch_key=lambda _: False, background=False
+        )
+        server = McpServer(store, recalls=watch)
+
+        def decided() -> dict[str, Any]:
+            asked = {"agent": OUTSIDE_ID, "input": BILL}
+            return dict(call(server, "decide", asked)["structuredContent"])
+
+        def authorized(decision: str, **arguments: Any) -> tuple[str, str]:
+            asked = {"agent": OUTSIDE_ID, "decision": decision, "action": "file_bill",
+                     "arguments": arguments}  # fmt: skip
+            gated = call(server, "authorize_action", asked)["structuredContent"]
+            return gated["disposition"], gated["reason"]
+
+        assert decided()["outcome"] == "HUMAN_REVIEW"  # its registry not read yet
+        watch.refresh(REGISTRY)
+        automated = decided()
+        assert automated["outcome"] == "AUTO"
+        assert authorized(automated["id"]) == ("released", "automated")
+        recall = {"agent": OUTSIDE_ID, "version": pulled.version, "yank": {"severity": "high"}}
+        listed.append(recall)
+        watch.refresh(REGISTRY)
+        recalled = decided()
+        assert recalled["outcome"] == "HUMAN_REVIEW"
+        assert any("recalled (high) by its registry" in r for r in recalled["reasons"])
+        assert authorized(automated["id"], again=True) == ("blocked", "not_automated")

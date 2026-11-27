@@ -163,7 +163,8 @@ class Deployment:
     scheduled: bool = False  # the scheduled jobs' secret is set, so their routes answer
     runs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     checkpoint: Mapping[str, Any] | None = None
-    statement_day: str | None = None  # the day of the newest signed checkpoint statement
+    # The day of the newest checkpoint statement this deployment's key signed: the published one.
+    statement_day: str | None = None
     alerts: Alerts = field(default_factory=Alerts)
     registry: Registry = field(default_factory=Registry)
     # Organizations' agent stores are served (`MENDARI_AGENT_STORE=on`, memberships mode): what
@@ -519,6 +520,19 @@ def _audit_chain(d: Deployment) -> SystemCheck:
             "Press Verify now. The daily checkpoint job verifies it every day after that.",
         )
     at = str(verified["ran_at"])
+    if verified["outcome"] != "ok" and verified.get("detail") == "statement":
+        # The daily job verified the chain, then refused the day's stored statement.
+        return _check(
+            "audit_chain",
+            AUDIT,
+            label,
+            "attention",
+            "The audit trail was checked from its last checkpoint and nothing was changed or "
+            "removed, but the day's stored checkpoint statement is not one this deployment's key "
+            "signed: someone with the database put it there.",
+            "Keep the database as it is and follow the incident runbook.",
+            at=at,
+        )
     if verified["outcome"] != "ok":
         return _check(
             "audit_chain",
@@ -554,6 +568,18 @@ def _checkpoint(d: Deployment) -> SystemCheck:
     label = "Daily checkpoint"
     ran = d.runs.get("checkpoint")
     recorded = None if d.checkpoint is None else str(d.checkpoint["created_at"])
+    if ran is not None and ran["outcome"] != "ok" and ran.get("detail") == "statement":
+        return _check(
+            "checkpoint",
+            AUDIT,
+            label,
+            "attention",
+            "The daily checkpoint job verified the audit trail and its position is recorded, but "
+            "the day's stored statement did not verify (this deployment's key did not sign it), "
+            "so it is not published.",
+            "Keep the database as it is and follow the incident runbook.",
+            at=str(ran["ran_at"]),
+        )
     if ran is not None and ran["outcome"] != "ok":
         return _check(
             "checkpoint",

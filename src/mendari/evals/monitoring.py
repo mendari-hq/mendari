@@ -58,17 +58,14 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from mendari.alerts import (
-    AlertSettings,
-    check_webhook,  # noqa: F401 - where it was, for its callers
-    deliver,
-)
+from mendari.alerts import AlertSettings, deliver
 from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore, truth_label
 from mendari.core.card import benchmark
 from mendari.errors import MendariError
 from mendari.evals import figures
 from mendari.evals.render import shown
+from mendari.providers.base import finite_number
 
 MIN_LABELLED = 20
 MIN_FOR_DRIFT = 50
@@ -218,9 +215,8 @@ def _configuration_since(
 def _number(value: Any) -> float | None:
     """A share stated in a benchmark, or None when it is not one (an agent's file is checked for
     its shape, not each value: what cannot be read is absent, never an error)."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value) if math.isfinite(value) and 0 <= value <= 1 else None
+    number = finite_number(value)
+    return number if number is not None and 0 <= number <= 1 else None
 
 
 def _counted(rate: float | None, n: Any) -> figures.Figure | None:

@@ -307,7 +307,7 @@ def test_a_plain_name_cookie_reaches_no_row(server: TestClient, db_target: str) 
     plain = {"cookie": f"mendari_session={sid}"}
     assert server.get("/api/audit", headers=plain).status_code == 401
     with AuditStore(db_target) as store:
-        assert store.smart_get(sid, "user") is not None  # refused, not ended
+        assert store.smart_read(sid, "user") is not None  # refused, not ended
 
 
 def test_local_and_dotless_hosts_keep_the_plain_names(

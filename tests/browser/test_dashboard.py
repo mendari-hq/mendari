@@ -1745,6 +1745,165 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
     expect(page.locator("#drawer-title")).to_have_text("Human review · Nurse")
 
 
+def test_the_palette_opens_a_decision_by_its_whole_id_only(page: Page, live_server: str) -> None:
+    """The record is read by its whole id (`GET /api/audit/{id}`), so the palette offered to
+    open the eight characters the audit table shows, and the drawer that opened said "unknown
+    decision". It offers to open a whole id, and none for a part of one."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{TRIAGE}/decide",
+        json={"message": {"body": "Can I get a refill on my lisinopril?"}},
+        timeout=30,
+    ).json()
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
+    page.goto("/")
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
+    page.keyboard.press("Control+k")
+    box = page.get_by_role("combobox", name="Jump to a view, agent or action")
+    box.fill(decision["id"][:8])
+    expect(page.get_by_role("option", name=re.compile("^Open decision"))).to_have_count(0)
+    box.fill(decision["id"])
+    page.get_by_role("option", name=re.compile("^Open decision")).click()
+    expect(page.get_by_role("dialog")).to_contain_text(decision["id"])
+
+
+def test_another_agents_record_is_not_replayed_into_the_chosen_one(
+    page: Page, live_server: str
+) -> None:
+    """A decision opened by its id alone (the palette's "Open decision", a bare `#audit/<id>`)
+    can be another agent's than the one chosen. Its record says whose it is, shows its labels as
+    codes, not in the chosen agent's words, and offers no replay: that would load its input into
+    the chosen agent's Try it, where Decide records a decision for the wrong agent. Shown with
+    its own agent, it is in that agent's words and replays there."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+    assert decision["recommendation"] == "self_care"  # "Care at home" in its own agent's words
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_contain_text(decision["id"])
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_have_count(0)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · self_care")
+    whose = dialog.locator(".record-agent")
+    expect(whose).to_contain_text(CLINICAL_NAME)
+    whose.get_by_role("button", name=f"Show it with {CLINICAL_NAME}").click()
+    expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#audit/{decision['id']}$"))
+    expect(page.locator("#agent-select")).to_have_value(CLINICAL)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · Care at home")
+    expect(dialog.locator(".record-agent")).to_have_count(0)
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_be_visible()
+
+
+def test_another_agents_record_borrows_none_of_the_chosen_agents_words(
+    page: Page, live_server: str
+) -> None:
+    """Two agents can ask the same question (two versions of one agent, a fork): a decision of
+    the other one is still shown in its own codes, never in the chosen agent's names for its
+    labels and questions. The record is answered here as the triage fixture's, with the clinical
+    review's questions."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+
+    def as_triage(route: Route) -> None:
+        found = route.fetch().json()
+        found["agent_id"] = TRIAGE
+        found["record"]["agent"]["id"] = TRIAGE
+        route.fulfill(json=found)
+
+    page.route(f"**/api/audit/{decision['id']}", as_triage)
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(CLINICAL)})")
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(dialog.locator(".record-agent")).to_contain_text(TRIAGE_NAME)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · self_care")
+    expect(dialog.locator("h4").first).to_contain_text("Disposition")
+    expect(dialog).not_to_contain_text("How soon should the patient")  # the chosen agent's words
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_have_count(0)
+
+
+def test_a_replayed_decision_says_what_it_decided_the_first_time(
+    page: Page, live_server: str
+) -> None:
+    """Replayed from its record, a decision's input comes back in Try it with what it decided the
+    first time, in words: beside a record agent's form, and in a message agent's toast."""
+    record = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+    page.goto(f"/?agent={CLINICAL}#audit/{record['id']}")
+    page.get_by_role("dialog").get_by_role("button", name="Replay in Try it").click()
+    expect(page).to_have_url(re.compile("#try$"))
+    expect(page.locator("#expected")).to_have_text(
+        "Loaded from the audit trail (original: Human review · Care at home): "
+        "edit any field and decide to compare."
+    )
+    message = decide_triage(live_server, "Crushing chest pain and my left arm is numb")
+    page.goto(f"/?agent={TRIAGE}#audit/{message['id']}")
+    page.get_by_role("dialog").get_by_role("button", name="Replay in Try it").click()
+    expect(page.locator("#body")).to_have_value("Crushing chest pain and my left arm is numb")
+    expect(page.locator("#toast")).to_have_text(
+        "Loaded case from audit trail (was Human review · Nurse)"
+    )
+
+
+def test_the_audit_trail_says_it_lists_the_newest_and_pages_to_older_ones(
+    page: Page, live_server: str
+) -> None:
+    """The trail lists the newest 100 decisions and says of how many; older ones come a page at a
+    time. The filters search what is listed, and say how much that is, and a decision's whole id
+    opens its record wherever it is in the trail. The trail's 250 decisions are answered here, so
+    the shared server's never change: the 150th newest is a real one, the others copies of it."""
+    real = httpx.get(f"{live_server}/api/audit", params={"agent_id": TRIAGE, "limit": 1}).json()
+    rows = [{**real[0], "id": f"{n:08x}-0000-4000-8000-{n:012x}"} for n in range(250)]
+    rows[149] = real[0]
+
+    def listed(route: Route) -> None:
+        asked = urllib.parse.parse_qs(urllib.parse.urlsplit(route.request.url).query)
+        offset, limit = int(asked.get("offset", ["0"])[0]), int(asked["limit"][0])
+        route.fulfill(json=rows[offset : offset + limit])
+
+    def counted(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "decisions": len(rows)})
+
+    page.route(re.compile(r".*/api/audit\?.*"), listed)
+    page.route(re.compile(r".*/api/stats\?.*"), counted)
+    open_agent(page, TRIAGE, "audit")
+    listing = page.locator("#audit-table tbody tr")
+    count = page.locator("#audit-count")
+    expect(listing).to_have_count(100)
+    expect(count).to_have_text("Showing the newest 100 of 250 decisions")
+    # Part of an id that is not listed yet finds nothing among what is, and says so.
+    search = page.get_by_label("Filter decisions")
+    search.fill(real[0]["id"][:8])
+    expect(count).to_have_text("Showing 0 of the newest 100 of 250 decisions")
+    expect(page.locator("#audit-table")).to_have_text(
+        "No decisions among the newest 100 match the current filter."
+    )
+    older = page.get_by_role("button", name="Show older decisions")
+    older.click()
+    expect(count).to_have_text("Showing 1 of the newest 200 of 250 decisions")
+    page.get_by_role("button", name="Reset").click()
+    older.click()
+    expect(listing).to_have_count(250)
+    expect(older).to_be_hidden()
+    expect(count).to_have_text("")
+    # A whole id opens its record, listed or not.
+    show(page, "overview")
+    show(page, "audit")
+    expect(listing).to_have_count(100)
+    search.fill(real[0]["id"])
+    expect(page).to_have_url(re.compile(f"#audit/{real[0]['id']}$"))
+    expect(page.get_by_role("dialog")).to_contain_text(real[0]["id"])
+    expect(search).to_have_value("")
+
+
 # -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
 
 TOP_BAR_HEIGHT = "document.querySelector('.topbar').getBoundingClientRect().height"

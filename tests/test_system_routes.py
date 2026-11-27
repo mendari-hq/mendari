@@ -21,6 +21,7 @@ import base64
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_agent
 from mendari import alerts as alerts_module
+from mendari.core import checkpoint, clock
 from mendari.server import recalls, smart_check
 from mendari.server.app import create_app
 from mendari.server.smart_check import Finding
@@ -231,7 +233,8 @@ def test_what_the_checks_show_of_an_organization_is_the_caller_s_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two organizations' EHRs are registered; the operator's checks count its own, and the
-    other's FHIR base is in no answer. The EHR check refuses the other's as an unknown one."""
+    other's FHIR base is in no answer. The EHR check refuses the other's as an unknown one, and
+    so a base that is not a URL, one that does not even split as one included."""
     configure(monkeypatch)
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
     monkeypatch.setenv(
@@ -253,7 +256,7 @@ def test_what_the_checks_show_of_an_organization_is_the_caller_s_only(
         ehr = next(c for c in shown.json()["checks"] if c["key"] == "ehr")
         assert ehr["state"] == "attention" and "1 EHR registered to launch" in ehr["detail"]
         assert "zqother" not in shown.text
-        for base in (OTHER_EHR, "https://ehr.unknown.example/fhir", "not a url"):
+        for base in (OTHER_EHR, "https://ehr.unknown.example/fhir", "not a url", "http://["):
             refused = client.post("/api/system/ehr-check", headers=operator, json={"base": base})
             assert refused.status_code == 404, base
             assert refused.json()["detail"] == "no EHR with this FHIR base is registered to you"
@@ -429,6 +432,49 @@ def test_a_checkpoint_that_finds_the_chain_broken_shows_in_the_checks(
     assert run["outcome"] == "failed" and run["detail"]
     for key in ("checkpoint", "audit_chain", "scheduled_jobs"):
         assert site.check(key)["state"] == "attention", key
+
+
+def test_a_checkpoint_that_refuses_a_forged_statement_says_the_chain_held(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Someone with the database files a statement for today under this key's id, badly
+    signed. The daily job verifies the chain, records its position, refuses the statement and
+    raises the alert, and the checks say just that: the chain held and the statement did not.
+    The signed checkpoint they name is the newest one this key signed, the one published:
+    never the forged one."""
+    hook = Webhook()
+    monkeypatch.setattr(alerts_module.httpx, "post", hook)
+    decide(site.store)
+    key = checkpoint.checkpoint_key()
+    assert key is not None
+    today = clock.today()
+    forged = {
+        "format": checkpoint.FORMAT,
+        "date": today.isoformat(),
+        "head": "0" * 64,
+        "key_id": checkpoint.key_id(key.public_key()),
+        "signature": base64.b64encode(b"x" * 64).decode(),
+    }
+    filed = "INSERT INTO checkpoint_statements (day, seq, statement) VALUES (?, 1, ?)"
+    tamper(site.store, filed, (today.isoformat(), json.dumps(forged)))
+    assert site.job("checkpoint").json() == {"ok": False, "recorded": True, "signed": False}
+    assert [post["body"]["event"] for post in hook.sent] == ["audit.broken"]
+    assert site.store.runs()["checkpoint"]["detail"] == "statement"
+    assert site.client.get("/api/audit/checkpoint").status_code == 404
+    chain, recorded = site.check("audit_chain"), site.check("checkpoint")
+    assert chain["state"] == recorded["state"] == "attention"
+    assert "nothing was changed or removed" in chain["detail"]
+    assert "its position is recorded" in recorded["detail"]
+    assert "incident runbook" in chain["action"] and "incident runbook" in recorded["action"]
+    signing = site.check("checkpoint_signing")
+    assert signing["state"] == "attention" and "no checkpoint has been signed" in signing["detail"]
+    # This key signed a statement the day before: that one is the signed checkpoint.
+    yesterday = today - timedelta(days=1)
+    signed = checkpoint.sign("a" * 64, yesterday, key)
+    tamper(site.store, filed, (yesterday.isoformat(), json.dumps(signed)))
+    signing = site.check("checkpoint_signing")
+    assert signing["state"] == "ok"
+    assert f"The checkpoint of {yesterday.isoformat()} is signed" in signing["detail"]
 
 
 def test_a_backup_is_reported_with_the_jobs_secret_only(site: Site) -> None:

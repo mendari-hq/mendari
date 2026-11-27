@@ -23,7 +23,7 @@ import yaml
 from mendari import Decision, load_agent
 from mendari.core.origin import Origin
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.standards import fhir
 from mendari.standards.fhir import (
     MAX_CODE_SET_CODES,
@@ -917,7 +917,7 @@ def test_an_outside_agents_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
     owned = load_agent(root)
     assert len(FhirAdapter.for_agent(owned).mapping.code_sets["big"].codes) == 201
     with pytest.raises(AgentValidationError) as refused:
-        validate_agent(owned)
+        validate(owned)
     assert refused.value.problems == problems
 
 

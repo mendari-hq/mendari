@@ -64,14 +64,15 @@ def test_a_public_logout_deletes_only_its_own_kind_of_row(
             done = signed_in.post(path, headers={"cookie": f"{cookie}={value}"})
             assert done.status_code == 204
     for (value, kind), data in rows.items():
-        assert store.smart_get(value, kind, secret=binding.get(kind)) == data, (value, kind)
+        found = store.smart_read(value, kind, secret=binding.get(kind))
+        assert found == (data, later), (value, kind)
     # Each logout still ends its own kind of session.
     signed_in.cookies.clear()
     signed_in.post("/auth/logout", headers={"cookie": "__Host-mendari_session=user-sid"})
     signed_in.post("/api/smart/logout", headers={"cookie": "__Host-mendari_smart=smart-sid"})
-    assert store.smart_get("user-sid", "user") is None
-    assert store.smart_get("smart-sid", "session") is None
-    assert store.smart_get("state-abc", "oidc-pending") == {"next": "/"}
+    assert store.smart_read("user-sid", "user") is None
+    assert store.smart_read("smart-sid", "session") is None
+    assert store.smart_read("state-abc", "oidc-pending") == ({"next": "/"}, later)
     store.close()
 
 
@@ -79,13 +80,13 @@ def test_a_value_names_a_row_of_its_own_kind_only(store: AuditStore) -> None:
     later = int(time.time()) + LATER
     store.smart_put("same", "user", {"kind": "user"}, later)
     store.smart_put("same", "session", {"kind": "session"}, later)  # no collision
-    assert store.smart_get("same", "user") == {"kind": "user"}
+    assert store.smart_read("same", "user") == ({"kind": "user"}, later)
     assert store.smart_take("same", "pending", secret="binding") is None
     store.smart_delete("same", "oidc-pending")
     assert store.smart_take("same", "session") == {"kind": "session"}
-    assert store.smart_get("same", "user") == {"kind": "user"}  # untouched by the take
+    assert store.smart_read("same", "user") == ({"kind": "user"}, later)  # untouched by the take
     store.smart_delete("same", "user")
-    assert store.smart_get("same", "user") is None
+    assert store.smart_read("same", "user") is None
 
 
 def test_rows_are_keyed_by_a_domain_separated_digest(store: AuditStore) -> None:
@@ -111,7 +112,7 @@ def test_a_put_purges_expired_rows_on_the_way(store: AuditStore) -> None:
 @pytest.mark.parametrize("kind", ["", "User", "a\x00b", "x" * 41, "jti\n"])
 def test_a_kind_is_a_short_lowercase_name(store: AuditStore, kind: str) -> None:
     with pytest.raises(ValueError, match="kind"):
-        store.smart_get("v", kind)
+        store.smart_read("v", kind)
 
 
 def test_a_claim_works_once_until_it_expires(
@@ -124,7 +125,7 @@ def test_a_claim_works_once_until_it_expires(
     assert store.smart_claim("other", "client-1\njti-abc", now + 60) is True  # its own kind
     store.smart_delete("client-1\njti-abc", "user")  # another kind: nothing to delete
     assert store.smart_claim("jti", "client-1\njti-abc", now + 60) is False
-    assert store.smart_get("client-1\njti-abc", "jti") == {}
+    assert store.smart_read("client-1\njti-abc", "jti") == ({}, now + 60)
     with pytest.raises(ValueError, match="future"):
         store.smart_claim("jti", "late", now - 1)
     later = now + 61
@@ -177,7 +178,7 @@ def test_session_rows_never_take_the_chain_lock(
     monkeypatch.setattr(store._db, "session", spy)
     later = int(time.time()) + 60
     store.smart_put("v", "user", {}, later)
-    store.smart_get("v", "user")
+    store.smart_read("v", "user")
     store.smart_take("v", "user")
     store.smart_claim("jti", "v", later)
     store.smart_delete("v", "jti")
@@ -200,7 +201,7 @@ def test_session_rows_are_served_while_the_chain_is_locked(store: AuditStore) ->
         def use() -> None:
             later = int(time.time()) + 60
             store.smart_put("v", "user", {}, later)
-            assert store.smart_get("v", "user") == {}
+            assert store.smart_read("v", "user") == ({}, later)
             assert store.smart_claim("jti", "v", later)
             assert store.smart_take("v", "user") == {}
             store.smart_delete("v", "jti")

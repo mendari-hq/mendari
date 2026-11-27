@@ -150,10 +150,7 @@ class EhrDeclarations:
 
         if not isinstance(url, str):
             return None
-        try:
-            base = normalize_base(url)
-        except ValueError:  # a URL that does not even split
-            return None
+        base = normalize_base(url)  # None for a URL that does not even split, too
         found = None if base is None else self.entries.get(base)
         return found if found is not None and found.org == org else None
 
@@ -296,10 +293,7 @@ def parse(raw: str, *, signed_in: bool) -> EhrDeclarations:
     types = fhir_structure.rules().resource_types
     entries: dict[str, EhrDeclaration] = {}
     for number, (url, entry) in enumerate(given.items(), start=1):
-        try:
-            base = normalize_base(url)
-        except ValueError:
-            base = None
+        base = normalize_base(url)
         if base is None:
             raise MendariError(f"{ENV} base {number} is not a FHIR base (http or https, no query)")
         where = f"{ENV} base {base}"

@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal, TypeGuard
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari.core.templates import (
+    BUILT_IN,
     display_choices,
     longest,
     template_problems,
@@ -1025,6 +1026,13 @@ def cross_reference_problems(m: AgentManifest) -> list[str]:
     for key in m.questions:
         if not _KEY.match(key):
             problems.append(f"question key {key!r} must match {_KEY.pattern}")
+        elif key in BUILT_IN:
+            # A template could not tell the question from the decision's own value: a card
+            # summary's length would be checked with one and filled with the other.
+            problems.append(
+                f"question key {key!r} is taken by the built-in placeholder {{{key}}} (the "
+                f"decision's {key}): rename the question"
+            )
 
     answered_by: dict[str, str] = {}
     for slot_name, slot in m.providers.items():

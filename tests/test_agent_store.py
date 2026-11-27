@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -244,6 +245,48 @@ def test_the_same_file_is_kept_once_and_removed_with_its_last_version(
         "freed": 3,
         "problems": [],
     }
+
+
+def test_a_purge_while_the_store_is_verified_is_no_crash(
+    agents: AgentStore, store: AuditStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mendari store verify` reads each kept file's content and size together: a purge that
+    commits while it runs (`mendari store purge`, another process) leaves it reporting the
+    files it read, never a `KeyError`."""
+    stored = agents.put(ORG_A, files_of(renamed(tmp_path)), by="user-1", source="upload")
+    agents.withdraw(ORG_A, stored.digest, by="user-1", reason="replaced")
+    opened = store._db.session
+    purged: list[int] = []
+
+    @contextmanager
+    def session(*, exclusive: bool) -> Iterator[Any]:
+        with opened(exclusive=exclusive) as db:
+            if exclusive:
+                yield db
+                return
+            read = db.all
+
+            def all_(sql: str, params: Any = ()) -> list[dict[str, Any]]:
+                rows = read(sql, params)
+                if "FROM store_files" in sql and not purged:  # the files are read: purge them
+                    purged.append(agents.purge(now=datetime.now(UTC) + timedelta(days=31)))
+                return rows
+
+            monkeypatch.setattr(db, "all", all_)
+            yield db
+
+    monkeypatch.setattr(store._db, "session", session)
+    found = agents.verify()
+    assert purged[0] > 0
+    assert found == {
+        "ok": True,
+        "files": purged[0],
+        "versions": 1,
+        "freed": 0,
+        "problems": [],
+    }
+    monkeypatch.undo()
+    assert agents.verify() == {"ok": True, "files": 0, "versions": 0, "freed": 1, "problems": []}
 
 
 def test_an_organization_over_its_bytes_or_its_daily_uploads_is_refused(

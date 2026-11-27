@@ -62,10 +62,7 @@ def test_every_file_has_named_steps() -> None:
         assert len(names) == len(set(names)), f"{file}.sh repeats a step name: {names}"
         assert all(step.text for step in steps), f"{file}.sh has an empty step"
     assert {path.stem for path in snippets.DIRECTORY.glob("*.sh")} == set(snippets.FILES)
-    assert {path.stem for path in snippets.DIRECTORY.glob("*.py")} == set(snippets.PYTHON)
-    for file in snippets.PYTHON:
-        steps = snippets.load(file, language="python")
-        assert steps and all(step.text and step.language == "python" for step in steps), file
+    assert not any(snippets.DIRECTORY.glob("*.py"))  # the examples are bash scripts only
 
 
 def test_a_malformed_step_header_is_refused(tmp_path: Path) -> None:
@@ -213,12 +210,7 @@ def test_the_api_guide_includes_every_snippet_file_as_it_is() -> None:
     makes `mkdocs build --strict` fail on one that is gone."""
     guide = (ROOT / "docs" / "guides" / "api.md").read_text(encoding="utf-8")
     included = re.findall(r'^--8<-- "([^"]+)"$', guide, re.M)
-    expected = [
-        name
-        for file in snippets.FILES
-        for name in (f"{file}.sh", *([f"{file}.py"] if file in snippets.PYTHON else []))
-    ]
-    assert included == expected
+    assert included == [f"{file}.sh" for file in snippets.FILES]
     mkdocs = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     assert "base_path: [src/mendari/dashboard/snippets]" in mkdocs
     assert "check_paths: true" in mkdocs and "guides/api.md" in mkdocs

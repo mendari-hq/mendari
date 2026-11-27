@@ -110,6 +110,17 @@ def test_a_base_off_the_allow_list_is_never_called(
     assert "discovery" not in checks and ehr.requests == []
 
 
+def test_a_base_that_is_not_a_fhir_base_fails_its_registration_key(
+    ehr: FakeEhr, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A base without a scheme, or one that does not even split as a URL (`http://[`), fails
+    the first check and is the whole report: nothing else is checked, and nothing is called."""
+    for base in ("ehr.example.org/fhir", "http://["):
+        code, checks = report(capsys, base)
+        assert code == 1 and checks == {"registration key": "fail"}, base
+    assert ehr.requests == []
+
+
 @pytest.mark.parametrize(
     ("setting", "value", "failed"),
     [

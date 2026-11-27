@@ -241,6 +241,13 @@ README or the front ends, outside an explicit list of those names.
     credentials and runs 0.1.1 (arm64, on a Mac); the live engine reports 0.1.1 and answers a
     path with an encoded `?` with a 404 before sign-in; the docs site, deployed again from
     `main`, names v0.1.1 in the CI guide and the site install guide.
+  - [x] **The bug and dead-code audit** (2026-11-27, the owner's request). Dead code measured
+    (vulture, the whole suite under branch coverage on SQLite and Postgres, mypy's unreachable
+    check, ruff, deptry), bugs read by seven parallel reviews; every finding reproduced, run
+    again independently, then fixed test first in seven parallel worktrees and combined. About
+    thirty bugs, none high (none raised automation, released an action or crossed an
+    organization), and about forty pieces of dead code removed. What was fixed, removed, kept
+    and left for the owner: `notes/bug-audit-2026-11-27.md`; the CHANGELOG's Unreleased section.
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 

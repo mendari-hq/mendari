@@ -136,7 +136,9 @@ Nothing on an agent's page comes from the uploader unchecked.
    is held as an unapproved one is. What cannot be checked is treated the same: a registry not
    read in a day (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or
    not recorded beside the agent. A recall is honoured whether or not its signature can be
-   checked here: it only lowers automation.
+   checked here: it only lowers automation. (2026-11-27: `mendari mcp`, a long-running server
+   too, honours them the same way, with the same watch and settings; `mendari decide` and a
+   library caller still do not.)
 8. **Limits and headers (18f).** The registry limits reads per address and writes and site
    reports per token, in its own database (the engine's `Limiter` and buckets), refusing before
    a body is read. Every registry answer carries a CSP that loads nothing, and the Hub's pages

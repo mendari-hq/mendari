@@ -218,6 +218,27 @@ def test_a_non_publisher_token_is_refused_before_the_body_is_read(published: Reg
     assert stored(published) == []
 
 
+def test_a_token_revoked_while_its_evaluation_is_checked_stores_nothing(
+    published: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An evaluation is read, checked and re-run after its token is checked, which takes a
+    while: the token is checked again as it is written, so one revoked meanwhile stores
+    nothing, with the answer it gets at the start."""
+    from mendari.hub.registry import token_id
+
+    token = published.mint("mendari")
+    record = signed(published.key)
+    parsed = evaluations.parse
+
+    def meanwhile_the_token_ends(*args: Any) -> Any:
+        published.operator.revoke_token(token_id(token), org="tests", by="operator")
+        return parsed(*args)
+
+    monkeypatch.setattr(evaluations, "parse", meanwhile_the_token_ends)
+    refused(send(published, record, token=token), 403, "a token for namespace 'mendari'")
+    assert stored(published) == [] and events(published, "evaluation.published") == []
+
+
 def test_a_revoked_keys_evaluations_are_listed_and_left_out(published: Registry) -> None:
     record = signed(published.key, "agent")
     assert send(published, record).status_code == 201
@@ -371,6 +392,20 @@ def test_a_record_of_another_kind_or_time_is_refused(published: Registry) -> Non
     with_null = copy.deepcopy(record["report"])
     with_null["decisions"]["outcomes"]["BLOCK"] = None
     refused(send(published, signed(published.key, report=with_null)), 422, "no null cell")
+
+
+@pytest.mark.parametrize(
+    "created_at", ["2026-02-30T12:00:00Z", "2026-13-01T00:00:00Z", "2026-01-01T24:00:00Z"]
+)
+def test_a_created_at_that_is_no_time_is_refused_naming_it(
+    published: Registry, created_at: str
+) -> None:
+    """`created_at` has the shape of a UTC time but must also be one: a day or an hour that does
+    not exist was a 500 (it passed the pattern, and reading it as a time raised). It is refused
+    as every other field is, by name, and nothing is stored."""
+    answer = send(published, signed(published.key, created_at=created_at))
+    refused(answer, 422, "not a mendari.publisher-evaluation/1 record: created_at")
+    assert stored(published) == []
 
 
 def test_a_version_not_published_has_no_evaluations(registry: Registry) -> None:

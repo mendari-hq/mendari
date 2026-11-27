@@ -93,14 +93,6 @@ class Calibration:
             now = f"{service_id or 'no service_id'} {now}"
         return changed_reason(was, now)
 
-    def words(self) -> str:
-        """What a card and a report say of it, in one clause."""
-        service = f"{self.service_id} " if self.service_id else ""
-        return (
-            f"calibrated on {self.cases:,} cases of {self.dataset} ({self.date}) for "
-            f"{service}version {self.service_version}"
-        )
-
 
 def changed_reason(was: str, now: str) -> str:
     """The version cap's reason (stable: the audit trail and the review queue show it)."""

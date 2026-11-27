@@ -173,6 +173,39 @@ def test_a_revoked_token_is_refused_at_once_and_revoking_is_chained(
     assert _verify(db_target)["problem"] == problem
 
 
+@pytest.mark.parametrize("meanwhile", ["revoked", "expired"])
+def test_a_token_revoked_or_expired_while_its_publish_is_checked_publishes_nothing(
+    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch, meanwhile: str
+) -> None:
+    """The token is checked before the archive is read, and the archive is then checked for
+    minutes at most (extract, validation, the regression check): the token is checked again as
+    the version is written, so one revoked or expired meanwhile publishes nothing, with the
+    answer it gets at the start."""
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    minted = _mint(db_target, FIXTURE_NAMESPACE, days=1)
+    checked, real = registry_module._refuse_invalid, registry_module._now
+
+    def meanwhile_the_token_ends(agent: Any) -> None:
+        if meanwhile == "revoked":
+            with RegistryStore(db_target) as store:
+                store.revoke_token(minted["id"], org="acme", by=OWNER)
+        else:  # the clock moved past its expiry, not a sleep
+            moved = datetime.fromisoformat(real()) + timedelta(hours=25)
+            monkeypatch.setattr(registry_module, "_now", lambda: moved.isoformat())
+        checked(agent)
+
+    monkeypatch.setattr(registry_module, "_refuse_invalid", meanwhile_the_token_ends)
+    refused = registry.publish(token=minted["token"])
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["detail"] == f"a token for namespace {FIXTURE_NAMESPACE!r} is required"
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}").status_code == 404
+    assert "agent.published" not in [event["event"] for event in _events(db_target)]
+    monkeypatch.setattr(registry_module, "_refuse_invalid", checked)
+    monkeypatch.setattr(registry_module, "_now", real)
+    assert registry.publish().status_code == 201  # the namespace's own token is not touched
+    assert _verify(db_target)["ok"]
+
+
 def last_row_sha(db_target: str, id: str) -> str:
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         row = db.one("SELECT * FROM hub_publisher_tokens WHERE id = ?", (id,))
@@ -388,3 +421,62 @@ def test_no_shared_secret_publishes_creates_reviews_or_deletes(
         for path in paths:
             assert not path.endswith(("/tokens", "/review", "/delete")), path
         assert store.verify()["ok"]
+
+
+@pytest.mark.parametrize("meanwhile", ["revoked", "expired"])
+def test_a_token_revoked_or_expired_while_its_key_is_read_registers_none(
+    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch, meanwhile: str
+) -> None:
+    """A key's body is read after its token is checked, and a client can send it slowly: the
+    token is checked again as the key is written, so one revoked or expired meanwhile registers
+    no key (a key outlives the token that added it), with the answer it gets at the start."""
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    minted = _mint(db_target, FIXTURE_NAMESPACE, days=1)
+    loaded, real = archive.load_public_key, registry_module._now
+
+    def meanwhile_the_token_ends(pem: bytes) -> Any:
+        if meanwhile == "revoked":
+            with RegistryStore(db_target) as store:
+                store.revoke_token(minted["id"], org="acme", by=OWNER)
+        else:  # the clock moved past its expiry, not a sleep
+            moved = datetime.fromisoformat(real()) + timedelta(hours=25)
+            monkeypatch.setattr(registry_module, "_now", lambda: moved.isoformat())
+        return loaded(pem)
+
+    keys = registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()["keys"]
+    monkeypatch.setattr(archive, "load_public_key", meanwhile_the_token_ends)
+    assert _register_key(registry, minted["token"], FIXTURE_NAMESPACE) == 403
+    monkeypatch.setattr(archive, "load_public_key", loaded)
+    monkeypatch.setattr(registry_module, "_now", real)
+    assert registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()["keys"] == keys
+    assert "key.added" not in [event["event"] for event in _events(db_target)][-1:]
+    assert _verify(db_target)["ok"]
+
+
+def test_a_token_revoked_while_its_recall_is_checked_recalls_nothing(
+    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recall is read and its signature checked after its token is: the token is checked
+    again as the recall is written, so one revoked meanwhile recalls nothing."""
+    from tests.test_registry_yank import PATH, _record
+
+    registry.fixture_publisher()
+    assert registry.publish().status_code == 201
+    minted = _mint(db_target, FIXTURE_NAMESPACE, days=1)
+    record = _record(registry)
+    checked = registry_module.yank.problem
+
+    def meanwhile_the_token_ends(*args: Any) -> Any:
+        with RegistryStore(db_target) as store:
+            store.revoke_token(minted["id"], org="acme", by=OWNER)
+        return checked(*args)
+
+    monkeypatch.setattr(registry_module.yank, "problem", meanwhile_the_token_ends)
+    answer = registry.client.post(
+        f"{PATH}/yank",
+        json={"record": record},
+        headers={"authorization": f"Bearer {minted['token']}"},
+    )
+    assert answer.status_code == 403, answer.text
+    assert "agent.yanked" not in [event["event"] for event in _events(db_target)]
+    assert _verify(db_target)["ok"]

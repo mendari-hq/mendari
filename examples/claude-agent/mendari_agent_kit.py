@@ -261,7 +261,7 @@ def respond(
         body["answers"][question.key] = item
     for name, value in (("model", model), ("service_version", service_version)):
         if value is not None:
-            if not isinstance(value, str) or "://" in value or not ID_PATTERN.match(value):
+            if not isinstance(value, str) or "://" in value or not ID_PATTERN.fullmatch(value):
                 raise AgentError(502, f"the agent's {name} is not a valid id")
             body[name] = value
     if usage is not None:

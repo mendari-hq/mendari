@@ -237,6 +237,7 @@ def test_a_baseline_of_other_cases_is_not_compared_and_that_fails() -> None:
         (lambda b: b.update(questions=[]), "not an evaluation result"),
         (lambda b: b["questions"]["request"].update(accuracy="high"), "its figures"),
         (lambda b: b["questions"]["request"].update(accuracy=1.5), "its figures"),
+        (lambda b: b["questions"]["request"].update(accuracy=10**400), "its figures"),
         (lambda b: b["questions"]["request"].update(n=-1), "its figures"),
         (lambda b: b["decisions"].update(automation=[]), "its figures"),
         (lambda b: b["decisions"]["automation"].update(n=True), "its figures"),

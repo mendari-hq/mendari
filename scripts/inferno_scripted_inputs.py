@@ -35,7 +35,6 @@ OPEN_ENGINE = "http://engine:8000"
 # nowhere real.
 EHR_BASE = "https://ehr.example.org/fhir"
 SMART_CLIENT_ID = "mendari-sandbox"  # the open engine's MENDARI_SMART_CLIENT_ID
-SMART_CLIENT_TYPE = "SMART,authorization_code,public"
 # The launch's patient: a synthetic one of the EHR Inferno plays, about 45 on the run's day.
 SMART_PATIENT = "ehr-smart-1"
 SMART_PATIENT_AGE = 45

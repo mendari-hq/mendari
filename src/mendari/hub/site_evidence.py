@@ -31,7 +31,7 @@ the exact or permutation test for counts it has seen.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -206,8 +206,3 @@ def evidence(store: RegistryStore, namespace: str, name: str) -> dict[str, Any]:
         "alpha": pooling.ALPHA,
         "groups": answer_groups,
     }
-
-
-def figure_keys(groups: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The figures an answer's groups pool, in order (for readers that list them)."""
-    return sorted({f["figure"] for group in groups for f in group["figures"]})

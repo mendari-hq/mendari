@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 import uuid
@@ -156,10 +157,6 @@ class DecisionResult:
     def confidence(self) -> float | None:
         answer = self.answers.get(self.primary)
         return answer.confidence if answer else None
-
-    @property
-    def needs_human(self) -> bool:
-        return self.outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -596,9 +593,11 @@ class Decision:
         return self.decide(inputs)
 
     def validate(self, inputs: Any) -> list[str]:
-        """Why the input fails the agent's input schema, at most ten reasons. Each names where
+        """Why the input fails the agent's input schema, at most ten reasons, each once (one
+        `required` gives an error per missing name, each worded the same). Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
-        input, and reasons are stored in the audit trail and copied into the FHIR Task.
+        input, and reasons are stored in the audit trail and copied into the FHIR Task. A number
+        JSON cannot carry (NaN, an infinity) is refused before the schema runs (`_not_finite`).
 
         The check of an agent on the bounded engine (`Agent.bounded`: one from a registry or a
         store) holds to its input limits (`origin.shape_problem`) and to a time budget: the
@@ -613,6 +612,10 @@ class Decision:
             return [
                 f"{too_long}: longer than {MAX_BOUNDED_TEXT_CHARS:,} characters, the most "
                 f"{reader} reads"
+            ]
+        if not_finite := _not_finite(inputs):
+            return [
+                f"{place}: must be a finite number, not NaN or an infinity" for place in not_finite
             ]
         alone = bounded and not budget_active()
         with time_budget() if alone else nullcontext():
@@ -636,8 +639,6 @@ class Decision:
                         "number too large, or the schema refers to itself without end"
                     ]
             errors = sorted(found, key=lambda e: list(map(str, e.path)))
-            if not bounded:  # as it always was
-                return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
             reasons: list[str] = []
             for error in errors:
                 try:
@@ -847,6 +848,9 @@ class Decision:
         acted: tuple[ActionResult, ...] | None = None
         if manifest.actions or checked:
             acted = self._acted(checked, policy, vouched)
+        # An input refused for NaN or an infinity (`validate`) is kept as JSON holds it from here:
+        # its hash, its record and its sealed copy agree, and any JSON reader reads them.
+        inputs = kept_as_json(inputs)
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
         result = DecisionResult(
@@ -1106,6 +1110,34 @@ def _review_of(row: Mapping[str, Any]) -> Review:
 _KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")
 
 
+def _not_finite(inputs: Any) -> list[str]:
+    """Where an input holds a number JSON cannot carry, NaN or an infinity: Python's json reads
+    them (and so the server does), but no schema keyword bounds them, as every comparison with
+    NaN is false, and no provider can send them on. The first ten the input holds, each place
+    once (`_where`), sorted as the schema's reasons are. Walked without recursion, each
+    container once, with a path built only for a number found."""
+    found: list[list[Any]] = []
+    links: list[tuple[int, Any]] = []  # each value's container (its index here, -1: none) and key
+    stack: list[tuple[Any, int]] = [(inputs, -1)]
+    seen: set[int] = set()  # by identity: a container held twice (or in itself) is walked once
+    while stack and len(found) < 10:
+        value, at = stack.pop()
+        if isinstance(value, float) and not math.isfinite(value):
+            path: list[Any] = []
+            while at >= 0:
+                at, key = links[at]
+                path.append(key)
+            found.append(path[::-1])
+        elif isinstance(value, Mapping | list | tuple) and id(value) not in seen:
+            seen.add(id(value))
+            items = list(value.items() if isinstance(value, Mapping) else enumerate(value))
+            for key, item in reversed(items):  # taken off the stack in the input's own order
+                links.append((at, key))
+                stack.append((item, len(links) - 1))
+    shown = sorted(found, key=lambda path: list(map(str, path)))
+    return list(dict.fromkeys(map(_where, shown)))
+
+
 def _where(path: Iterable[Any]) -> str:
     """A path in the input. A key the schema does not name is the client's text, so only keys
     shaped like a field name are shown."""
@@ -1188,6 +1220,16 @@ def _relabel(reason: str, labels: Mapping[str, str]) -> str:
     for label, kept in labels.items():
         reason = reason.replace(f": {label} ", f": {kept} ")
     return reason
+
+
+def kept_as_json(inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    """`inputs` with each NaN and infinity as null, the same mapping when it holds none (all but
+    an input `Decision.validate` refuses for one). Python's json writes them as bare `NaN` and
+    `Infinity` tokens, which no other JSON reader parses: what is hashed, recorded or sealed
+    of an input is kept as JSON any reader parses, the reason naming each place."""
+    if not _not_finite(inputs):
+        return inputs
+    return dict(json.loads(json.dumps(inputs, default=str), parse_constant=lambda _: None))
 
 
 def input_hash(inputs: Any) -> str:

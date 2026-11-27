@@ -22,7 +22,7 @@ from mendari.core import clock, tenancy
 from mendari.core.agent import Agent
 from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
-from mendari.core.registry import discover, resolve_agent, version_key
+from mendari.core.registry import discover, newest, resolve_agent
 from mendari.errors import AgentValidationError, HubError, MendariError
 from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
@@ -278,9 +278,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
         max_critical_misses=args.max_critical_misses,
     )
     held = _held_to(args)
-    sharing = bool(args.share or args.share_out)
+    sharing = _sharing(args)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
+    if args.registry and not (sharing or args.publish):  # where neither goes: ignored
+        raise MendariError("--registry is for a shared or published run: add --share or --publish")
     targets = _targets(args)
     if sharing:
         # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
@@ -468,6 +470,29 @@ def _no_target(targets: Any) -> list[str]:
         "example --target-critical-miss 1%) for the lowest automation threshold these cases "
         "support."
     ]
+
+
+def _sharing(args: argparse.Namespace) -> bool:
+    """Whether the run is shared as a site's (`--share`, or `--share-out` to read it first).
+    Without either, what only a shared run reads is refused before the run: it was ignored,
+    a `--ticket` file that is not there included, and the run went on unshared. A `--ticket`
+    was asked for already, and its signed request said what it corrects: `--supersedes` beside
+    it would be dropped, so it is refused too."""
+    if args.share or args.share_out:
+        if args.ticket and args.supersedes:
+            raise MendariError(
+                "--supersedes goes in the ticket's request (`mendari site ticket --supersedes`): "
+                "a --ticket already says which report it corrects"
+            )
+        return True
+    for flag, given in (
+        ("--ticket", args.ticket),
+        ("--supersedes", args.supersedes),
+        ("--consent-remote", args.consent_remote),
+    ):
+        if given:
+            raise MendariError(f"{flag} is for a shared run: add --share or --share-out")
+    return False
 
 
 def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
@@ -978,6 +1003,16 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_leaderboard(args: argparse.Namespace) -> int:
     from mendari.evals import evaluate, leaderboard, resolve_dataset
 
+    if args.run and not args.dataset:  # it would run nothing, and say nothing beside --report
+        raise MendariError("--run evaluates a configuration on each --dataset: name at least one")
+    if not args.run:  # a run's options, beside a --report alone, would be ignored
+        for flag, given in (
+            ("--dataset", args.dataset),
+            ("--limit", args.limit),
+            ("--workers", args.workers),
+        ):
+            if given:
+                raise MendariError(f"{flag} is for --run: add one")
     agent = resolve_agent(args.agent)
     reports = [_read_json(path, "--report", shape=dict) for path in args.report]
     datasets = []
@@ -2934,13 +2969,8 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     if args.agent:
         agents = [resolve_agent(args.agent)]
     else:  # the version a server serves of each agent: the newest
-        newest: dict[str, Agent] = {}
-        for agent in discover().agents:
-            if agent.id not in newest or version_key(agent.version) > version_key(
-                newest[agent.id].version
-            ):
-                newest[agent.id] = agent
-        agents = [newest[agent_id] for agent_id in sorted(newest)]
+        served = newest(discover().agents)
+        agents = [served[agent_id] for agent_id in sorted(served)]
     found_alerts = undelivered = failed = False
     with _read_store(args.db) as store:
         orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
@@ -3452,12 +3482,42 @@ def _monitored_days(text: str) -> int:
 
 
 def _case_limit(text: str) -> int | None:
-    """`mendari probe --limit`: how many cases, 1 or more, or `all` (None)."""
+    """`--limit` of a command that runs cases (`probe`, `eval`, `calibrate`, `leaderboard`,
+    `written eval`, `written round create`): how many, 1 or more, or `all` (None). Read as
+    `if args.limit:`, 0 was no limit at all and a negative number cut cases off the end."""
     if text == "all":
         return None
-    if not text.isdigit() or int(text) < 1:
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
         raise argparse.ArgumentTypeError("1 case or more, or `all`")
     return int(text)
+
+
+def _items(text: str) -> int:
+    """`sandbox smart-launch --limit`: 1 item or more. A plain whole number, 0 decided nothing
+    (the run reported failed) and a negative one all but the last items."""
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
+        raise argparse.ArgumentTypeError("1 item or more")
+    return int(text)
+
+
+def _audit_time(text: str) -> str:
+    """`mendari audit export --since / --until`: a time in ISO 8601, extended
+    (`2026-11-27T20:05:51Z`) or basic (`20261127T200551Z`, as a backup's name has it), in UTC
+    unless it gives its offset; returned as the store keeps its times (UTC, to the millisecond),
+    which it compares as text. Unread, another form exported nothing, or left out the events of
+    its own second, silently. Checked before any work starts (argparse names the flag)."""
+    from datetime import UTC, datetime
+
+    from mendari.standards.search import stored
+
+    try:
+        parsed = datetime.fromisoformat(text)
+        return stored(parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC))
+    except (ValueError, OverflowError):  # not a time, or past datetime's range in UTC
+        raise argparse.ArgumentTypeError(
+            f"not a time: {text!r}: give one in ISO 8601, such as 2026-11-27T20:05:51Z or "
+            "20261127T200551Z, in UTC unless it gives its offset"
+        ) from None
 
 
 class UsageError(MendariError):
@@ -3778,7 +3838,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="'auto' (the agent's benchmark, never one an agent from a registry carries), 'none', "
         "or a report JSON path",
     )
-    evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
+    evaluate.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only evaluate the first N cases"
+    )
     evaluate.add_argument(
         "--workers", type=int, help="parallel decisions (default: 8 for remote providers, else 1)"
     )
@@ -3886,7 +3948,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="a shared run may call a provider off this machine (recorded)",
     )
     evaluate.add_argument(
-        "--ticket", metavar="FILE", help="a ticket fetched on another machine (offline sharing)"
+        "--ticket",
+        metavar="FILE",
+        help="the ticket a shared run answers, fetched on another machine (offline sharing)",
     )
     evaluate.add_argument(
         "--supersedes", metavar="REPORT", help="a shared run corrects this report of the site's"
@@ -3953,7 +4017,13 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--slot", required=True, help="provider slot")
     calibrate.add_argument("--variant", required=True, help="llm or agent variant of the slot")
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
-    calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
+    calibrate.add_argument(
+        "--limit",
+        type=_case_limit,
+        default=200,
+        metavar="N",
+        help="records to use (default 200, or `all`)",
+    )
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
 
     paired_runs = sub.add_parser(
@@ -3983,7 +4053,9 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument(
         "--dataset", action="append", default=[], help="dataset for every --run (repeat)"
     )
-    board.add_argument("--limit", type=int, help="only the first N cases of each dataset")
+    board.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only the first N cases of each dataset"
+    )
     board.add_argument("--workers", type=int, help="parallel decisions per run")
     board.add_argument(
         "--report",
@@ -4074,8 +4146,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="the events on no decision instead: keys, clients, people, approvals, holds, "
         "reports (with --org, that organization's; without, the deployment's own too)",
     )
-    audit_export.add_argument("--since", help="events at or after this time (ISO 8601, UTC)")
-    audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
+    audit_export.add_argument(
+        "--since",
+        type=_audit_time,
+        metavar="TIME",
+        help="events at or after this time: ISO 8601, UTC unless it gives its offset "
+        "(2026-11-27T20:05:51Z, or 20261127T200551Z as a backup's name has it)",
+    )
+    audit_export.add_argument(
+        "--until",
+        type=_audit_time,
+        metavar="TIME",
+        help="events before this time (read as --since)",
+    )
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
 
@@ -4303,7 +4386,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"the agent to launch, by id or directory: one with a FHIR mapping (default: {demo})",
     )
     smart.add_argument("--patient", help="patient id (default: one with a work item)")
-    smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
+    smart.add_argument("--limit", type=_items, default=5, help="decide at most this many items")
     smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
     smart.add_argument(
         "--expect-org",
@@ -4934,7 +5017,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    written_eval.add_argument("--limit", type=int, help="only run the first N cases")
+    written_eval.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     written_eval.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )
@@ -4994,7 +5079,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    round_create.add_argument("--limit", type=int, help="only run the first N cases")
+    round_create.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     round_create.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )
@@ -5073,8 +5160,9 @@ def build_parser() -> argparse.ArgumentParser:
         "mcp",
         help="serve governed decisions to other AI agents as MCP tools (stdio)",
         description="A Model Context Protocol server on stdin/stdout: list_agents, decide, "
-        "review_queue and verify_audit. Every decide call runs under the agent's policy and is "
-        "written to the audit trail.",
+        "authorize_action, review_queue and verify_audit. Every decide call runs under the "
+        "agent's policy and is written to the audit trail, and an agent from a registry is held "
+        "as a running server holds it, until its registry's recalls are read.",
     )
     mcp.add_argument("--db", help="audit database to record decisions in (default: in memory)")
     mcp.set_defaults(handler=cmd_mcp)

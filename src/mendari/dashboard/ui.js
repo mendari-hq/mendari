@@ -9,8 +9,11 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+// A decision's whole id (a UUID, as each is made): what its record is read by
+// (`GET /api/audit/{id}`), so the audit search and the palette open a record by it, never by a part.
+export const WHOLE_DECISION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A single case's confidence or probability, never a share of cases (that is a figure, below).
-export const pct = (v, d = 1) => (v === null || v === undefined ? "n/a" : `${(v * 100).toFixed(d)}%`);
+export const pct =(v, d = 1) => (v === null || v === undefined ? "n/a" : `${(v * 100).toFixed(d)}%`);
 
 // ---- figures: k of n with its exact interval (mendari.figures/1, worked out by the server) ----
 // Printed as the card and the command line print them (render.shown in Python), digit for digit:

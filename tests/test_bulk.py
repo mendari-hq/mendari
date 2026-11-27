@@ -236,6 +236,38 @@ def test_an_export_that_never_finishes_gives_up(tmp_path: Path) -> None:
         run(FakeBulk({}, pending=100), tmp_path, max_wait=5)
 
 
+class PolledTooSoon(FakeBulk):
+    """A status URL that answers its first poll `429 Too Many Requests`, asking for 300 s, as
+    Bulk Data STU2 says a server SHOULD answer a client that polls too often; then as FakeBulk."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.slowed = False
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url) == STATUS and request.method == "GET" and not self.slowed:
+            self.slowed = True
+            self.requests.append(request)
+            return httpx.Response(429, headers={"retry-after": "300"})
+        return super().__call__(request)
+
+
+def test_a_429_while_polling_is_waited_out_for_as_long_as_the_server_asks(
+    tmp_path: Path,
+) -> None:
+    """A 429 to a poll asks the client to wait, as a 202 does: never a failed export. The wait
+    is the one its Retry-After asks for, however long (a client that waited less polled too
+    soon again), and `max_wait` bounds the whole wait."""
+    rows = [{"resourceType": "Patient", "id": "p1"}]
+    manifest, slept = run(PolledTooSoon({"Patient": rows}, pending=1), tmp_path)
+    assert slept == [300.0, 3.0]
+    assert [(o["type"], o["file"], o["count"]) for o in manifest["output"]] == [
+        ("Patient", "Patient.001.ndjson", 1)
+    ]
+    with pytest.raises(BulkError, match="did not finish within 200 s"):
+        run(PolledTooSoon({"Patient": rows}), tmp_path, max_wait=200)
+
+
 def test_files_on_another_server_are_not_downloaded(tmp_path: Path) -> None:
     class Elsewhere(FakeBulk):
         def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -420,9 +452,12 @@ def test_a_backend_services_token_that_cannot_be_a_header_is_refused(access: Any
 
 
 @pytest.mark.parametrize(
-    ("value", "seconds"), [("7", 7.0), ("0", 1.0), ("99999", 120.0), (None, None), ("soon", None)]
+    ("value", "seconds"),
+    [("7", 7.0), ("0", 1.0), ("99999", 99999.0), (None, None), ("soon", None)],
 )
 def test_retry_after_is_kept_sensible(value: str | None, seconds: float | None) -> None:
+    """At least a second, and otherwise what the server asks: `max_wait` bounds the whole wait
+    (`test_a_429_while_polling_is_waited_out_for_as_long_as_the_server_asks`)."""
     assert bulk._retry_after(value) == seconds
 
 

@@ -419,3 +419,49 @@ def test_compare_caps_its_resamples_like_every_bootstrap(
     args = [places["missing"], places["missing"], "--dataset", "test", "--resamples", resamples]
     assert main(["compare", *args]) == 1
     assert capsys.readouterr().err.strip() == "error: --resamples is 1 to 100000"
+
+
+# Every command that runs an agent on a dataset's first N cases (`--limit N`), writing nothing
+# where the agent is if it runs (paths are `places` keys in braces).
+RUNS = {
+    "eval": ["eval", TRIAGE, "--dataset", "test"],
+    "calibrate": ["calibrate", TRIAGE, "--slot", "router", "--variant", "llm"],
+    "leaderboard": [
+        *("leaderboard", TRIAGE, "--run", "router=rules", "--dataset", "test"),
+        *("--out", "{out}"),
+    ],
+    "written eval": ["written", "eval", CHART, "--rubric", "summary", "--dataset", "test"],
+    "written round create": [
+        *("written", "round", "create", CHART, "--rubric", "summary", "--dataset", "test"),
+        *("--org", "clinic-a", "--sample", "1"),
+    ],
+}
+
+
+@pytest.mark.parametrize("command", sorted(RUNS))
+@pytest.mark.parametrize("limit", ["0", "-5", "some"])
+def test_a_runs_limit_is_1_case_or_more_or_all(
+    command: str, limit: str, places: dict[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--limit` was read as `if args.limit:`, so 0 was no limit at all (a whole run, and paid
+    live calls for `calibrate`) and a negative number cut cases off the end (`--limit -5` ran
+    595 of 600 cases, and a report recorded the limit -5). As `mendari probe --limit`: 1 case
+    or more, or `all`, checked before anything runs."""
+    argv = [argument.format(**places) for argument in RUNS[command]]
+    assert main([*argv, "--limit", limit]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.count("\n") == 1
+    assert err.startswith(f"error: mendari {command}: argument --limit: 1 case or more, or `all`")
+
+
+@pytest.mark.parametrize("limit", ["0", "-1", "some"])
+def test_smart_launchs_limit_is_1_item_or_more(
+    limit: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`sandbox smart-launch --limit` was a plain whole number: 0 decided nothing (and the run
+    was reported failed), a negative one all but the last items. Refused before anything runs."""
+    argv = ["sandbox", "smart-launch", "--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD]
+    assert main([*argv, "--limit", limit]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.count("\n") == 1
+    assert err.startswith("error: mendari sandbox smart-launch: argument --limit: 1 item or more")

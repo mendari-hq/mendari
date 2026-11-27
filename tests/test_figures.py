@@ -165,7 +165,7 @@ def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     which made every registry read of an agent, and search, a server error."""
     from mendari.evals.result import counted as result_counted
 
-    for rate in (1e308, -1e308, 1.0000001):
+    for rate in (1e308, -1e308, 1.0000001, 10**400):
         assert figures.counted(rate, 600) is None and result_counted(rate, 2) is None
     version = {"benchmark": {"n": 600, "accuracy": 1e308}, "leaderboard": {"rows": [
         {"config": "a", "dataset": "t", "n": 5, "critical": [], "auto_rate": 1e308,

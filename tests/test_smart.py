@@ -454,6 +454,31 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
     assert wrong.status_code == 422
 
 
+def test_a_message_about_another_patient_is_refused(app: TestClient, ehr: FakeEhr) -> None:
+    """An agent that decides about a resource other than the patient (a message) decides only
+    one about the launch's patient: its `subject` names them, or the decision is refused before
+    anything else is read. Without this, a launch for one patient decided another's message."""
+    full_launch(app, ehr)
+    for rid, patient in (("theirs", "someone"), ("yours", PATIENT)):
+        ehr.resources.append(
+            {
+                "resourceType": "Communication",
+                "id": rid,
+                "status": "completed",
+                "subject": {"reference": f"Patient/{patient}"},
+                "payload": [{"contentString": "Can I get a refill on my lisinopril?"}],
+            }
+        )
+    denied = app.post(
+        "/api/smart/decide", json={"agent_id": TRIAGE, "focus": "Communication/theirs"}
+    )
+    assert denied.status_code == 403 and "not about the launch's patient" in denied.text
+    allowed = app.post(
+        "/api/smart/decide", json={"agent_id": TRIAGE, "focus": "Communication/yours"}
+    )
+    assert allowed.status_code != 403, allowed.text
+
+
 def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: FakeEhr) -> None:
     """`$` matches before a final newline: an id with one passed, was read without it and went
     on into the decision's context with its newline."""
@@ -520,14 +545,14 @@ def test_the_store_keeps_launches_single_use_and_expires_them(store: AuditStore)
     """Both backends (the `store` fixture runs on SQLite and Postgres)."""
     now = int(time.time())
     store.smart_put("state-1", "pending", {"iss": ISS}, now + 60, secret="binding")
-    assert store.smart_get("state-1", "session") is None  # kinds are separate
+    assert store.smart_read("state-1", "session") is None  # kinds are separate
     assert store.smart_take("state-1", "pending", secret="binding") == {"iss": ISS}
     assert store.smart_take("state-1", "pending", secret="binding") is None  # works once
     store.smart_put("old", "session", {"patient": "p"}, now - 1)
-    assert store.smart_get("old", "session") is None
+    assert store.smart_read("old", "session") is None
     store.smart_put("sid", "session", {"patient": "p"}, now + 60)
     store.smart_delete("sid", "session")
-    assert store.smart_get("sid", "session") is None
+    assert store.smart_read("sid", "session") is None
 
 
 # -- the launch is a principal (C5, ADR-0006): sign-in on, EHRs registered ------------------------
@@ -729,6 +754,35 @@ def test_an_unregistered_ehr_is_refused_before_any_call(
     assert none.get("/api/health").status_code == 200
 
 
+@pytest.mark.parametrize(
+    ("registered", "status", "reason"),
+    [(None, 422, "issuer"), (REGISTERED, 403, "unregistered")],
+)
+def test_an_iss_that_is_not_a_url_is_refused_with_the_launch_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tenants: tuple[FakeEhr, FakeEhr],
+    capsys: pytest.CaptureFixture[str],
+    registered: str | None,
+    status: int,
+    reason: str,
+) -> None:
+    """An `iss` that does not even split as a URL (`http://[`) is refused as any other launch
+    is, never a 500: in open mode with no EHR registered as an issuer off the allow-list, with
+    EHRs registered as an unregistered one. The launch's page and one `smart.launch.refused`
+    line, and nothing leaves for any server."""
+    a, b = tenants
+    app = signed_site(tmp_path / "a.db", monkeypatch, registered, a, b)
+    capsys.readouterr()
+    refused = launch(app, iss="http://[")
+    assert refused.status_code == status, refused.text
+    assert refused.headers["content-type"].startswith("text/html")
+    assert "set-cookie" not in refused.headers
+    assert a.requests == [] and b.requests == []
+    events = [e for e in security_lines(capsys.readouterr().out) if e["event"] != "request"]
+    assert [(e["event"], e["reason"]) for e in events] == [("smart.launch.refused", reason)]
+
+
 def test_a_view_level_launch_cannot_decide(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
 ) -> None:
@@ -832,7 +886,7 @@ def test_signing_out_of_mendari_ends_the_launch(
     out = app.post("/auth/logout")
     assert out.status_code == 204
     assert any(c.startswith("__Host-mendari_smart=") for c in out.headers.get_list("set-cookie"))
-    assert AuditStore(db).smart_get(sid, "session") is None
+    assert AuditStore(db).smart_read(sid, "session") is None
     app.cookies.set(f"__Host-{smart_routes.COOKIE}", sid, domain="mendari.test")
     assert app.get("/api/smart/session").json() == {"active": False}
     assert app.get("/api/smart/patient").status_code == 401
@@ -859,8 +913,8 @@ def test_a_later_launch_in_the_same_browser_ends_the_earlier_one(
     assert app.get("/api/smart/patient").status_code == 200
     assert app.post("/auth/logout").status_code == 204
     with AuditStore(db_target) as store:
-        assert store.smart_get(first, "session") is None
-        assert store.smart_get(second, "session") is None
+        assert store.smart_read(first, "session") is None
+        assert store.smart_read(second, "session") is None
 
 
 def test_a_launch_made_with_sign_in_off_is_refused_once_sign_in_is_on(
@@ -992,6 +1046,7 @@ def test_a_registration_is_keyed_on_the_normalized_base(monkeypatch: pytest.Monk
         (f"{TENANT_A}=:decide", "must look like"),
         ("ehrs.example.org/fhir=clinic-a:view", "must look like"),
         (f"{TENANT_A}?x=1=clinic-a:view", "must look like"),
+        ("http://[=clinic-a:view", "must look like"),  # not even a URL
         (f"{TENANT_A}=clinic-a:view,{TENANT_A}/=clinic-b:view", "registered twice"),
         ("https://other.example.org/fhir=clinic-a:view", "not on MENDARI_FHIR_ALLOWED_SERVERS"),
     ],

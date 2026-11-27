@@ -141,7 +141,8 @@ def test_the_maintained_agents_load_as_before_and_would_pass_the_caps() -> None:
         for relative, data in agent.parsed.items():
             assert caps.rules_problems(relative, data) == [], relative
         assert caps.schema_runs(agent.input_schema) <= caps.MAX_SCHEMA_RUNS, root.name
-        size = caps.agent_size(agent.manifest, agent.parsed, agent.input_schema)
+        size = caps.rules_runs(agent.manifest, agent.parsed, caps.rules_size)
+        size += caps.schema_runs(agent.input_schema, caps.schema_size)
         assert 0 < size <= caps.MAX_AGENT_PATTERN_SIZE, root.name
     screen = load_agent(TRIAGE_DIR).parsed["logic/screen_rules.yaml"]
     assert (screen["negation_window"], len(screen["negation_cues"])) == (30, 5)
@@ -387,9 +388,9 @@ def test_patterns_whose_sizes_come_to_more_than_3000_are_refused(tmp_path: Path)
         tmp_path / "one", rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps[:1])
     )
     agent = pulled(one)
-    assert (
-        caps.agent_size(agent.manifest, agent.parsed, agent.input_schema) == 2_001 + 27
-    )  # and the fixture's scheduling pattern
+    size = caps.rules_runs(agent.manifest, agent.parsed, caps.rules_size)
+    size += caps.schema_runs(agent.input_schema, caps.schema_size)
+    assert size == 2_001 + 27  # and the fixture's scheduling pattern
     root = sorter(
         tmp_path / "local",
         rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps),

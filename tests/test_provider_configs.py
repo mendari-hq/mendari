@@ -35,7 +35,7 @@ from mendari.core.origin import NOT_OWNED_CAPS, deployment_config
 from mendari.core.registry import SearchPath
 from mendari.core.spec import DEPLOYMENT_ENV_KEYS
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.providers import (
     MODEL_TYPES,
     PROVIDER_CONFIG_MODELS,
@@ -141,7 +141,7 @@ def refused(root: Path, origin: str = "hub") -> list[str]:
 
 def validates(agent: Agent) -> bool:
     try:
-        validate_agent(agent)
+        validate(agent)
     except AgentValidationError:
         return False
     return True
@@ -168,7 +168,7 @@ def test_the_template_agent_has_no_problem_wherever_it_comes_from(
         agent = load_agent(root, origin=origin)
         assert agent.bounded is (origin == "hub")
         assert agent.warnings == () and config_problems(agent) == []
-        validate_agent(agent)
+        validate(agent)
 
 
 @pytest.mark.parametrize("kind", sorted(VALID))

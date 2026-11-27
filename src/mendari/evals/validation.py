@@ -75,14 +75,13 @@ def _collect(agent: Agent, *, raising: bool) -> list[Problem]:
     # whatever the agent was loaded with. Then what only a build finds: the deployment's model
     # settings.
     found = [
-        _manifest_problem(agent, "manifest", text)
-        for text in manifest_template_problems(agent.manifest)
-    ] + [_manifest_problem(agent, "provider", text) for text in config_problems(agent)]
+        _manifest_problem("manifest", text) for text in manifest_template_problems(agent.manifest)
+    ] + [_manifest_problem("provider", text) for text in config_problems(agent)]
     if agent.manifest.rubrics:
         from mendari.providers.judge import rubric_problems
 
         # Each rubric's canned judge: its fixture's shape, criteria and levels.
-        found += [_manifest_problem(agent, "provider", text) for text in rubric_problems(agent)]
+        found += [_manifest_problem("provider", text) for text in rubric_problems(agent)]
     if found:
         return found
     for slot, spec in agent.manifest.providers.items():
@@ -128,7 +127,7 @@ def _said(error: Exception) -> str:
     return f"it cannot be built ({type(error).__name__})"
 
 
-def _manifest_problem(agent: Agent, kind: Kind, text: str) -> Problem:
+def _manifest_problem(kind: Kind, text: str) -> Problem:
     # Each starts with the manifest key it is about (`providers.x.variants.y: …`,
     # `cds_hooks.card.summary …`).
     head = text.split(None, 1)[0] if text.strip() else ""

@@ -42,7 +42,7 @@ from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems
 from mendari.evals.result import result_from_ledger, result_sha256
 
-QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
+QUEUED, RUNNING, DONE, FAILED = "queued", "running", "done", "failed"
 SLICE_SECONDS = 20.0  # well under a function's limit (vercel.json: 300 s)
 CLAIM_SECONDS = 120  # a slice not finished by then is repeated by the next call
 REMOTE_LIMIT = 200  # a remote arm's cases, as the evaluation route caps them
@@ -201,7 +201,7 @@ class JobStore:
                  len(data.records), _canonical(config), QUEUED, total, "[]", by, now),
             )  # fmt: skip
             payload = {"job": job_id, **named, "dataset_sha256": data.sha256, "by": by}
-            chained = self.store._bound("store_job.created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"store_job:{job_id}", "store_job.created", chained)
         return self.job(org, job_id)
 

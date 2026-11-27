@@ -473,7 +473,8 @@ publish on the same engine.
 
 **Not available on RE2:** lookahead and lookbehind (`(?=...)`, `(?!...)`, `(?<=...)`,
 `(?<!...)`), back references (`\1`, `(?P=name)`), conditional groups (`(?(1)...|...)`), atomic
-groups (`(?>...)`) and possessive quantifiers (`*+`, `++`, `?+`, `{m,n}+`). Counts nested inside
+groups (`(?>...)`), possessive quantifiers (`*+`, `++`, `?+`, `{m,n}+`) and a `$` with more of
+the pattern after it (unless in multi-line mode, `(?m)`). Counts nested inside
 each other may multiply to at most 1,000, and a pattern must fit in RE2's memory for one pattern
 once compiled. A registry refuses to publish a pattern that breaks one of these, and `mendari
 archive verify` refuses an archive that holds one; each says what to write instead:
@@ -487,6 +488,7 @@ archive verify` refuses an archive that holds one; each says what to write inste
 | `([a-z])\1`, `(?P<d>\d)(?P=d)` | the text itself, e.g. `(?:aa\|bb\|cc)` | Back references |
 | `(a)?(?(1)b\|c)` | `ab\|c` | Conditional groups: write the alternatives with `\|` |
 | `(?>...)`, `a++` | `(?:...)`, `a+` | Atomic groups and possessive quantifiers: RE2 never backtracks, so they are not needed |
+| `pain$\W`, `[a-z]$\Z` | `pain\n\Z`, `[a-z]\Z` | A `$` with more after it: in `re` it stops before a newline that ends the text, without taking it, which RE2 cannot; end the pattern with `\Z`, or `\n?\Z` for the end or a newline that ends it |
 | `(?:\w{1,20}\s?){1,60}` | `(?:\w{1,20}\s?){1,20}` | Counts nested inside each other may multiply to at most 1,000 |
 | `\w{0,1000}` | `\w*`, or a smaller count | Too large once compiled: `\w` is every letter and digit in Unicode, a large class |
 
@@ -498,11 +500,13 @@ matches a Greek `ι`. Two things differ:
 
 - **Word boundaries.** RE2 sees only ASCII letters, digits and `_` as word characters *in the
   text just outside a match*, so a letter or digit outside ASCII there does not continue the
-  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". In a script other than
-  Latin, whose letters are all outside ASCII, that is the usual case: `\bрак\b` (cancer) also
-  matches inside "практика" (practice), and `\bболь\b` (pain) inside "больница" (hospital).
-  Write `(?:^|\W)рак(?:\W|$)` instead of `\bрак\b`: `\W` is `re`'s, so it matches no letter in
-  any script (the match then starts one character earlier).
+  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". The same holds inside a
+  match, where the pattern allows such a letter or digit on both sides of a boundary: `\w\B\D`
+  does not match "ñÉ" (`re` does). In a script other than Latin, whose letters are all outside
+  ASCII, that is the usual case: `\bрак\b` (cancer) also matches inside "практика" (practice),
+  and `\bболь\b` (pain) inside "больница" (hospital). Write `(?:^|\W)рак(?:\W|$)` instead of
+  `\bрак\b`: `\W` is `re`'s, so it matches no letter in any script (the match then starts one
+  character earlier).
 - **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
   pattern runs.
 

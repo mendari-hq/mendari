@@ -2,7 +2,8 @@
 """Bulk FHIR (Bulk Data Access 2.0) `$export` into local-validation datasets.
 
 `export` asks a FHIR server for a patient-level or group export, polls the status URL (honouring
-`Retry-After`), and downloads the NDJSON files, checking each file's line count against the
+`Retry-After`, and waiting out a `429`, a server's answer to a client that polls too often,
+within `max_wait`), and downloads the NDJSON files, checking each file's line count against the
 manifest. With every file downloaded, it asks the server to delete the export (a `DELETE` to the
 status URL, which Bulk Data STU2 says a client MAY send, so the server can drop the files at
 once): one try, whose outcome is one of `DELETE_OUTCOMES` in the result, and never a failure of
@@ -251,7 +252,9 @@ def _wait(
             if manifest.get("error"):
                 raise BulkError(f"the export reported {len(manifest['error'])} error file(s)")
             return manifest
-        if status != 202:
+        # 202: still running. 429: polled too soon, which Bulk Data STU2 says a server SHOULD
+        # answer with Retry-After: waited out the same way, never a failed export.
+        if status not in (202, 429):
             raise BulkError(f"the export failed (HTTP {status}){_diagnostics(body)}")
         pause = _retry_after(answer.get("retry-after")) or min(pause * 2, 60.0)
         if waited + pause > limit:
@@ -261,7 +264,9 @@ def _wait(
 
 
 def _retry_after(value: str | None) -> float | None:
-    """Seconds from a Retry-After header (seconds or an HTTP date), kept within 1-120 s."""
+    """Seconds from a Retry-After header (seconds or an HTTP date), at least 1 s and otherwise
+    what the server asks: a client that waits less polls too soon (and is answered 429 again),
+    and `export`'s `max_wait` bounds the whole wait."""
     if not value:
         return None
     try:
@@ -271,7 +276,7 @@ def _retry_after(value: str | None) -> float | None:
             seconds = (parsedate_to_datetime(value) - datetime.now(UTC)).total_seconds()
         except (TypeError, ValueError):
             return None
-    return max(1.0, min(seconds, 120.0))
+    return max(1.0, seconds)
 
 
 def _diagnostics(body: bytes) -> str:

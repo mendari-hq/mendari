@@ -177,12 +177,13 @@ def test_a_put_purges_at_most_a_batch_of_expired_rows(store: AuditStore) -> None
         else:
             index = "SELECT indexname FROM pg_indexes WHERE indexname = ?"
         assert db.one(index, ("smart_sessions_expiry",)) is not None
-    store.smart_put("fresh", "user", {"name": "x"}, int(time.time()) + 60)
+    until = int(time.time()) + 60
+    store.smart_put("fresh", "user", {"name": "x"}, until)
     with store._db.session(exclusive=False) as db:
         left = db.one("SELECT COUNT(*) AS n FROM smart_sessions WHERE expires_at <= 1")
     assert SESSION_PURGE_BATCH == 100
     assert left == {"n": 5000 - SESSION_PURGE_BATCH}
-    assert store.smart_get("fresh", "user") == {"name": "x"}
+    assert store.smart_read("fresh", "user") == ({"name": "x"}, until)
 
 
 def test_the_sign_in_check_runs_off_the_event_loop(

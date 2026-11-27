@@ -91,8 +91,9 @@ def record(
     with tenancy.acting_for(org):
         clock.now = created + timedelta(milliseconds=rng.randrange(1, 5))
         store.record(result, message("synthetic"))
-        final = not result.needs_human
-        if result.needs_human and rng.random() < 0.6:
+        to_a_person = result.outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN)
+        final = not to_a_person
+        if to_a_person and rng.random() < 0.6:
             clock.now = created + timedelta(minutes=rng.randrange(5, 2000))
             answer = result.answers.get(result.primary)
             labels = sorted((answer.probabilities if answer else None) or LABELS)

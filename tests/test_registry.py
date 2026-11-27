@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import base64
 import datetime
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ from mendari.core.card import render_card
 from mendari.core.reference import bundled_dir
 from mendari.evals import figures as figures_module
 from mendari.evals import stats
-from mendari.hub import archive
+from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
 from tests.conftest import (
@@ -100,6 +102,39 @@ def test_an_archive_signed_by_an_unregistered_key_is_refused(registry: Registry)
     stranger = archive.load_private_key(archive.generate_key()[0])
     refused = registry.publish(key=stranger)
     assert refused.status_code == 422 and "not trusted" in refused.text
+
+
+def test_a_key_revoked_while_its_archive_is_checked_publishes_nothing(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publish is checked before it is written (the archive extracted, validated and run
+    against the earlier version, minutes at most), and the operator may revoke the signing key
+    meanwhile. The key is read again as the version is written, under the lock `revoke_key`
+    writes under, and refused as a revoked key's archive is at the start: nothing is stored,
+    listed, counter-signed or chained. So a stored version always precedes its key's
+    revocation, which is what a puller checks (`hub/client.py` `_trusted_keys`)."""
+    monkeypatch.setenv(yank.KEY_ENV, base64.b64encode(os.urandom(32)).decode())  # counter-signs
+    key_id = archive.key_id(registry.fixture_publisher()[1].public_key())
+    checked = registry_module._refuse_invalid
+
+    def revoked_meanwhile(agent: Agent) -> None:
+        registry.operator.revoke_key(FIXTURE_NAMESPACE, key_id, reason="lost laptop", by="operator")
+        checked(agent)
+
+    monkeypatch.setattr(registry_module, "_refuse_invalid", revoked_meanwhile)
+    refused = registry.publish()
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"the archive is signed by a key that is not trusted ({key_id})"
+    )
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}").status_code == 404
+    assert registry.operator.latest(registry_module.REVIEWER) == []
+    with registry.operator._db.session(exclusive=False) as db:
+        assert db.all("SELECT * FROM hub_versions") == []
+        assert db.all("SELECT * FROM hub_acceptances") == []
+        chained = [row["event"] for row in db.all("SELECT event FROM hub_events ORDER BY seq")]
+    assert chained[-1] == "key.revoked" and "agent.published" not in chained
+    assert registry.operator.verify()["ok"]
 
 
 def test_the_archive_must_be_the_agent_and_version_in_the_url(registry: Registry) -> None:
@@ -650,3 +685,61 @@ def test_a_publish_that_shadows_a_reference_agent_is_refused(
         registry.publish(_at_version(tmp_path / "new", load_agent(root), "9.9.9")).status_code
         == 201
     )
+
+
+# -- the order of versions ------------------------------------------------------------------------
+
+
+def test_versions_are_ordered_by_semantic_version_precedence() -> None:
+    """SemVer 2.0.0, section 11: the numbers as integers would compare (whatever their length),
+    then a release above its pre-releases, whose identifiers compare in turn: digits as numbers
+    and below the others, which compare in ASCII order, and fewer identifiers first when the rest
+    are equal. Versions of equal precedence (`1.2.0` and `1.02.0`, which the registry also takes)
+    compare as text, so an order never depends on the order rows are read in."""
+    ordered = [
+        "1.0.0-0",
+        "1.0.0-2",
+        "1.0.0-10",
+        "1.0.0-alpha",
+        "1.0.0-alpha.1",
+        "1.0.0-alpha.beta",
+        "1.0.0-beta",
+        "1.0.0-beta.2",
+        "1.0.0-beta.11",
+        "1.0.0-rc.1",
+        "1.0.0",
+        "1.02.0",
+        "1.2.0",
+        "1.10.0-rc.1",
+        "1.10.0",
+        "1" + "0" * 5000 + ".0.0",
+    ]
+    for shuffled in (ordered, list(reversed(ordered)), ordered[1::2] + ordered[::2]):
+        assert sorted(shuffled, key=registry_module.precedence) == ordered
+
+
+@pytest.mark.parametrize(
+    ("published", "listed"),
+    [
+        (["9.9.9-rc.1", "9.9.9"], ["9.9.9-rc.1", "9.9.9"]),
+        (["9.9.9", "9.9.9-hotfix"], ["9.9.9-hotfix", "9.9.9"]),
+    ],
+    ids=["release-after-its-pre-release", "pre-release-after-its-release"],
+)
+def test_a_release_is_the_latest_beside_its_pre_releases_in_every_answer(
+    registry: Registry, tmp_path: Path, published: list[str], listed: list[str]
+) -> None:
+    """The registry orders an agent's versions by semantic-version precedence, in whatever order
+    they were published: `9.9.9` ranks above `9.9.9-rc.1` and `9.9.9-hotfix`. `version_key` ties
+    them (it orders local agents by their numbers alone), and the latest was whichever row the
+    database read last, so the agent's answer, a pull, search and the evaluation page each named
+    their own."""
+    for version in published:
+        answer = registry.publish(_at_version(tmp_path / version, TRIAGE, version))
+        assert answer.status_code == 201, answer.text
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["versions"] == listed and agent["latest"]["version"] == "9.9.9"
+    assert [found["version"] for found in registry.operator.latest()] == ["9.9.9"]
+    assert [found["version"] for found in registry.client.get("/v1/search").json()] == ["9.9.9"]
+    page = registry.client.get(f"/v1/agents/{TRIAGE.id}/evaluation").json()
+    assert page["versions"]["shown"] == page["versions"]["latest"] == "9.9.9"

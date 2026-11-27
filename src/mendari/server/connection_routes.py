@@ -103,7 +103,10 @@ SAID: Mapping[str, str] = {
     "rate_limited": "It is turning requests away for now: too many requests.",
     "insufficient_credit": "It refused the request for lack of credit.",
     "not_configured": "No live service is connected, and the agent carries no canned examples.",
-    "invalid_input": "The example could not be sent: it is larger than a request may be.",
+    "invalid_input": (
+        "The example could not be sent: it is larger than a request may be, or holds a value "
+        "JSON cannot carry."
+    ),
 }
 OTHER = "It could not answer."
 

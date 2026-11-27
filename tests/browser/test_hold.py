@@ -12,7 +12,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.browser.conftest import CLINICAL, TRIAGE
-from tests.browser.test_dashboard import open_agent
+from tests.browser.test_dashboard import open_agent, show
 
 pytestmark = pytest.mark.browser
 
@@ -48,6 +48,24 @@ def test_the_overview_says_a_hold_covers_the_agent(page: Page) -> None:
     holds(page, [{**HOLD, "agent_id": CLINICAL}], [])
     open_agent(page, TRIAGE)
     expect(page.locator(".hold-notice")).to_have_count(0)
+
+
+def test_holds_that_could_not_be_read_are_said_not_taken_for_none(page: Page) -> None:
+    """A failed read of the holds (a server error, the decisions still read) is said where the
+    holds are shown, never taken for none: the overview would leave out "Automation is on hold"
+    for an agent on hold, and the System view show no hold to lift."""
+    page.route(
+        "**/api/holds**",
+        lambda route: route.fulfill(status=503, json={"detail": "the database is busy"}),
+    )
+    open_agent(page, TRIAGE)
+    unread = page.locator(".holds-unread")
+    expect(unread).to_contain_text("The automation holds could not be read")
+    show(page, "system")
+    expect(page.locator("#system-automation .holds-unread")).to_contain_text(
+        "The automation holds could not be read"
+    )
+    expect(page.locator("#system-automation")).not_to_contain_text("Agents automate what")
 
 
 def lifts(sent: list[tuple[str, str]]) -> bool:
