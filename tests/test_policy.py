@@ -157,6 +157,46 @@ def test_canned_answers_never_block_alone(triage_agent: Agent) -> None:
     assert held.reasons == (*live.reasons, instead)
 
 
+def test_the_site_code_not_offered_and_canned_reasons_read_in_the_order_of_the_steps(
+    triage_agent: Agent,
+) -> None:
+    """Steps 4 to 6 give their reasons in that order (the module's docstring): the site code's,
+    each list not offered, then the canned answers', whether they turn AUTO into HUMAN_REVIEW,
+    the decision already went to a person (below the auto threshold, below the review threshold,
+    a rule's HUMAN_REVIEW) or they send a rule's BLOCK to one. The canned answers' came first
+    when the decision already went to a person."""
+    canned = "canned answers: MENDARI_AGENT_URL is not set"
+    limit = "medications may be incomplete"
+    caps: dict[str, Any] = {"site_code": ("t1d",), "not_offered": (limit,), "canned": canned}
+    steps = ("site code translated (t1d)", limit, canned)
+    in_order = (
+        "site code translated (t1d): a person decides",
+        f"{limit}: a person decides",
+        f"{canned}; a person decides",
+    )
+    for answers, alone in (
+        (routine("nurse", 0.95), Outcome.AUTO),
+        (routine("nurse", 0.70), Outcome.HUMAN_REVIEW),
+        (routine("nurse", 0.30), Outcome.ABSTAIN),
+        (emergency(), Outcome.HUMAN_REVIEW),
+    ):
+        plain = apply_policy(triage_agent.manifest, answers, {}, None, SCREENED)
+        capped = apply_policy(triage_agent.manifest, answers, {}, None, SCREENED, **caps)
+        assert plain.outcome is alone
+        assert capped.reasons == (*plain.reasons, *in_order), alone
+
+    policy = triage_agent.manifest.policy
+    blocking = policy.rules[0].model_copy(update={"outcome": Outcome.BLOCK})
+    manifest = triage_agent.manifest.model_copy(
+        update={"policy": policy.model_copy(update={"rules": [blocking, *policy.rules[1:]]})}
+    )
+    live = apply_policy(manifest, emergency(), {})
+    held = apply_policy(manifest, emergency(), {}, **caps)
+    instead = tuple(f"{step}: a person decides instead of its rule's BLOCK" for step in steps)
+    assert (live.outcome, held.outcome) == (Outcome.BLOCK, Outcome.HUMAN_REVIEW)
+    assert held.reasons == (*live.reasons, *instead)
+
+
 def test_missing_primary_answer_abstains(triage_agent: Agent) -> None:
     answers = {"urgency": answer("urgency", "no", 0.9), "abusive": answer("abusive", "no", 0.9)}
     result = apply_policy(triage_agent.manifest, answers, {"destination": "rate_limited"})
