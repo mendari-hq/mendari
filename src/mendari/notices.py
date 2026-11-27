@@ -32,7 +32,6 @@ ACKNOWLEDGEMENT = (
     "Mendari is a research preview, not a medical device, and runs on synthetic data. Enter "
     "only synthetic data: never a real patient's name, record, message or details."
 )
-EVENT = "notice.acknowledged"
 # The permissions whose routes take data in from a person: refused until they acknowledge.
 GATED = frozenset({"decide", "review"})
 # Minting a credential a person could then decide with, unasked: every POST the `keys`
