@@ -114,6 +114,7 @@ from mendari.server.auth import (
     credential_in_url_or_form,
     names_a_credential,
     org_of,
+    path_is_whole,
     read_body,
     scope_of,
 )
@@ -3219,7 +3220,11 @@ def create_app(
         First, a request another site started reaches only a public route or a page, to read
         (`server/origin.py`). Then a credential in a URL is refused, in every mode: it would end
         up in logs and histories. No body is read here: the routes that read a form refuse a
-        credential in it, after this check."""
+        credential in it, after this check. A path with an encoded `?` or `#` in it is refused
+        before any of them, as a route that does not exist is (`path_is_whole`): every check
+        decides on the path the router routes."""
+        if not path_is_whole(request):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         try:
             origins.check(request)
             if names_a_credential(request.query_params):

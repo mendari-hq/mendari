@@ -198,6 +198,31 @@ def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: 
     assert app.get("/api/audit").status_code == 401
 
 
+def test_a_path_with_an_encoded_query_or_fragment_mark_is_refused_before_any_check(
+    app: TestClient, idp: FakeIdp
+) -> None:
+    """`%3F` or `%23` in a path cuts `request.url.path` at it, so the guard would decide on a
+    shorter path than the router routes: `.../feedback/export` (an administrator's) checked as
+    the agent's own path (a viewer's). No route's path holds either character, so such a request
+    is a 404 before the guard, whatever it names (`path_is_whole`): signed out, the cut paths
+    would have answered as the guard decides for them (a 401, a redirect to sign in)."""
+    for path in ("/api/audit%3Fx", "/%3F", "/%23"):
+        answer = app.get(path, follow_redirects=False)
+        assert answer.status_code == 404 and answer.json() == {"detail": "Not Found"}, path
+    assert app.get("/api/audit").status_code == 401
+    sign_in(app, idp, roles=["viewer"])
+    for path in (
+        f"/api/agents/{INBOX}%3F/feedback/export",
+        f"/api/agents/{INBOX}%23/feedback/export",
+        "/api/audit%3Fx",
+        "/%3F",
+    ):
+        answer = app.get(path)
+        assert answer.status_code == 404 and answer.json() == {"detail": "Not Found"}, path
+    assert app.get(f"/api/agents/{INBOX}/feedback/export").status_code == 403  # admin's
+    assert app.get("/api/audit").status_code == 200  # a whole path is checked as before
+
+
 def test_each_role_can_do_exactly_its_part(app: TestClient, idp: FakeIdp) -> None:
     decide = f"/api/agents/{INBOX}/decide"
     evals = f"/api/agents/{INBOX}/evals"

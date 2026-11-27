@@ -421,9 +421,13 @@ def add_store_routes(
     def test_version(request: Request, digest: str) -> dict[str, Any]:
         """Run the version's behaviour tests on the engine it runs on, as `mendari test` does
         (its own, and those `mendari probe` found): each case's name, whether it passed and why
-        not. Nothing is recorded."""
+        not. The reviewers' corrections accepted as tests run too, shown apart, for someone who
+        may read inputs, each case chained as their read of its decision's input; for anyone else
+        they are left out (`proposed` is null)."""
         from mendari.evals.behaviour_tests import every_case, run_behaviour_tests
 
+        acting = auth.acting(request)
+        reader = acting.actor if acting.may("read_input") else None
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
@@ -436,11 +440,17 @@ def add_store_routes(
             raise _refused(error) from None
         except MendariError as error:
             raise HTTPException(422, f"the tests cannot run: {error}") from None
-        accepted = [
-            item
-            for dataset_id in {d for d, _ in store.proposals(org, digest)}
-            for item in proposed_results(org, digest, dataset_id, only_accepted=True)
-        ]
+        accepted = (
+            []
+            if reader is None
+            else [
+                item
+                for dataset_id in {d for d, _ in store.proposals(org, digest)}
+                for item in proposed_results(
+                    org, digest, dataset_id, reader=reader, only_accepted=True
+                )
+            ]
+        )
         return {
             "digest": digest,
             "passed": sum(outcome.passed for outcome in outcomes),
@@ -448,8 +458,11 @@ def add_store_routes(
             "cases": [
                 {"name": o.name, "passed": o.passed, "failures": list(o.failures)} for o in outcomes
             ],
-            # The reviewers' corrections accepted as tests (LP-20i), shown apart.
-            "proposed": {
+            # The reviewers' corrections accepted as tests (LP-20i), shown apart, to someone who
+            # may read inputs.
+            "proposed": None
+            if reader is None
+            else {
                 "passed": sum(item["passed"] for item in accepted),
                 "failed": sum(not item["passed"] for item in accepted),
                 "cases": accepted,
@@ -534,8 +547,11 @@ def add_store_routes(
         """A job evaluating a version of your store (`version`) or an agent served here (`agent`,
         the current one a draft is compared with) on a dataset. Local variants unless named; a
         remote one needs your organization's evaluation quota set and runs on 200 cases at
-        most. It runs when `…/advance` is called, a slice at a time. Chained."""
+        most. It runs when `…/advance` is called, a slice at a time. On the improvement dataset it
+        needs the permission to read inputs. Chained."""
         by, org = person(request)
+        if improvement(org, body.dataset):
+            case_reader(request, "a job on the improvement dataset")
         try:
             made = with_jobs().create(
                 org,
@@ -567,10 +583,15 @@ def add_store_routes(
     def advance_job(request: Request, job_id: str) -> dict[str, Any]:
         """Run the next slice of a job: as many cases as fit about 20 seconds. Safe to call
         twice: a slice another call holds is not run again. The last slice writes its report
-        with its ledger (chained `eval.recorded`)."""
+        with its ledger (chained `eval.recorded`). On the improvement dataset it needs the
+        permission to read inputs, and each case decided is chained as your read of its
+        decision's input."""
         _, org = person(request)
         try:
-            return dict(with_jobs().advance(org, job_id))
+            reader = None
+            if improvement(org, with_jobs().job(org, job_id).get("dataset")):
+                reader = case_reader(request, "running a job on the improvement dataset")
+            return dict(with_jobs().advance(org, job_id, reader=reader))
         except StoreError as error:
             raise _refused(error) from None
 
@@ -580,11 +601,14 @@ def add_store_routes(
         cases: each side's figures as k of n with exact intervals, each difference with the
         exact McNemar test, Holm-adjusted, the Brier difference with a paired bootstrap, and the
         cases that changed by your dataset's ids. A figure on too few cases says "insufficient
-        evidence". Nothing is recorded."""
+        evidence". On the improvement dataset it needs the permission to read inputs: which
+        cases changed is read from them. Nothing is recorded."""
         from mendari.evals.store_jobs import compare_jobs
 
         _, org = person(request)
         try:
+            if improvement(org, with_jobs().job(org, draft).get("dataset")):
+                case_reader(request, "comparing jobs on the improvement dataset")
             return compare_jobs(with_jobs(), org, draft, current)
         except StoreError as error:
             raise _refused(error) from None
@@ -593,12 +617,37 @@ def add_store_routes(
 
     # -- the improvement dataset and proposed tests (LP-20i) ---------------------------------
 
+    def case_reader(request: Request, doing: str) -> str:
+        """Who reads patients' inputs by running a version over the improvement dataset: what
+        the version decides of each case is a function of its input that the version's author
+        chose (an edit rewrites its rules), so running it reads the inputs. Only someone who may
+        read inputs does (I2, E18), as building the dataset needs, and the run chains each read
+        for them (`chain_input_reads`). 403 for anyone else."""
+        principal = auth.acting(request)
+        if not principal.may("read_input"):
+            raise HTTPException(
+                403, f"{doing} reads patients' inputs: it needs the permission to read them"
+            )
+        return principal.actor
+
+    def improvement(org: str, dataset: Mapping[str, Any] | None) -> bool:
+        """Whether a job's dataset (`{"id": ...}` of the store, or `{"name": ...}` an agent
+        declares) is an improvement dataset: reviewed decisions' inputs."""
+        if not dataset or "id" not in dataset:
+            return False
+        try:
+            return store.dataset(org, str(dataset["id"])).get("kind") == "improvement"
+        except StoreError:
+            return False  # the job's own lookup refuses it, with why
+
     def proposed_results(
-        org: str, digest: str, dataset_id: str, only_accepted: bool = False
+        org: str, digest: str, dataset_id: str, *, reader: str, only_accepted: bool = False
     ) -> list[dict[str, Any]]:
         """Each case of an improvement dataset as a behaviour test of the version: its case id,
         what it expects (the reviewer's label of the primary question), whether the version
-        decides it, and what the authors decided of it. Never its input."""
+        decides it, and what the authors decided of it. Never its input, though what the version
+        decides of it is read from it: each case decided is chained as `reader`'s read of that
+        decision's input."""
         agent = store.load(org, digest)
         decision = Decision(agent, origin_cap=False, deadline_s=deadline_s)
         decided = store.proposals(org, digest)
@@ -622,6 +671,7 @@ def add_store_routes(
                     "state": state,
                 }
             )
+        store.store.chain_input_reads(org, [str(r["case"]) for r in results], reader=reader)
         return results
 
     @app.post(
@@ -688,14 +738,17 @@ def add_store_routes(
     def proposed_tests(request: Request, digest: str, dataset: str) -> dict[str, Any]:
         """Each case of an improvement dataset run against this version as a behaviour test:
         its case id, the label it expects, whether the version decides it, and whether you
-        accepted or dismissed it. Never its input. They stay beside the version, never in its
-        files. Nothing is recorded."""
+        accepted or dismissed it. Never its input; but what a version decides of a case is a
+        function of its input, so this needs the permission to read inputs, and each case is
+        chained as your read of its decision's input. They stay beside the version, never in its
+        files."""
+        reader = case_reader(request, "running a version over the improvement dataset")
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
             if store.dataset(org, dataset).get("kind") != "improvement":
                 raise HTTPException(422, "proposed tests come from an improvement dataset")
-            results = proposed_results(org, digest, dataset)
+            results = proposed_results(org, digest, dataset, reader=reader)
         except StoreError as error:
             raise _refused(error) from None
         return {
@@ -715,7 +768,9 @@ def add_store_routes(
         request: Request, digest: str, dataset_id: str, case_id: str, body: ProposalDecision
     ) -> dict[str, Any]:
         """Accept a proposed test (it runs with the version's own tests, shown apart) or dismiss
-        it. Chained, naming the dataset and the case, never an input."""
+        it. Needs the permission to read inputs, as the proposed tests do. Chained, naming the
+        dataset and the case, never an input."""
+        case_reader(request, "deciding a proposed test")
         by, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:

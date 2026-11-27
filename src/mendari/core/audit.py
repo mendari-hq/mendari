@@ -1103,6 +1103,32 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             return self._protected_on(db, marks=marks)
 
+    def chain_input_reads(self, org: str, decision_ids: Sequence[str], *, reader: str) -> int:
+        """One `input.read` by `reader` for each of `org`'s decisions whose input a run of a
+        sealed copy opened: a version decided over the improvement dataset (LP-20i), whose cases
+        are those decisions' inputs. What the version decides of each is a function of its input
+        that the version's author chose, so the run is a read of every input, chained as one
+        (I2) with the payload a read of the decision's own input has. A decision of another
+        organization, or no longer kept, is skipped. Returns how many were chained."""
+        ids = list(dict.fromkeys(str(decision_id) for decision_id in decision_ids))
+        if not ids:
+            return 0
+        marks = ", ".join("?" for _ in ids)
+        with self._db.session(exclusive=True) as db:
+            kept = {
+                row["id"]
+                for row in db.all(
+                    f"SELECT id FROM decisions WHERE org = ? AND id IN ({marks})", [org, *ids]
+                )
+            }
+            entries = [
+                (decision_id, self._bound("input.read", {"reader": reader}, org))
+                for decision_id in ids
+                if decision_id in kept
+            ]
+            self._append_many(db, "input.read", entries)
+        return len(entries)
+
     def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
         """A payload as chained (`kind`): with the organization of the row it is about (`org`,
         which the caller read in the same transaction). Every kind but the deployment's names
