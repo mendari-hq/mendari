@@ -38,7 +38,7 @@ from mendari.core.templates import (
     longest,
 )
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, terminology
 from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR, encrypt_mode
@@ -330,7 +330,7 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     assert owned.warnings == (problem,)
     assert manifest_template_problems(owned.manifest) == [problem]
     with pytest.raises(AgentValidationError, match=re.escape(problem)):
-        validate_agent(owned)
+        validate(owned)
     # An owned agent's summary that reads longer is cut under 140 on its card.
     cut = with_summary(tmp_path / "cut", "Soon: " + "x" * 140 + " ({on_anticoagulant})")
     (made,) = cds_hooks.invoke(Decision.from_path(cut), hook(SHOWCASE))["cards"]

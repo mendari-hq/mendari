@@ -15,7 +15,7 @@ import pytest
 from mendari import Decision, load_agent
 from mendari.core.spec import PREFETCH, prefetch_problems
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, TRIAGE_DIR, fixture_agents
 from tests.support.chart_fixture import chart_copy
 from tests.support.fixture_records import SHOWCASE
@@ -60,7 +60,7 @@ def test_a_prefetch_template_must_be_a_relative_read_or_search(
     assert owned.warnings == (problem,)
     assert Decision(owned).decide_fhir(SHOWCASE.bundle())[0].recommendation is not None
     with pytest.raises(AgentValidationError, match=r"cds_hooks\.prefetch\.patient"):
-        validate_agent(owned)
+        validate(owned)
 
 
 def test_a_relative_read_or_search_loads_from_a_registry(tmp_path: Path) -> None:

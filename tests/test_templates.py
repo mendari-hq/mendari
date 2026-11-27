@@ -14,7 +14,7 @@ from mendari import Decision, load_agent
 from mendari.core.spec import AgentManifest
 from mendari.core.templates import expansions, fill, template_problems, unknown_placeholders
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import validate_agent
+from mendari.evals.validation import validate
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
 from tests.conftest import DEMO_AGENT_DIR, TRIAGE_DIR, fixture_agents
@@ -180,7 +180,7 @@ def test_a_wording_template_takes_bare_placeholders_only(tmp_path: Path, shape: 
         assert owned.warnings == (problem,)
         assert Decision(owned).decide_fhir(BUNDLE)[0].recommendation == "pharmacy"
         with pytest.raises(AgentValidationError, match=re.escape(problem)):
-            validate_agent(owned)
+            validate(owned)
 
     task = with_wording(tmp_path / "task", task=f"Route to {shape}")
     problem = f"fhir/mapping.yaml: task.description uses {shape}: {BARE}"
@@ -197,7 +197,7 @@ def test_a_wording_template_takes_bare_placeholders_only(tmp_path: Path, shape: 
     else:
         FhirAdapter.for_agent(owned)  # it serves, as before
         with pytest.raises(AgentValidationError, match=re.escape(problem)):
-            validate_agent(owned)
+            validate(owned)
 
 
 def test_fill_renders_a_template_as_it_always_did() -> None:
