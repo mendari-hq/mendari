@@ -238,7 +238,6 @@ CDS_ORIGIN = "this CDS client does not call from this origin"
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
-ACCOUNTS_MODES = ("claims", "memberships")  # MENDARI_ACCOUNTS (ADR-0008)
 MEMBER = "member"  # a person's session row in memberships mode (sealed; `user` in claims mode)
 # A person in memberships mode, with or without an organization: what choosing one, asking to
 # join and accepting an invitation need. In claims mode these routes are not mounted, and the
@@ -269,8 +268,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     for method, pattern, permission in [
         ("GET", r"^/api/health$", "public"),
         # Readiness (status pages, uptime checks, probes): one cached, bounded read per instance.
+        # Its HEAD needs what GET needs, as every route's does (`permission_for`).
         ("GET", r"^/api/health/ready$", "public"),
-        ("HEAD", r"^/api/health/ready$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
         ("POST", r"^/api/auth/(organization|access-requests|invitations/accept)$", PERSON),
         ("*", r"^/auth/", "public"),
@@ -2199,9 +2198,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
                 handled_by=principal.id,
                 roles=grantable(body.roles, org),
             )
-        except accounts.MembershipRefused as refused:
-            if refused.reason != "member":
-                raise
+        except accounts.MembershipRefused:  # only ever `member` here
             raise AuthError(
                 f"already a member of {org!r}: refuse the request to close it", 409
             ) from None
