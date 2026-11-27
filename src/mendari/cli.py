@@ -5142,8 +5142,9 @@ def build_parser() -> argparse.ArgumentParser:
         "mcp",
         help="serve governed decisions to other AI agents as MCP tools (stdio)",
         description="A Model Context Protocol server on stdin/stdout: list_agents, decide, "
-        "review_queue and verify_audit. Every decide call runs under the agent's policy and is "
-        "written to the audit trail.",
+        "authorize_action, review_queue and verify_audit. Every decide call runs under the "
+        "agent's policy and is written to the audit trail, and an agent from a registry is held "
+        "as a running server holds it, until its registry's recalls are read.",
     )
     mcp.add_argument("--db", help="audit database to record decisions in (default: in memory)")
     mcp.set_defaults(handler=cmd_mcp)
