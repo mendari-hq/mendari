@@ -11,10 +11,6 @@ from mendari.evals import figures, stats
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation
 
 
-def pct(value: float | None, digits: int = 1) -> str:
-    return "n/a" if value is None else f"{value * 100:.{digits}f}%"
-
-
 def num(value: float | None, digits: int = 3) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
 

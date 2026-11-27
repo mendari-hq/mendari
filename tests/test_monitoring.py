@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import Agent, AuditStore, Decision
+from mendari.alerts import check_webhook
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.agent import load_agent
@@ -29,7 +30,6 @@ from mendari.evals.monitoring import (
     MIN_REVIEWED,
     _alerts,
     _psi,
-    check_webhook,
     monitor,
     recorded_providers,
 )

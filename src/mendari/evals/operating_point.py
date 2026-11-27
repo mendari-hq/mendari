@@ -85,8 +85,6 @@ CRITICAL_MISS, FALSE_AUTOMATION = "critical_miss", "false_automation"
 # needs; what no threshold fixes; cases that repeat an input; how each bound is taken.
 POINT, WALK, UNHELD, GUARANTEE, CHANGE = "point", "walk", "unheld", "guarantee", "change"
 LABELS, NEEDS, CANNOT_FIX, REPEATED, METHOD = "labels", "needs", "cannot_fix", "repeated", "method"
-# The lines that say what to do, without the counts a caller has shown already (`mendari demo`).
-WHAT_NEXT = (WALK, UNHELD, GUARANTEE, CHANGE, NEEDS, CANNOT_FIX)
 _AUTO = "AUTO"
 _FIXED = ("ABSTAIN", "BLOCK")  # what a case is given when no policy runs on it
 _MIN_SHARE = 1e-6  # a target under one in a million needs more cases than a set holds
@@ -894,9 +892,9 @@ def _key(item: Mapping[str, Any]) -> tuple[Any, Any, Any]:
     return item["risk"], item.get("question"), item.get("label")
 
 
-def text(block: Mapping[str, Any], *more: str, kinds: Sequence[str] | None = None) -> str:
+def text(block: Mapping[str, Any], *more: str) -> str:
     """The block for a terminal: its heading, its summary and its lines, each wrapped, then
-    any lines the caller adds (`more`). With `kinds`, only the lines of those kinds."""
+    any lines the caller adds (`more`)."""
 
     def wrapped(line: str) -> str:
         return textwrap.fill(
@@ -908,12 +906,8 @@ def text(block: Mapping[str, Any], *more: str, kinds: Sequence[str] | None = Non
             break_long_words=False,
         )
 
-    lines = [
-        line
-        for line, kind in zip(block["lines"], block["kinds"], strict=True)
-        if kinds is None or kind in kinds
-    ]
-    return "\n".join(["Operating point", *map(wrapped, [block["summary"], *lines, *more])])
+    lines = [block["summary"], *block["lines"], *more]
+    return "\n".join(["Operating point", *map(wrapped, lines)])
 
 
 def markdown(block: Mapping[str, Any]) -> str:

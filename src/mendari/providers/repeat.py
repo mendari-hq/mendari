@@ -180,7 +180,6 @@ def repeated(
         output_tokens=sum(output.output_tokens for output in outputs),
         cost_usd=None if any(cost is None for cost in costs) else sum(c or 0.0 for c in costs),
         extra={**outputs[0].extra, "repeat": {"runs": runs, "answered": len(outputs)}},
-        failures={key: code for output in outputs for key, code in output.failures.items()},
         actions=proposed,
         # One text, not a blend: the first run's that answered. What is graded is what is kept.
         outputs=dict(outputs[0].outputs),

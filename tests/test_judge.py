@@ -234,6 +234,13 @@ def test_a_tie_goes_to_the_lower_level(agent: Agent, monkeypatch: pytest.MonkeyP
             "invalid_response",
         ),
         (httpx.Response(200, json=completion(PASSING, choices=[])), "invalid_response"),
+        # An integer too large for a float (`json` reads it as an `int`): malformed, not a crash.
+        (
+            httpx.Response(
+                200, json=completion({**PASSING, "safe_to_send": {"yes": 10**400, "no": 0.1}})
+            ),
+            "invalid_response",
+        ),
     ],
 )
 def test_a_failure_is_counted_under_its_code_and_never_raised(

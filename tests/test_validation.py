@@ -19,7 +19,6 @@ from mendari.cli import main
 from mendari.core.agent import Agent, load_agent
 from mendari.errors import AgentValidationError
 from mendari.evals import validation
-from mendari.evals.behaviour_tests import validate_agent
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
@@ -67,7 +66,7 @@ def test_the_command_and_the_registry_call_one_function(
     assert main(["validate", str(agent.root)]) == 1
     assert line in capsys.readouterr().err
     with pytest.raises(AgentValidationError) as error:
-        validate_agent(agent)  # `behaviour_tests.validate_agent` calls the one function too
+        validation.validate(agent)
     assert error.value.problems == [line]
 
     # The registry: refused, naming it, and nothing stored.

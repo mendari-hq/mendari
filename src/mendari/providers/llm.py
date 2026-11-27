@@ -52,6 +52,7 @@ from mendari.providers.base import (
     Provider,
     ProviderOutput,
     batch_state,
+    finite_number,
     read_problems,
     refuse_if_over_quota,
     state_fields_problem,
@@ -540,12 +541,8 @@ def _probability(value: Any) -> bool:
 
 
 def _nonnegative(value: Any) -> bool:
-    return (
-        isinstance(value, int | float)
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and value >= 0
-    )
+    number = finite_number(value)
+    return number is not None and number >= 0
 
 
 def deployment_info() -> dict[str, Any]:
