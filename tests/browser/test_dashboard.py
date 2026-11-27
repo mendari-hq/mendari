@@ -1745,6 +1745,27 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
     expect(page.locator("#drawer-title")).to_have_text("Human review · Nurse")
 
 
+def test_the_palette_opens_a_decision_by_its_whole_id_only(page: Page, live_server: str) -> None:
+    """The record is read by its whole id (`GET /api/audit/{id}`), so the palette offered to
+    open the eight characters the audit table shows, and the drawer that opened said "unknown
+    decision". It offers to open a whole id, and none for a part of one."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{TRIAGE}/decide",
+        json={"message": {"body": "Can I get a refill on my lisinopril?"}},
+        timeout=30,
+    ).json()
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
+    page.goto("/")
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
+    page.keyboard.press("Control+k")
+    box = page.get_by_role("combobox", name="Jump to a view, agent or action")
+    box.fill(decision["id"][:8])
+    expect(page.get_by_role("option", name=re.compile("^Open decision"))).to_have_count(0)
+    box.fill(decision["id"])
+    page.get_by_role("option", name=re.compile("^Open decision")).click()
+    expect(page.get_by_role("dialog")).to_contain_text(decision["id"])
+
+
 def test_another_agents_record_is_not_replayed_into_the_chosen_one(
     page: Page, live_server: str
 ) -> None:

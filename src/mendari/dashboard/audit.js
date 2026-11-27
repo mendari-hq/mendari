@@ -9,7 +9,7 @@ import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, zoneShort } from "./ui.js";
+import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -38,9 +38,6 @@ const NOTE_STATUS = {
 // The filters search the decisions listed, and the count says how much of the trail that is.
 const PAGE = 100;
 
-// A decision's whole id (a UUID, as each is made): searched for, it opens that record wherever it
-// is in the trail, rather than filtering what is listed.
-const WHOLE_DECISION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 let auditRows = [];
 let visibleIds = [];
