@@ -26,7 +26,6 @@ of the cases labelled for the primary question (a result's `proportions.false_au
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import astuple, dataclass
 from typing import Any
@@ -37,6 +36,7 @@ from mendari.core.spec import _KEY as _NAME
 from mendari.evals import stats
 from mendari.evals.render import evidence, md_row, shown
 from mendari.evals.result import counted, false_automation
+from mendari.providers.base import finite_number
 
 EPSILON = 1e-9
 
@@ -264,8 +264,8 @@ def _share(value: Any) -> bool:
     """None, or a share of 1: what a result's rate may be."""
     if value is None:
         return True
-    number = isinstance(value, int | float) and not isinstance(value, bool)
-    return number and math.isfinite(value) and 0.0 <= value <= 1.0
+    number = finite_number(value)
+    return number is not None and 0.0 <= number <= 1.0
 
 
 def _count(value: Any) -> bool:

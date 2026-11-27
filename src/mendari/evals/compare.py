@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mendari.providers.base import finite_number
+
 MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy to act on
 MIN_LABEL_SUPPORT = 10
 # Why an evaluation of an agent from a registry is not compared with the benchmark it carries.
@@ -22,11 +24,9 @@ def not_compared(reason: str) -> dict[str, Any]:
 
 
 def _number(value: Any, *, optional: bool = False) -> bool:
-    import math
-
     if value is None:
         return optional
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    return finite_number(value) is not None  # an integer no float holds is no number
 
 
 def _baseline_problem(baseline: Any, primary: str) -> str | None:

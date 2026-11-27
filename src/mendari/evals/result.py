@@ -16,13 +16,13 @@ and the ledger it came from. Cases are named by their ledger hash, never their i
 from __future__ import annotations
 
 import hashlib
-import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mendari.evals import metrics, stats
 from mendari.evals.ledger import Ledger, canonical
+from mendari.providers.base import finite_number
 
 FORMAT = "mendari.eval/1"
 SEED = 0
@@ -278,7 +278,7 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
         return None
     if rate is None:
         return stats.proportion(0, 0) if n == 0 else None
-    if isinstance(rate, bool) or not isinstance(rate, int | float) or not math.isfinite(rate):
+    if finite_number(rate) is None:  # not a number, or none a float holds
         return None
     if not 0.0 <= rate <= 1.0:
         return None

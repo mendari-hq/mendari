@@ -30,13 +30,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from mendari.core.decision import Decision, DecisionResult
 from mendari.errors import MendariError
+from mendari.providers.base import finite_number
 
 FORMAT = "mendari.ledger/1"
 CASE_HASH = "hmac-sha256-128"
@@ -145,7 +145,7 @@ def _labelled(header: Mapping[str, Any]) -> bool:
 
 
 def _number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    return finite_number(value) is not None  # an integer no float holds is no number
 
 
 def _index(value: Any, size: int) -> bool:

@@ -86,7 +86,7 @@ from mendari.evals import stats
 from mendari.evals.ledger import CASE_HASH, canonical, case_hash
 from mendari.evals.rater_agreement import kappa as plain_kappa
 from mendari.evals.rater_agreement import measured, weighted_kappa
-from mendari.providers.base import METER, Meter, Metered, get_path, select_fields
+from mendari.providers.base import METER, Meter, Metered, finite_number, get_path, select_fields
 
 if TYPE_CHECKING:
     from mendari.core.agent import Agent
@@ -319,7 +319,7 @@ _FLOORS = ("agreement", "must_pass_recall", "max_judge_errors", "min_paired", "m
 
 
 def _number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    return finite_number(value) is not None  # an integer no float holds is no number
 
 
 def _header_ok(header: Mapping[str, Any]) -> bool:

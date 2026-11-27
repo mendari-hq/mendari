@@ -356,6 +356,7 @@ def test_a_model_other_than_the_benchmarks_is_not_a_reference(
     [
         {"decisions": {"review": {"n": 598, "expected_override_rate": "0.005"}}},
         {"decisions": {"automation": {"n": 100, "accuracy": "0.95"}}},
+        {"decisions": {"automation": {"n": 100, "accuracy": 10**400}}},  # too large for a float
         {"agent": "mendari-test/triage"},
         {"providers": ["rules", "agent"]},
         {"policy": "none"},

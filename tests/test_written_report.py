@@ -658,6 +658,7 @@ def test_the_judge_on_the_agents_own_model_is_flagged_not_refused() -> None:
         lambda h, c: c[1].update(c=c[0]["c"]),
         lambda h, c: c[1].update(i=c[0]["i"]),
         lambda h, c: h["cases"].update(n=3),
+        lambda h, c: h["floors"].update({next(iter(h["floors"])): 10**400}),  # no float holds it
     ],
 )
 def test_a_ledger_that_is_not_one_is_refused_in_one_line(change: Any) -> None:
