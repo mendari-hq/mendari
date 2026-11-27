@@ -366,7 +366,7 @@ def test_re2_matches_where_re_does(pattern: str, flags: int, text: str) -> None:
 
 # (pattern, flags, text, RE2's answer): what still differs, written down in core/re2_syntax.py
 # and the guide: a letter or digit outside ASCII just outside the match, whatever the pattern
-# names next to the boundary.
+# names next to the boundary, or inside it, where the pattern allows one on both sides of it.
 DIFFERENT = [
     (r"\bpie", 0, "épie", True),
     (r"\bma\b", 0, "mañana", True),
@@ -374,6 +374,8 @@ DIFFERENT = [
     (r"\bболь\b", re.I, "больница", True),  # noqa: RUF001
     (r"\bπόνο\b", re.I, "πόνος", True),  # noqa: RUF001
     (r"\bmarché\b", re.I, "marchéñ", True),
+    (r"\w\B\D", 0, "ñÉ", False),
+    (r"é\Bé", 0, "éé", False),
 ]
 
 
@@ -386,6 +388,11 @@ def test_the_differences_left_are_the_ones_written_down(
     written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
     assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
     assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
+    # Inside the match too: the docstring once said a boundary was right wherever the character
+    # just outside the match is in ASCII.
+    assert '`\\w\\B\\D` does not match "ñÉ" and `é\\Bé` not "éé"' in written
+    guide = " ".join((ROOT / "docs" / "guides" / "authoring-an-agent.md").read_text().split())
+    assert '`\\w\\B\\D` does not match "ñÉ"' in guide
 
 
 # (pattern, flags, text, where `re` matches): a `$` (not multi-line) with more of the pattern

@@ -500,11 +500,13 @@ matches a Greek `ι`. Two things differ:
 
 - **Word boundaries.** RE2 sees only ASCII letters, digits and `_` as word characters *in the
   text just outside a match*, so a letter or digit outside ASCII there does not continue the
-  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". In a script other than
-  Latin, whose letters are all outside ASCII, that is the usual case: `\bрак\b` (cancer) also
-  matches inside "практика" (practice), and `\bболь\b` (pain) inside "больница" (hospital).
-  Write `(?:^|\W)рак(?:\W|$)` instead of `\bрак\b`: `\W` is `re`'s, so it matches no letter in
-  any script (the match then starts one character earlier).
+  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". The same holds inside a
+  match, where the pattern allows such a letter or digit on both sides of a boundary: `\w\B\D`
+  does not match "ñÉ" (`re` does). In a script other than Latin, whose letters are all outside
+  ASCII, that is the usual case: `\bрак\b` (cancer) also matches inside "практика" (practice),
+  and `\bболь\b` (pain) inside "больница" (hospital). Write `(?:^|\W)рак(?:\W|$)` instead of
+  `\bрак\b`: `\W` is `re`'s, so it matches no letter in any script (the match then starts one
+  character earlier).
 - **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
   pattern runs.
 
