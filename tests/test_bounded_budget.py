@@ -368,7 +368,7 @@ def test_errors_found_before_the_budget_runs_out_still_refuse_the_input(tmp_path
 
 
 def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -> None:
-    from mendari.evals.behaviour_tests import input_problems
+    from mendari.evals.validation import input_problems
 
     def noted(schema: dict[str, Any]) -> None:
         schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
@@ -381,7 +381,7 @@ def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -
         "  expect: {recommendation: billing}\n"
     )
     started = time.monotonic()
-    found = input_problems(pulled(root))
+    found = [str(problem) for problem in input_problems(pulled(root))]
     assert time.monotonic() - started < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
 

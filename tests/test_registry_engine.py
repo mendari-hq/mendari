@@ -34,7 +34,8 @@ from mendari.core.reference import bundled_dir, reference_agents, reference_dige
 from mendari.core.registry import SearchPath, discover, resolve_agent, version_key
 from mendari.core.spec import Outcome
 from mendari.errors import AgentValidationError
-from mendari.evals.behaviour_tests import _run, input_problems, load_cases
+from mendari.evals.behaviour_tests import _run, load_cases
+from mendari.evals.validation import input_problems
 from mendari.hub.client import agents_cache
 from mendari.providers import build_provider
 from mendari.server.app import create_app
@@ -529,7 +530,7 @@ def test_mendari_test_stops_a_registry_agent_at_the_budget(tmp_path: Path) -> No
     )
     hub = load_agent(root, origin="hub")
     with cpu_time() as spent:
-        found = input_problems(hub)
+        found = [str(problem) for problem in input_problems(hub)]
     assert spent() < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
     # Checked alone, outside a decision, its schema check has a budget too.
@@ -720,7 +721,7 @@ def test_mendari_test_runs_a_registry_agent_on_its_engine(tmp_path: Path) -> Non
     assert any(
         "its input is too large: more than 10,000 values, the most an agent from a registry reads"
         in problem
-        for problem in input_problems(hub)
+        for problem in map(str, input_problems(hub))
     )
     local = load_agent(root, origin="local")
-    assert not any("too large" in problem for problem in input_problems(local))
+    assert not any("too large" in str(problem) for problem in input_problems(local))

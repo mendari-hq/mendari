@@ -26,6 +26,12 @@ from tests.test_checkpoints import decide, rewrite_from
 SEED = bytes(range(32))
 
 
+def newest_statement(store: AuditStore) -> dict[str, Any] | None:
+    """The newest stored statement, as it is stored (unchecked)."""
+    rows = store.statements(until="9999-12-31", limit=1)
+    return rows[0]["statement"] if rows else None
+
+
 def key() -> Ed25519PrivateKey:
     return Ed25519PrivateKey.from_private_bytes(SEED)
 
@@ -72,11 +78,11 @@ def test_the_day_s_statement_is_signed_once_and_a_rewritten_chain_fails_against_
 ) -> None:
     with AuditStore(db_target) as store:
         assert store.record_checkpoint(signer=key())["signed"] is None  # an empty chain
-        assert store.latest_statement() is None
+        assert newest_statement(store) is None
         decide(store, triage_agent, 3)
         first = store.record_checkpoint(signer=key())
         signed = first["signed"]
-        assert signed["head"] == first["head"] and store.latest_statement() == signed
+        assert signed["head"] == first["head"] and newest_statement(store) == signed
         assert "seq" not in signed and "events" not in signed  # no count, no position
         decide(store, triage_agent, 1)
         later = store.record_checkpoint(signer=key())  # the same day: the morning's statement
@@ -222,7 +228,7 @@ def test_a_broken_chain_signs_nothing_and_alerts_the_operator(
     tamper(store, "UPDATE audit_events SET payload = '{}' WHERE seq = 1")
     ran = client.get("/api/internal/checkpoint", headers={"authorization": f"Bearer {CRON}"})
     assert ran.json() == {"ok": False, "recorded": False, "signed": False}
-    assert store.checkpoints() == [] and store.latest_statement() is None
+    assert store.checkpoints() == [] and newest_statement(store) is None
     (alert,) = sent
     assert (alert["event"], alert["organization"]) == ("audit.broken", None)
     assert alert["alerts"][0]["kind"] == "audit_broken"

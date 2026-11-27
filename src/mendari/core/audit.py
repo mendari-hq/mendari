@@ -5557,13 +5557,6 @@ class AuditStore(RateBuckets):
             )
         return [{"day": row["day"], "statement": json.loads(row["statement"])} for row in rows]
 
-    def latest_statement(self) -> dict[str, Any] | None:
-        """The newest signed checkpoint statement (LP-21k) as stored, unchecked; None without
-        one. What is published is checked first (`statements`)."""
-        with self._db.session(exclusive=False) as db:
-            row = db.one("SELECT statement FROM checkpoint_statements ORDER BY day DESC LIMIT 1")
-        return None if row is None else dict(json.loads(row["statement"]))
-
     def checkpoints(self) -> list[dict[str, Any]]:
         """Every recorded checkpoint, oldest first."""
         with self._db.session(exclusive=False) as db:
