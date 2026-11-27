@@ -312,6 +312,31 @@ def test_no_retry_is_waited_past_the_deadline(monkeypatch: pytest.MonkeyPatch) -
     assert waits == [2.0] and len(calls) == 3
 
 
+@pytest.mark.parametrize(
+    "retry_after",
+    [
+        "Mon, 01 Jan 99999999999999999999 00:00:00 GMT",  # a year past any date
+        "Mon, 01 Jan 2020 00:00:00 +99999999999999999999",  # an offset past any
+        "Mon, 99999999999999999999 Jan 2020 00:00:00 GMT",
+        "not a date",
+    ],
+)
+def test_a_retry_after_that_cannot_be_read_is_as_if_absent(
+    retry_after: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `Retry-After` that is not a number of seconds nor a date Python can hold is no wait the
+    server asked for: the retry waits the usual backoff, and a refusal is the provider error
+    the status says (`rate_limited`), never a raw error, with or without a retry left."""
+    waits: list[float] = []
+    monkeypatch.setattr(http, "_sleep", waits.append)
+    client = mock_client(lambda request: httpx.Response(429, headers={"retry-after": retry_after}))
+    for retries in (0, 1):
+        with pytest.raises(ProviderError) as error:
+            http.post_json(client, URL, {}, headers={}, timeout_s=5, retries=retries)
+        assert error.value.code == "rate_limited"
+    assert waits == [http.BACKOFF_S]
+
+
 class Dripping(httpx.SyncByteStream):
     """An answer that arrives a byte every 50 ms, for 5 s."""
 

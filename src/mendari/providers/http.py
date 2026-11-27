@@ -215,7 +215,7 @@ def _retry_after(headers: httpx.Headers) -> float | None:
             if name == "retry-after":
                 try:
                     parsed_dt = email.utils.parsedate_to_datetime(raw)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):  # no date: as if it were absent
                     continue
                 if parsed_dt.tzinfo is None:
                     parsed_dt = parsed_dt.replace(tzinfo=UTC)
