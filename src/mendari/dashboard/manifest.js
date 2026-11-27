@@ -102,10 +102,17 @@ export const statusNotice = (agent) => (agent?.status_label
 export const holdsFor = (holds, agent) => (holds ?? []).filter((h) =>
   (h.agent_id == null || h.agent_id === agent.id) && (h.agent_digest == null || h.agent_digest === agent.digest));
 
-export const holdNotice = (holds, agent) => (holdsFor(holds, agent).length
-  ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
+// `holds` null: they could not be read, which is said, never taken for none.
+export const holdNotice = (holds, agent) => {
+  if (holds === null) {
+    return `<p class="callout warning holds-unread"><b>The automation holds could not be read</b>, so this page cannot say
+      whether one covers this agent. Reload it to try again.</p>`;
+  }
+  return holdsFor(holds, agent).length
+    ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
       have automated, with the same recommendation and priority. See the Decision Card.</p>`
-  : "");
+    : "";
+};
 
 // The picker's groups, in this order; one group only, and the picker is a plain list. An agent of
 // an origin not listed here is in a group of its own at the end, so none is ever left out.
