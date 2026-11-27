@@ -71,10 +71,13 @@ class Registration:
 def normalize_base(url: str) -> str | None:
     """A FHIR base as registrations are keyed: scheme and host in lower case (the port kept as
     written, as the allow-list does), the path as it is without trailing slashes. None for
-    anything that is not an http(s) URL without credentials, query or fragment."""
+    anything that is not an http(s) URL without credentials, query or fragment, one that does
+    not even split as a URL (`http://[`) included."""
     origin = origin_of(url)
+    if origin is None:  # before splitting again: what origin_of could not split raises
+        return None
     parts = urlsplit(url.strip())
-    if origin is None or parts.query or parts.fragment or "#" in url:
+    if parts.query or parts.fragment or "#" in url:
         return None
     return origin + parts.path.rstrip("/")
 

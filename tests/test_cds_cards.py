@@ -464,6 +464,21 @@ def test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_o
     assert _launch_links(signed, EHR_A, **key) == []
 
 
+def test_a_fhir_server_that_is_not_a_url_is_registered_for_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `fhirServer` that does not even split as a URL (`http://[`), with SMART on, is no EHR
+    registered for launches, never a 500: a card made from the prefetch has no `smart` link,
+    and a hook that would read from that server is refused as for one off the allow-list."""
+    _launch_setup(monkeypatch)
+    client = served(tmp_path)
+    for server, links in ((EHR_A, ["smart"]), ("http://[", [])):
+        (card,) = cards_of(client, TRIAGE, message_hook() | {"fhirServer": server})
+        assert [link["type"] for link in card["links"] if link["type"] == "smart"] == links
+    refused = client.post(CHART, json=hook(SHOWCASE, fhir_server="http://["))
+    assert refused.status_code == 422 and "allow-list" in refused.text
+
+
 @pytest.mark.parametrize("public", [None, PUBLIC])
 def test_every_card_matches_the_cds_hooks_2_0_card_shape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, public: str | None

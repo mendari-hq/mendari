@@ -166,7 +166,6 @@ def add_store_routes(
         return principal.id, org_of(principal)
 
     def admitted(
-        request: Request,
         org: str,
         by: str,
         files: Mapping[str, bytes],
@@ -288,9 +287,9 @@ def add_store_routes(
         check."""
         by, org = person(request)
         body = await request.body()
-        return await run_in_threadpool(checked_archive, request, org, by, body)
+        return await run_in_threadpool(checked_archive, org, by, body)
 
-    def checked_archive(request: Request, org: str, by: str, data: bytes) -> JSONResponse:
+    def checked_archive(org: str, by: str, data: bytes) -> JSONResponse:
         from mendari import settings
         from mendari.hub import archive
 
@@ -311,7 +310,6 @@ def add_store_routes(
             )
             raise _refused(error) from None
         return admitted(
-            request,
             org,
             by,
             verified.files,
@@ -354,7 +352,7 @@ def add_store_routes(
             data = store.finish_upload(org, upload_id)
         except StoreError as error:
             raise _refused(error) from None
-        return checked_archive(request, org, by, data)
+        return checked_archive(org, by, data)
 
     @app.post(
         "/api/store/copies",
@@ -382,7 +380,7 @@ def add_store_routes(
         }
         files[MANIFEST] = _renamed(files[MANIFEST], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
-        return admitted(request, org, by, files, source="copy", copied_from=copied)
+        return admitted(org, by, files, source="copy", copied_from=copied)
 
     @app.post(
         "/api/store/versions/{digest}/edits",
@@ -415,7 +413,7 @@ def add_store_routes(
             files[edited.path] = edited.content.encode("utf-8")
         if _trained_paths(files.get(MANIFEST, b"")) != trained:
             raise HTTPException(422, "an edit does not change which files are trained")
-        return admitted(request, org, by, files, source="edit", parent=digest)
+        return admitted(org, by, files, source="edit", parent=digest)
 
     @app.post("/api/store/versions/{digest}/tests", tags=[TAG], summary="Run a draft's tests")
     def test_version(request: Request, digest: str) -> dict[str, Any]:

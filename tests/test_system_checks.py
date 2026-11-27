@@ -268,6 +268,13 @@ CASES: list[Case] = [
         "ok",
         "from its last checkpoint",
     ),
+    (
+        # The daily job verified the chain, and refused the day's stored statement.
+        "audit_chain",
+        {"runs": {"checkpoint": run("failed", "statement")}},
+        "attention",
+        "nothing was changed or removed, but the day's stored checkpoint statement is not one",
+    ),
     # The last checkpoint.
     ("checkpoint", {}, "ok", "position was recorded"),
     (
@@ -290,6 +297,12 @@ CASES: list[Case] = [
         "more than a day and a half old",
     ),
     ("checkpoint", {"runs": {"checkpoint": run("failed", "chain")}}, "attention", "did not verify"),
+    (
+        "checkpoint",
+        {"runs": {"checkpoint": run("failed", "statement")}},
+        "attention",
+        "its position is recorded, but the day's stored statement did not verify",
+    ),
     # Its signature.
     ("checkpoint_signing", {}, "ok", "checkpoint of 2026-11-23 is signed"),
     ("checkpoint_signing", {"health": health(checkpoint_key=None)}, "not_set", "not signed"),

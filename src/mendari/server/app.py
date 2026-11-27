@@ -2223,6 +2223,25 @@ def create_app(
         )
         return store.withhold_inputs(listed)
 
+    def newest_signed() -> dict[str, Any] | None:
+        """The newest statement this deployment's key signed for the day it is filed under, up
+        to today: the one `/api/audit/checkpoint` publishes and the System checks call signed.
+        A stored one that does not verify (someone with the database put it there) is never
+        it. None without a key or such a statement."""
+        if checkpoint_signer is None:
+            return None
+        public = checkpoint_signer.public_key()
+        rows = store.statements(until=clock.today().isoformat())
+        return next(
+            (
+                row["statement"]
+                for row in rows
+                if checkpoint.problem(row["statement"], public) is None
+                and row["statement"]["date"] == row["day"]
+            ),
+            None,
+        )
+
     # Before `/api/audit/{decision_id}`, which would take its name for a decision's id.
 
     @app.get(
@@ -2247,16 +2266,7 @@ def create_app(
             stale = now - published["at"] > CHECKPOINT_SECONDS
             statement = published["statement"]
         if stale:
-            rows = store.statements(until=clock.today().isoformat())
-            found = next(
-                (
-                    row["statement"]
-                    for row in rows
-                    if checkpoint.problem(row["statement"], public) is None
-                    and row["statement"]["date"] == row["day"]
-                ),
-                None,
-            )
+            found = newest_signed()
             with store_lock:
                 published.update(at=now, statement=found)
                 statement = found
@@ -3469,12 +3479,8 @@ def create_app(
             )
         if first_admin is not None and not first_admin_used[0]:
             first_admin_used[0] = store.first_admin() is not None
-        signed_day = None
-        if checkpoint_signer is not None:
-            statement = store.latest_statement()
-            own = key_id(checkpoint_signer.public_key())
-            if statement is not None and statement.get("key_id") == own:
-                signed_day = str(statement.get("date"))
+        signed = newest_signed()
+        signed_day = None if signed is None else str(signed["date"])
         runs = store.runs()
         sent = store.last_alerts()
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
