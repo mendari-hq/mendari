@@ -407,6 +407,30 @@ class WrittenStore:
         seed = json.loads(row["payload"]).get("seed") if row is not None else None
         return seed if isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0 else 0
 
+    def _unchained(self, db: Session, round_id: str) -> bool:
+        """Whether the round's stored grades are not the ones its `written.graded` events
+        chained (`check_stored`, the round's rows only): a grade changed, moved, given to
+        another grader, or stored with no event."""
+        events = db.all(
+            "SELECT seq, event, payload FROM audit_events WHERE decision_id = ? AND event = ? "
+            "ORDER BY seq",
+            (f"written:{round_id}", "written.graded"),
+        )
+        assignments = {
+            str(row["id"]): row
+            for row in db.all(
+                "SELECT id, round_id, item_id, user_id, grades FROM written_assignments "
+                "WHERE round_id = ?",
+                (round_id,),
+            )
+        }
+        items = {
+            str(row["id"]): str(row["item"])
+            for row in db.all("SELECT id, item FROM written_items WHERE round_id = ?", (round_id,))
+        }
+        broken, _ = check_stored(events, {}, assignments, items)
+        return broken is not None
+
     def assign(
         self,
         round_id: str,
@@ -583,6 +607,14 @@ class WrittenStore:
             ledger = written.WrittenLedger.loads(
                 str(found["ledger"]).encode("utf-8"), where=f"round {round_id}"
             )
+            # The report is built from the rows' grades and its hash then chained, so a report
+            # of grades edited in the database would be served as the round's own: the round's
+            # grades are checked against their events first, as `verify` checks them.
+            if self._unchained(db, round_id):
+                raise MendariError(
+                    f"round {round_id} is not closed: its stored grades are not the ones the audit "
+                    "trail holds (run `mendari audit verify`)"
+                )
             now = _now()
             db.all(
                 "UPDATE written_assignments SET ended_at = ? WHERE round_id = ? "

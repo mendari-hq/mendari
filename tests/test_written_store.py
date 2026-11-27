@@ -1047,6 +1047,46 @@ def test_verify_checks_every_stored_grade_and_closed_round_against_the_chain(
     assert broken["ok"] is False and broken["reason"] == "written", broken
 
 
+@pytest.mark.parametrize(
+    ("sql", "params"),
+    [
+        # A grade given to another grader: the report would credit them.
+        (
+            """UPDATE written_assignments SET user_id = (SELECT max(user_id)
+                                                         FROM written_assignments)
+               WHERE id = (SELECT min(a.id) FROM written_assignments a
+                           WHERE a.user_id <> (SELECT max(user_id) FROM written_assignments))""",
+            (),
+        ),
+        # A grade changed, kept its salt.
+        (
+            """UPDATE written_assignments SET grades = replace(grades, ?, ?)
+               WHERE id = (SELECT min(id) FROM written_assignments WHERE grades LIKE ?)""",
+            ('"yes"', '"no"', '%"yes"%'),
+        ),
+    ],
+    ids=["grade-given-to-another", "grade-changed"],
+)
+def test_a_round_whose_grades_the_chain_does_not_hold_is_not_closed(
+    world: World, sql: str, params: tuple[str, ...]
+) -> None:
+    """Closing builds the report from the grades the round's rows hold, then chains the
+    report's hash, so a report built from grades edited in the database would be served as
+    the round's own (its hash is the chained one). The round's grades are checked against
+    their events first, as `verify` checks them: a round whose rows the chain does not hold
+    is not closed, and nothing about it changes."""
+    round_id = world.round(4)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=1.0)
+    grade_all(world, [a], PASS)
+    grade_all(world, [b], FAIL)
+    tamper(world.store, sql, params)
+    with pytest.raises(MendariError, match="audit trail"):
+        world.rounds.close(round_id, by="ops")
+    (listed,) = world.rounds.rounds(CLINIC)
+    assert listed["state"] == OPEN and listed["report"] is None
+
+
 def test_verify_finds_a_grade_no_event_accounts_for(world: World) -> None:
     round_id = world.round(2)
     a, b = graders(world.store, 2)
