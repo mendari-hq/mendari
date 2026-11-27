@@ -373,6 +373,20 @@ def test_a_record_of_another_kind_or_time_is_refused(published: Registry) -> Non
     refused(send(published, signed(published.key, report=with_null)), 422, "no null cell")
 
 
+@pytest.mark.parametrize(
+    "created_at", ["2026-02-30T12:00:00Z", "2026-13-01T00:00:00Z", "2026-01-01T24:00:00Z"]
+)
+def test_a_created_at_that_is_no_time_is_refused_naming_it(
+    published: Registry, created_at: str
+) -> None:
+    """`created_at` has the shape of a UTC time but must also be one: a day or an hour that does
+    not exist was a 500 (it passed the pattern, and reading it as a time raised). It is refused
+    as every other field is, by name, and nothing is stored."""
+    answer = send(published, signed(published.key, created_at=created_at))
+    refused(answer, 422, "not a mendari.publisher-evaluation/1 record: created_at")
+    assert stored(published) == []
+
+
 def test_a_version_not_published_has_no_evaluations(registry: Registry) -> None:
     assert registry.client.get(path()).status_code == 404
 
