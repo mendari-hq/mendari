@@ -641,6 +641,21 @@ def test_eval_refuses_what_only_a_shared_run_reads_on_a_run_it_does_not_share(
         assert err == f"error: {option[0]} is for a shared run: add --share or --share-out\n"
 
 
+def test_eval_refuses_supersedes_beside_a_ticket_that_already_says_what_it_corrects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A `--ticket` was asked for already (`mendari site ticket`), and its signed request said
+    which report it corrects, if any: `eval --supersedes` beside it was dropped, and the run
+    submitted as the ticket said. Refused before the run, naming where it goes."""
+    ticket = tmp_path / "ticket.json"
+    ticket.write_text("{}", encoding="utf-8")
+    args = ["eval", TRIAGE.id, "--dataset", str(SITE_DATASET), "--baseline", "none", "--share"]
+    supersedes = ["--supersedes", "6fa744bc-2648-4b1c-a1b9-ac78046de809"]
+    assert main([*args, "--ticket", str(ticket), *supersedes]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and "--supersedes" in err and "mendari site ticket" in err
+
+
 def _never_called(request: httpx.Request) -> httpx.Response:
     raise AssertionError(f"a request left for {request.url}")
 

@@ -473,8 +473,15 @@ def _no_target(targets: Any) -> list[str]:
 def _sharing(args: argparse.Namespace) -> bool:
     """Whether the run is shared as a site's (`--share`, or `--share-out` to read it first).
     Without either, what only a shared run reads is refused before the run: it was ignored,
-    a `--ticket` file that is not there included, and the run went on unshared."""
+    a `--ticket` file that is not there included, and the run went on unshared. A `--ticket`
+    was asked for already, and its signed request said what it corrects: `--supersedes` beside
+    it would be dropped, so it is refused too."""
     if args.share or args.share_out:
+        if args.ticket and args.supersedes:
+            raise MendariError(
+                "--supersedes goes in the ticket's request (`mendari site ticket --supersedes`): "
+                "a --ticket already says which report it corrects"
+            )
         return True
     for flag, given in (
         ("--ticket", args.ticket),
