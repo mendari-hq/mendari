@@ -3,7 +3,8 @@
 
 Remote error bodies are never surfaced (they can echo inputs or credentials); a failure is
 one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
-`provider_unavailable`, `timeout` or `invalid_response`.
+`provider_unavailable`, `timeout` or `invalid_response`, and a request JSON cannot carry is
+`invalid_input`, sent nowhere.
 
 Inside a decision, every attempt waits at most what remains of its deadline
 (`providers/deadline.py`): its timeout is clamped to it, no retry is waited past it, and a
@@ -159,10 +160,12 @@ def post_json(
     when it has one, nothing is opened (`invalid_endpoint`; each caller checks before its key).
     `allowed` is the one exception, an agent's connection whose origin an operator allowed for
     it (`providers/agent.py` `_secure`, which read the list and gives the client that opens
-    public addresses only): the list is not asked again here.
+    public addresses only): the list is not asked again here. A `body` JSON cannot carry (NaN
+    or an infinity, a string that is not UTF-8) is not sent either (`invalid_input`).
     """
     if not allowed:
         require_allowed(endpoint, "Provider")
+    content = _encoded(body)
     timeout = httpx.Timeout(deadline.clamp(timeout_s))  # past the deadline: nothing is opened
     use_pool = client is None and httpx.Client is _ORIGINAL_CLIENT
     own = client is None and not use_pool
@@ -176,7 +179,7 @@ def post_json(
     try:
         for attempt in range(retries + 1):
             try:
-                return _post_once(session, endpoint, body, headers, timeout_s, max_bytes)
+                return _post_once(session, endpoint, content, headers, timeout_s, max_bytes)
             except _Retryable as retry:
                 delay = retry.delay if retry.delay is not None else BACKOFF_S * 2**attempt
                 left = deadline.remaining()
@@ -191,6 +194,20 @@ def post_json(
     finally:
         if own:
             session.close()
+
+
+def _encoded(body: Mapping[str, Any]) -> bytes:
+    """`body` as the JSON a request carries, encoded as httpx encodes `json=`, or
+    `invalid_input` when it holds what JSON cannot carry (NaN or an infinity, a string that is
+    not UTF-8 text, values nested too deep), which httpx would refuse with a raw error. Never
+    the value in the message: it can be anything the input held."""
+    try:
+        text = json.dumps(body, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        return text.encode("utf-8")
+    except (ValueError, RecursionError):  # UnicodeEncodeError is a ValueError
+        raise ProviderError(
+            "invalid_input", "the request holds a value JSON cannot carry"
+        ) from None
 
 
 RETRYABLE: dict[int, ProviderErrorCode] = {429: "rate_limited", 529: "provider_unavailable"}
@@ -230,7 +247,7 @@ def _retry_after(headers: httpx.Headers) -> float | None:
 def _post_once(
     session: httpx.Client,
     endpoint: str,
-    body: Mapping[str, Any],
+    content: bytes,
     headers: Mapping[str, str],
     timeout_s: float,
     max_bytes: int,
@@ -243,7 +260,11 @@ def _post_once(
     stop_at = time.monotonic() + allowed
     try:
         with session.stream(
-            "POST", endpoint, json=body, headers=dict(headers), timeout=timeout
+            "POST",
+            endpoint,
+            content=content,
+            headers={**headers, "content-type": "application/json"},
+            timeout=timeout,
         ) as response:
             status = response.status_code
             if status in RETRYABLE:

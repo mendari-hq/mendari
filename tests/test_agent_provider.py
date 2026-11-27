@@ -517,6 +517,30 @@ def test_agent_rejects_oversized_response(
     assert error.value.code == "invalid_response"
 
 
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+def test_a_request_json_cannot_carry_is_refused_before_it_is_sent(
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch, number: float
+) -> None:
+    """JSON has no NaN and no infinity: an input holding one, whatever let it through, cannot be
+    sent to the agent's service. The provider refuses it (`invalid_input`) and nothing is sent,
+    never a raw error out of the HTTP client's encoder."""
+    monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json=agent_response())
+
+    provider = make_agent_provider(http_agent, handler)
+    with pytest.raises(ProviderError) as error:
+        provider.answer({"message": {"subject": number, "body": "Refill my metformin."}})
+    assert error.value.code == "invalid_input" and sent == []
+    provider.answer(message("Refill my metformin."))  # a request that can be sent still is
+    assert len(sent) == 1 and json.loads(sent[0].content)["input"] == message(
+        "Refill my metformin."
+    )
+
+
 # -- security, SSRF, allow-list & secret isolation ------------------------------------------------
 
 
