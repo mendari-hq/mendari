@@ -17,6 +17,7 @@ removed, are in `notes/bug-audit-2026-11-27.md`). None raised automation or rele
   does not hold is not closed. A stored checkpoint statement this deployment's key did not sign
   is named as such, and never called signed.
 - **The registry.** A key or publish token revoked while a publish is checked publishes
+  nothing, and a token revoked while it adds a key, recalls or publishes an evaluation writes
   nothing. An agent's versions are ordered by semantic-version precedence, in the registry and
   in the engine: a release is newer than its pre-releases, and `rc.10` newer than `rc.2`.
 - **Refusals where there was a crash (a 500 or a traceback):** a FHIR base that does not even
@@ -24,7 +25,8 @@ removed, are in `notes/bug-audit-2026-11-27.md`). None raised automation or rele
   that is not an object; a number no float holds, from an agent service, a model, a mock file,
   a ledger or a benchmark; a `Retry-After` date no clock holds; an impossible date on a
   publisher's evaluation.
-- **Decisions.** NaN or an infinity in an input is an input problem (a recorded BLOCK); each
+- **Decisions.** NaN or an infinity in an input is an input problem (a recorded BLOCK, its
+  input kept with null in each such place, so the record stays JSON); each
   schema reason is listed once; a question named `recommendation` or `priority` is refused at
   load; on an agent from a registry, a `$` with more of the pattern after it is refused (write
   `\Z` or `\n?\Z`); a phone number right after another is found by the PHI check.
