@@ -21,3 +21,7 @@ group :test do
   gem 'rspec', '~> 3.10'
   gem 'webmock', '~> 3.11'
 end
+
+# inferno_core 1.6.0 (the newest release) with its activesupport and sqlite3 pins moved to
+# their fixed releases: the Dockerfile takes it by sha256 and changes only those two lines.
+gem "inferno_core", path: "/opt/vendor/inferno_core-1.6.0"

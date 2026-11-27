@@ -8,10 +8,47 @@ PATH
       tls_test_kit (~> 1.0)
       us_core_test_kit (~> 1.0)
 
+PATH
+  remote: /opt/vendor/inferno_core-1.6.0
+  specs:
+    inferno_core (1.6.0)
+      activesupport (>= 8.0.5.2, < 8.1)
+      base62-rb (= 0.3.1)
+      blueprinter (= 0.25.2)
+      concurrent-ruby (~> 1.3, >= 1.3.7)
+      csv (~> 3.3.5)
+      dotenv (~> 2.7)
+      dry-configurable (= 1.0.0)
+      dry-container (= 0.10.0)
+      dry-core (= 1.0.0)
+      dry-inflector (= 1.0.0)
+      dry-system (= 1.0.0)
+      faraday (~> 1.10.6)
+      faraday_middleware (~> 1.2)
+      fhir_client (>= 6.2.0)
+      fhir_models (>= 5.1.0)
+      hanami-controller (= 2.0.0)
+      hanami-router (= 2.0.0)
+      kramdown (~> 2.5.2)
+      kramdown-parser-gfm (~> 1.1.0)
+      mutex_m (~> 0.3.0)
+      oj (~> 3.17, >= 3.17.3)
+      pastel (~> 0.8.0)
+      pry
+      pry-byebug
+      puma (~> 8.0, >= 8.0.2)
+      rake (~> 13.0)
+      roo (~> 3.0.0)
+      sequel (~> 5.42.0)
+      sidekiq (~> 7.3.10)
+      sqlite3 (>= 2.10.2, < 3)
+      thor (~> 1.4)
+      tty-markdown (~> 0.7.1)
+
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (7.2.3.2)
+    activesupport (8.0.5.2)
       base64
       benchmark (>= 0.3)
       bigdecimal
@@ -20,9 +57,10 @@ GEM
       drb
       i18n (>= 1.6, < 2)
       logger (>= 1.4.2)
-      minitest (>= 5.1, < 6)
+      minitest (>= 5.1)
       securerandom (>= 0.3)
       tzinfo (~> 2.0, >= 2.0.5)
+      uri (>= 0.13.1)
     addressable (2.10.0)
       public_suffix (>= 2.0.2, < 8.0)
     aes_key_wrap (1.1.0)
@@ -173,39 +211,6 @@ GEM
       mutex_m
     i18n (1.15.2)
       concurrent-ruby (~> 1.0)
-    inferno_core (1.6.0)
-      activesupport (~> 7.2.3.1)
-      base62-rb (= 0.3.1)
-      blueprinter (= 0.25.2)
-      concurrent-ruby (~> 1.3, >= 1.3.7)
-      csv (~> 3.3.5)
-      dotenv (~> 2.7)
-      dry-configurable (= 1.0.0)
-      dry-container (= 0.10.0)
-      dry-core (= 1.0.0)
-      dry-inflector (= 1.0.0)
-      dry-system (= 1.0.0)
-      faraday (~> 1.10.6)
-      faraday_middleware (~> 1.2)
-      fhir_client (>= 6.2.0)
-      fhir_models (>= 5.1.0)
-      hanami-controller (= 2.0.0)
-      hanami-router (= 2.0.0)
-      kramdown (~> 2.5.2)
-      kramdown-parser-gfm (~> 1.1.0)
-      mutex_m (~> 0.3.0)
-      oj (~> 3.17, >= 3.17.3)
-      pastel (~> 0.8.0)
-      pry
-      pry-byebug
-      puma (~> 8.0, >= 8.0.2)
-      rake (~> 13.0)
-      roo (~> 3.0.0)
-      sequel (~> 5.42.0)
-      sidekiq (~> 7.3.10)
-      sqlite3 (~> 1.4)
-      thor (~> 1.4)
-      tty-markdown (~> 0.7.1)
     io-console (0.9.2)
     irb (1.18.0)
       pp (>= 0.6.0)
@@ -374,10 +379,10 @@ GEM
     snaky_hash (2.0.7)
       hashie (>= 0.1.0, < 6)
       version_gem (~> 1.1, >= 1.1.14)
-    sqlite3 (1.7.3-aarch64-linux)
-    sqlite3 (1.7.3-arm-linux)
-    sqlite3 (1.7.3-x86-linux)
-    sqlite3 (1.7.3-x86_64-linux)
+    sqlite3 (2.10.2-aarch64-linux-gnu)
+    sqlite3 (2.10.2-arm-linux-gnu)
+    sqlite3 (2.10.2-x86-linux-gnu)
+    sqlite3 (2.10.2-x86_64-linux-gnu)
     strings (0.2.1)
       strings-ansi (~> 0.2)
       unicode-display_width (>= 1.5, < 3.0)
@@ -401,6 +406,7 @@ GEM
       concurrent-ruby (~> 1.0)
     unicode-display_width (2.6.0)
     unicode_utils (1.4.0)
+    uri (1.1.2)
     us_core_test_kit (1.1.5)
       inferno_core (~> 1.4, >= 1.4.0)
       smart_app_launch_test_kit (~> 1.0, >= 1.0.2)
@@ -425,6 +431,7 @@ DEPENDENCIES
   davinci_crd_test_kit!
   debug
   factory_bot (~> 6.1)
+  inferno_core!
   rack-test
   rspec (~> 3.10)
   rubocop (~> 1.56)
@@ -433,7 +440,7 @@ DEPENDENCIES
   webmock (~> 3.11)
 
 CHECKSUMS
-  activesupport (7.2.3.2) sha256=ddc90d11dd88086d78ace03407fe3c2a3f5c8853c3c3046313db5ed823ef3312
+  activesupport (8.0.5.2) sha256=673acec3133cc8108a03d5ae0e3a9d0f5c7f818d02db33bcfed527a6c57bcdd1
   addressable (2.10.0) sha256=5e13b9c001adf01dd65ad6e0d2a91d2bc07885c0ff2b83f48cbcd95e08d9de62
   aes_key_wrap (1.1.0) sha256=b935f4756b37375895db45669e79dfcdc0f7901e12d4e08974d5540c8e0776a5
   anonymous_loader (0.1.3) sha256=084a18e2439144d955447dc11dfc982f41fcd1583ad32d4d55151325dc44cb55
@@ -500,7 +507,7 @@ CHECKSUMS
   http-cookie (1.1.6) sha256=ba4b82be64de61dc281243dac70e3c382c45142f20268ed9276a3670c93feaa9
   httpclient (2.9.0) sha256=4b645958e494b2f86c2f8a2f304c959baa273a310e77a2931ddb986d83e498c8
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
-  inferno_core (1.6.0) sha256=ab8796a54bb415643faeff891b8d29862886dd73bb68c117c34c32ae8095bcc9
+  inferno_core (1.6.0)
   io-console (0.9.2) sha256=efa74f891dd03c0939a931dfc6e74c2813d904763d456ea9762b0525e748db08
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
   json (2.21.2) sha256=1f1d3b7cf2b3ba1a69beca0bb6db13d5438b80bff3cd54cdaaa620b9b07c1c6a
@@ -573,10 +580,10 @@ CHECKSUMS
   sidekiq (7.3.10) sha256=781eb4f65ef36042534ad73d72f211283afb7fee82eec786ada4ed1972ef8e3c
   smart_app_launch_test_kit (1.0.3) sha256=b5dc0e587d18c6d79ed68c9c3d2c2bc88ce704be9cad1727ab659d37e6351b03
   snaky_hash (2.0.7) sha256=7d02c70012a3f932e48860cd024577908300c9aa615e0cb9b450aaa749cbcb4d
-  sqlite3 (1.7.3-aarch64-linux) sha256=0ccb8c001cd2617f4801a2c816142d3c9bc299e3f3e0f49e03812f3610b0891c
-  sqlite3 (1.7.3-arm-linux) sha256=eb653026d44f8502b74564e585245485a5667d72f8888854e53c561f816541b0
-  sqlite3 (1.7.3-x86-linux) sha256=95543cad6bbdf1ba822526bcd0aba4a378887d9da906b8bfa250002745f3847e
-  sqlite3 (1.7.3-x86_64-linux) sha256=522a3285660dec8253465880c97980e873db0d79060900be8d14194217a3ee73
+  sqlite3 (2.10.2-aarch64-linux-gnu) sha256=e9aea2c2b3476fc875dd8a89313a9a2862818519c0186bfb5b56d6f57bb08d98
+  sqlite3 (2.10.2-arm-linux-gnu) sha256=762f609ef891463226b472d3df66aea84d5466ff4376d3ccf4a059718c4ce9c9
+  sqlite3 (2.10.2-x86-linux-gnu) sha256=46a02a29e9ae452824082388be5c24fd26f133b14bdd268610c6aa9a8d924c44
+  sqlite3 (2.10.2-x86_64-linux-gnu) sha256=ca92731ab464df9cae503fa1a439a549e2724f6953c8c05a7769b59366e38f15
   strings (0.2.1) sha256=933293b3c95cf85b81eb44b3cf673e3087661ba739bbadfeadf442083158d6fb
   strings-ansi (0.2.0) sha256=90262d760ea4a94cc2ae8d58205277a343409c288cbe7c29416b1826bd511c88
   thor (1.5.0) sha256=e3a9e55fe857e44859ce104a84675ab6e8cd59c650a49106a05f55f136425e73
@@ -589,6 +596,7 @@ CHECKSUMS
   tzinfo (2.0.6) sha256=8daf828cc77bcf7d63b0e3bdb6caa47e2272dcfaf4fbfe46f8c3a9df087a829b
   unicode-display_width (2.6.0) sha256=12279874bba6d5e4d2728cef814b19197dbb10d7a7837a869bab65da943b7f5a
   unicode_utils (1.4.0) sha256=b922d0cf2313b6b7136ada6645ce7154ffc86418ca07d53b058efe9eb72f2a40
+  uri (1.1.2) sha256=89292e98eabbef6248b0a0ed5e7e398e152f83f17560023a6d94a7f492b169fb
   us_core_test_kit (1.1.5) sha256=745fe9c201688eab76c75d71972754b69b5f1c5a76c79bb8ed70d6798f30e38d
   version_gem (1.1.15) sha256=a73241587b29252e3567e0c818ded80730eb754d43b508f6ce4db22ca9ba27d0
   webmock (3.26.4) sha256=8d8da206d217ebe6968cfb09c77f4533c23074e1432bad865f3994eacbaad50d

@@ -359,16 +359,20 @@ def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum(ima
     checked = dict(line.rsplit(" sha256=", 1) for line in listed if " sha256=" in line)
     assert len(gems) > 100 and set(gems) == set(checked)
     assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in checked.values())
-    # The only gem without a checksum is the kit itself, fetched by commit above.
-    assert [line for line in listed if " sha256=" not in line] == [kit]
+    # The gems without a checksum: the kit itself, fetched by commit above, and inferno_core,
+    # its release checked against its sha256 before two pins move (`INFERNO_CORE_SHA256`).
+    assert [line for line in listed if " sha256=" not in line] == [kit, "inferno_core (1.6.0)"]
+    assert re.search(r"^ARG INFERNO_CORE_SHA256=[0-9a-f]{64}$", dockerfile, re.M)
+    assert 'echo "${INFERNO_CORE_SHA256}  $gem" | sha256sum -c -' in dockerfile
     platforms = lock.split("\nPLATFORMS\n", 1)[1].split("\n\n", 1)[0].split()
     assert platforms == platforms_wanted and all("linux" in p for p in platforms)
 
 
 def test_the_scripted_image_adds_the_bulk_kit_to_the_crd_kits_gemfile() -> None:
-    """The scripted image's one change to the CRD kit: its Gemfile gains the Bulk Data kit at
-    one version, which the lock holds with its checksum, and a loader in lib/ (Inferno loads only
-    lib/*.rb) registers its suites."""
+    """The scripted image's changes to the CRD kit: its Gemfile gains the Bulk Data kit at one
+    version, which the lock holds with its checksum, and a loader in lib/ (Inferno loads only
+    lib/*.rb) registers its suites; and it names inferno_core by path, its release with two pins
+    moved to fixed releases (`tests/test_inferno_setup.py`)."""
     dockerfile = (SCRIPTED / "Dockerfile").read_text()
     assert "COPY Gemfile ./Gemfile" in dockerfile
     assert "COPY lib/mendari_kits.rb lib/mendari_kits.rb" in dockerfile

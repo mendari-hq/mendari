@@ -157,6 +157,10 @@ The kits' images and gems are pinned here, not by Dependabot: a bump can change 
    platform that is not Linux, then `bundle lock --add-checksums`. The lock holds no checksum for
    Bundler itself: if it is `BUNDLED WITH` a new version, set `BUNDLER_VERSION` and
    `BUNDLER_SHA256` in the Dockerfile to that version and the sha256 rubygems.org lists for it.
+   `inferno_core` is taken apart: the Dockerfile fetches its release by sha256 and moves its
+   `activesupport` and `sqlite3` pins to their fixed releases (1.6.0 pins both to ranges with
+   open advisories), and the Gemfile names it by path. When a release of `inferno_core` takes
+   the fixed versions, set it in the Gemfile as any gem and drop that step.
 3. Build and run, then refresh the expected results from the run with `--write` (each reason
    whose result did not change is kept), and write a reason for each new result that is not a
    pass, with the version in the file's header. Review the differences like any other change in
@@ -167,7 +171,7 @@ The kits' images and gems are pinned here, not by Dependabot: a bump can change 
 | File | What it is |
 |---|---|
 | `nginx.conf` | Inferno's front: `INFERNO_HOST`, on this machine only |
-| `scripted/Dockerfile` | The CRD kit from its commit, with the Bulk Data kit, from Mendari's lock |
+| `scripted/Dockerfile` | The CRD kit from its commit, with the Bulk Data kit, from Mendari's lock; `inferno_core` by sha256, with two pins moved to fixed releases |
 | `scripted/Gemfile`, `scripted/Gemfile.lock` | The CRD kit's Gemfile with the Bulk Data kit; its gems for Linux, each with its sha256 |
 | `scripted/lib/mendari_kits.rb` | Loads the Bulk Data kit's suites |
 | `scripted/offline_terminology.rb` | Every validator in the image without a terminology server |

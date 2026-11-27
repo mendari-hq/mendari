@@ -94,6 +94,16 @@ def test_the_scripted_project_and_its_dockerfile_are_pinned() -> None:
     ):
         version = re.escape(by_suite[suite]["version"])
         assert re.search(rf"^  {gem} \({version}\) sha256=[0-9a-f]{{64}}$", lock, re.M), suite
+    # inferno_core is its release by sha256, with only its activesupport and sqlite3 pins moved
+    # to their fixed releases (its own are open advisories); the Gemfile names it by path.
+    assert re.search(r"^ARG INFERNO_CORE_SHA256=[0-9a-f]{64}$", dockerfile, re.M)
+    gemfile = (SCRIPTED / "Gemfile").read_text()
+    vendored = r'^gem "inferno_core", path: "/opt/vendor/inferno_core-[\d.]+"$'
+    assert re.search(vendored, gemfile, re.M)
+    assert "      activesupport (>= 8.0.5.2, < 8.1)\n" in lock
+    assert "      sqlite3 (>= 2.10.2, < 3)\n" in lock
+    assert re.search(r"^    activesupport \(8\.0\.5\.2\)$", lock, re.M)
+    assert re.search(r"^    sqlite3 \(2\.10\.2-x86_64-linux-gnu\)$", lock, re.M)
     # Each JVM's heap is capped, so one suite's services fit in 8 GB.
     for name in ("hl7_validator_service", "fhirpath", "fhir"):
         assert re.fullmatch(r"-Xmx\d+[mg]", services[name]["environment"]["JAVA_TOOL_OPTIONS"])
