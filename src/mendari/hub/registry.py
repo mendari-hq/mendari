@@ -469,6 +469,30 @@ def _version_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
 
 
+def precedence(version: str) -> tuple[Any, ...]:
+    """How the registry orders an agent's versions, the newest last: by semantic-version
+    precedence (SemVer 2.0.0, section 11), then as text. The numbers compare as integers would
+    (`version_key`, whatever their length); a release ranks above its pre-releases, whose
+    dot-separated identifiers compare in turn: digits as numbers and below the others, which
+    compare in ASCII order, and fewer identifiers first when the rest are equal; build metadata
+    counts for nothing. Versions of equal precedence (`1.2.0` and `1.02.0`) then compare as text,
+    so no order depends on the order the database reads rows in. `version_key` alone ties a
+    release and its pre-releases, on purpose: one that ties a bundled agent's version may not
+    take its place (`core/agent.py`)."""
+    numbers, hyphen, pre = version.partition("+")[0].partition("-")
+    release = (1,) if not hyphen else (0, tuple(_identifier(part) for part in pre.split(".")))
+    return (version_key(numbers), release, version)
+
+
+def _identifier(part: str) -> tuple[int, int, str]:
+    """A pre-release identifier's place: digits as a number, below any other identifier, which
+    compares in ASCII order."""
+    if part.isascii() and part.isdigit():
+        digits = part.lstrip("0")
+        return (0, len(digits), digits)
+    return (1, 0, part)
+
+
 _NOT_COUNTERSIGNED = (
     # The versions the clause selects that are neither deleted nor counter-signed yet.
     "SELECT v.namespace, v.name, v.version, v.archive_sha256, v.metadata FROM hub_versions v "
@@ -802,9 +826,7 @@ class RegistryStore(
                 record_event(db, "namespace.refused", f"namespace:{name}", decided, row=row)
             if own is not None:  # listed from here: what was published while it was pending
                 waiting = db.all(f"{_NOT_COUNTERSIGNED} AND v.namespace = ?", (name,))
-                for version in sorted(
-                    waiting, key=lambda v: (v["name"], version_key(v["version"]))
-                ):
+                for version in sorted(waiting, key=lambda v: (v["name"], precedence(v["version"]))):
                     # Checked again from what is stored: one that is not genuine stays without
                     # a record, and every client of this registry refuses it.
                     _countersign(db, own, version, by, verified=False)
@@ -1268,7 +1290,7 @@ class RegistryStore(
             unlisted = self._unlisted(db)
             waiting = [v for v in db.all(_NOT_COUNTERSIGNED) if v["namespace"] not in unlisted]
             for version in sorted(
-                waiting, key=lambda v: (v["namespace"], v["name"], version_key(v["version"]))
+                waiting, key=lambda v: (v["namespace"], v["name"], precedence(v["version"]))
             ):
                 why = _not_genuine(db, version)
                 if why is None:
@@ -1300,9 +1322,10 @@ class RegistryStore(
                 )
 
     def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
-        """The measured regression check of the newest version before `version`, with its
-        version and whether it is recalled since: the gate's baseline. A recalled version stays
-        one, so recalling a good version cannot hide a later regression."""
+        """The measured regression check of the newest version before `version` (`precedence`:
+        a release's own pre-release is before it), with its version and whether it is recalled
+        since: the gate's baseline. A recalled version stays one, so recalling a good version
+        cannot hide a later regression."""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT version, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
@@ -1313,11 +1336,11 @@ class RegistryStore(
         for row in rows:
             check = json.loads(row["metadata"]).get("regression")
             if (
-                version_key(row["version"]) < version_key(version)
+                precedence(row["version"]) < precedence(version)
                 and isinstance(check, dict)
                 and check.get("status") == "measured"
             ):
-                earlier.append((version_key(row["version"]), row["version"], check))
+                earlier.append((precedence(row["version"]), row["version"], check))
         if not earlier:
             return None
         _, found, check = max(earlier, key=lambda item: item[0])
@@ -1342,7 +1365,7 @@ class RegistryStore(
                 )
                 for r in rows
             ),
-            key=lambda v: version_key(v["version"]),
+            key=lambda v: precedence(v["version"]),
         )
 
     def namespace_versions(
@@ -1728,8 +1751,8 @@ class RegistryStore(
         }
 
     def latest(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
-        """The newest version of every agent the viewer reads that is not recalled (yanked or
-        deleted), with its namespace's publisher type."""
+        """The newest version (`precedence`) of every agent the viewer reads that is not
+        recalled (yanked or deleted), with its namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
             rows = db.all("SELECT * FROM hub_versions")
             unlisted = self._unlisted(db)
@@ -1753,7 +1776,7 @@ class RegistryStore(
                 accepted=accepted.get(_key(row)),
             )
             key = (row["namespace"], row["name"])
-            if key not in newest or version_key(item["version"]) > version_key(
+            if key not in newest or precedence(item["version"]) > precedence(
                 newest[key]["version"]
             ):
                 newest[key] = item

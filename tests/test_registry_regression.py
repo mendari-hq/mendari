@@ -205,6 +205,17 @@ def test_the_baseline_is_the_newest_measured_check_recalled_or_not(
     assert shown["regressions"] == ["destination accuracy fell by more than 3%"]
 
 
+def test_a_release_is_checked_against_its_pre_release(registry: Registry, tmp_path: Path) -> None:
+    """The baseline is the newest earlier version by semantic-version precedence: a release's
+    own pre-release is earlier than it. `version_key` ties the two, so the pre-release was
+    skipped and the release was checked against nothing."""
+    assert registry.publish(_copy(tmp_path, "9.9.7-rc.1")).status_code == 201
+    assert registry.publish(_copy(tmp_path, "9.9.7", _worse)).status_code == 201
+    shown = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.7").json()["checked"]["regression"]
+    assert shown["compared_with"] == "9.9.7-rc.1"
+    assert shown["regressions"] == ["destination accuracy fell by more than 3%"]
+
+
 def test_a_burst_of_publishes_is_told_to_try_again(
     registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

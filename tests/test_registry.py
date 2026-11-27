@@ -685,3 +685,61 @@ def test_a_publish_that_shadows_a_reference_agent_is_refused(
         registry.publish(_at_version(tmp_path / "new", load_agent(root), "9.9.9")).status_code
         == 201
     )
+
+
+# -- the order of versions ------------------------------------------------------------------------
+
+
+def test_versions_are_ordered_by_semantic_version_precedence() -> None:
+    """SemVer 2.0.0, section 11: the numbers as integers would compare (whatever their length),
+    then a release above its pre-releases, whose identifiers compare in turn: digits as numbers
+    and below the others, which compare in ASCII order, and fewer identifiers first when the rest
+    are equal. Versions of equal precedence (`1.2.0` and `1.02.0`, which the registry also takes)
+    compare as text, so an order never depends on the order rows are read in."""
+    ordered = [
+        "1.0.0-0",
+        "1.0.0-2",
+        "1.0.0-10",
+        "1.0.0-alpha",
+        "1.0.0-alpha.1",
+        "1.0.0-alpha.beta",
+        "1.0.0-beta",
+        "1.0.0-beta.2",
+        "1.0.0-beta.11",
+        "1.0.0-rc.1",
+        "1.0.0",
+        "1.02.0",
+        "1.2.0",
+        "1.10.0-rc.1",
+        "1.10.0",
+        "1" + "0" * 5000 + ".0.0",
+    ]
+    for shuffled in (ordered, list(reversed(ordered)), ordered[1::2] + ordered[::2]):
+        assert sorted(shuffled, key=registry_module.precedence) == ordered
+
+
+@pytest.mark.parametrize(
+    ("published", "listed"),
+    [
+        (["9.9.9-rc.1", "9.9.9"], ["9.9.9-rc.1", "9.9.9"]),
+        (["9.9.9", "9.9.9-hotfix"], ["9.9.9-hotfix", "9.9.9"]),
+    ],
+    ids=["release-after-its-pre-release", "pre-release-after-its-release"],
+)
+def test_a_release_is_the_latest_beside_its_pre_releases_in_every_answer(
+    registry: Registry, tmp_path: Path, published: list[str], listed: list[str]
+) -> None:
+    """The registry orders an agent's versions by semantic-version precedence, in whatever order
+    they were published: `9.9.9` ranks above `9.9.9-rc.1` and `9.9.9-hotfix`. `version_key` ties
+    them (it orders local agents by their numbers alone), and the latest was whichever row the
+    database read last, so the agent's answer, a pull, search and the evaluation page each named
+    their own."""
+    for version in published:
+        answer = registry.publish(_at_version(tmp_path / version, TRIAGE, version))
+        assert answer.status_code == 201, answer.text
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["versions"] == listed and agent["latest"]["version"] == "9.9.9"
+    assert [found["version"] for found in registry.operator.latest()] == ["9.9.9"]
+    assert [found["version"] for found in registry.client.get("/v1/search").json()] == ["9.9.9"]
+    page = registry.client.get(f"/v1/agents/{TRIAGE.id}/evaluation").json()
+    assert page["versions"]["shown"] == page["versions"]["latest"] == "9.9.9"
