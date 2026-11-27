@@ -23,6 +23,9 @@ It is built for two groups, and for the loop between them:
 > data. Mendari is not a medical device, and it must not be used with real PHI or real patients:
 > its external security review has not happened yet ([Status and limits](#status-and-limits)).
 
+**Documentation:** [mendari-hq.github.io/mendari](https://mendari-hq.github.io/mendari/): the guides, the agent manifest's
+specification and the API.
+
 ```text
 your AI agent (LLM, LangGraph, HTTP service)
         │  answers the questions the manifest declares, with a confidence

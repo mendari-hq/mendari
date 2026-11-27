@@ -13,6 +13,7 @@ from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/mendari-hq/mendari"
+DOCS_SITE = "https://mendari-hq.github.io/mendari/"  # mkdocs.yml `site_url`
 
 
 def _check_sdist() -> ModuleType:
@@ -106,9 +107,30 @@ def test_the_project_links_work_on_pypi() -> None:
         _assert_names_an_existing_path(url)
 
 
+def test_the_command_line_names_the_documentation_site_mkdocs_builds() -> None:
+    from mendari.cli import AUTHORING_GUIDE, CI_GUIDE
+    from mendari.cli import DOCS_SITE as SITE
+
+    site_url = re.search(r"^site_url: (\S+)$", (ROOT / "mkdocs.yml").read_text(), re.M)
+    assert site_url is not None and SITE == site_url[1] == DOCS_SITE
+    for page in (AUTHORING_GUIDE, CI_GUIDE):
+        _assert_names_an_existing_path(page)
+
+
+def docs_page(link: str) -> Path:
+    """The file under docs/ that a page of the documentation site is built from: its path
+    without `.md`, as a folder, and the site's root is docs/index.md."""
+    page = link.removeprefix(DOCS_SITE).partition("#")[0].strip("/")
+    return ROOT / "docs" / (f"{page}.md" if page else "index.md")
+
+
 def _assert_names_an_existing_path(link: str) -> None:
     """A link into this repository's files (`/blob/main/...`, `/tree/main/...`) names a path that
-    exists, as a file (blob) or a folder (tree). Other links pass."""
+    exists, as a file (blob) or a folder (tree), and a link into the documentation site names a
+    page docs/ holds. Other links pass."""
+    if link.startswith(DOCS_SITE):
+        assert docs_page(link).is_file(), link
+        return
     if not link.startswith((f"{REPOSITORY}/blob/", f"{REPOSITORY}/tree/")):
         return
     kind, branch, path = link.removeprefix(REPOSITORY + "/").split("/", 2)

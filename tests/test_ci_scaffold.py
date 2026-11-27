@@ -168,8 +168,10 @@ def test_the_action_passes_a_new_agent_with_what_its_workflow_gives(tmp_path: Pa
 
 
 def test_the_guide_is_where_the_command_and_the_workflow_say() -> None:
-    prefix = "https://github.com/mendari-hq/mendari/blob/main/"
-    assert CI_GUIDE.startswith(prefix) and ROOT / CI_GUIDE.removeprefix(prefix) == GUIDE
+    # The documentation site builds the guide at its path under docs/, without `.md`.
+    prefix = "https://mendari-hq.github.io/mendari/"
+    page = CI_GUIDE.removeprefix(prefix).strip("/")
+    assert CI_GUIDE.startswith(prefix) and ROOT / "docs" / f"{page}.md" == GUIDE
     assert GUIDE.is_file() and offences(GUIDE.read_text(encoding="utf-8")) == []
 
 

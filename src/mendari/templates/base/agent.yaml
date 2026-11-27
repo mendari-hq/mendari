@@ -2,7 +2,7 @@
 # Runs offline out of the box via `fixtures/mock_agent.json`, and switches automatically to any live
 # external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:
-# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
+# https://mendari-hq.github.io/mendari/guides/authoring-an-agent/
 # Spec 0.4, the one version Mendari reads. It also offers actions (the commented section at the
 # end of this file), a calibrated confidence (`mendari calibrate`) and a second signal (`repeat`,
 # or a `check` by a second model).
@@ -113,7 +113,7 @@ tests: tests/cases.yaml
 # answers each with `released`, `held` or `blocked`, and runs none: your caller runs an action
 # only when it was released. An effect is one of read, draft, write, contact or order; what each
 # needs is the runtime's rule, and an action here may only tighten it. The guide:
-# https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md
+# https://mendari-hq.github.io/mendari/guides/governing-actions/
 # actions:
 #   assign_queue:
 #     description: Put the message in the refill, scheduling or front-desk queue.

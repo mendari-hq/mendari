@@ -41,7 +41,7 @@ mendari = "mendari.cli:main"
 # keep working (tests/test_packaging.py).
 [project.urls]
 Homepage = "https://mendari.co"
-Documentation = "https://github.com/mendari-hq/mendari/tree/main/docs"
+Documentation = "https://mendari-hq.github.io/mendari/"
 Source = "https://github.com/mendari-hq/mendari"
 Issues = "https://github.com/mendari-hq/mendari/issues"
 Changelog = "https://github.com/mendari-hq/mendari/blob/main/CHANGELOG.md"
