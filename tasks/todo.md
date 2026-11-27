@@ -224,10 +224,23 @@ README or the front ends, outside an explicit list of those names.
 
     The other twenty are dismissed with their reasons (by design, or test code). No alert is
     open on `main`.
-  - [ ] Dependabot cannot update the Ruby gems of `sandbox/inferno/scripted` (a path
-    dependency), which waits on the Inferno image rebuild.
+  - [x] The Inferno test image's Ruby gems (`sandbox/inferno/scripted`), which Dependabot does
+    not update (they are pinned by hand, `sandbox/inferno/README.md`): every advisory on them is
+    fixed by hand, rack, addressable and nokogiri (#374), then activesupport and sqlite3, whose
+    pins in `inferno_core` 1.6.0 the image moves to the fixed releases (#378). The conformance
+    suites passed on each branch before it merged. Dependabot has no open alert (34 fixed).
   - [x] Production names its Agent Hub (`MENDARI_REGISTRY_HUB_URL`), so the registry's
     evaluation answer links to the Hub's page, and `mendari push` prints it.
+  - [x] **0.1.1, the security fix** (2026-11-27). The security audit found that a member with only
+    `agent_author` could run a draft over the improvement dataset and read back what it decided
+    of each case, with no read recorded (#375; the threat model's I23 and E18). Released as
+    0.1.1 (#377, `v0.1.1` on `076efa38`), the owner approving `pypi` and `ghcr`. Checked after:
+    PyPI's wheel and sdist are the run's tested files byte for byte, each with its provenance
+    attestation; a clean `pip install mendari==0.1.1` runs `mendari test` on the demo agent;
+    `ghcr.io/mendari-hq/mendari-engine:v0.1.1` (amd64 and arm64 in its index) pulls without
+    credentials and runs 0.1.1 (arm64, on a Mac); the live engine reports 0.1.1 and answers a
+    path with an encoded `?` with a 404 before sign-in; the docs site, deployed again from
+    `main`, names v0.1.1 in the CI guide and the site install guide.
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
