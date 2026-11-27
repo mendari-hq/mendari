@@ -34,6 +34,14 @@ const NOTE_STATUS = {
   missing: "Note (missing: verify the chain with --notes)",
 };
 
+// The trail is listed a page at a time, newest first (the route pages by `limit` and `offset`).
+// The filters search the decisions listed, and the count says how much of the trail that is.
+const PAGE = 100;
+
+// A decision's whole id (a UUID, as each is made): searched for, it opens that record wherever it
+// is in the trail, rather than filtering what is listed.
+const WHOLE_DECISION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 let auditRows = [];
 let visibleIds = [];
 
@@ -42,6 +50,14 @@ views.audit = async (main, params) => {
   const agentId = state.agentId;
   auditRows = [];
   visibleIds = [];
+  // How many decisions the trail holds, by outcome, to say how much is listed (null when that
+  // could not be read); the rows the route has given (the next page's offset); and whether the
+  // last page was full, so that older decisions may be left.
+  const counts = api(`/api/stats?agent_id=${encodeURIComponent(agentId)}`).catch(() => null);
+  let total = null;
+  let given = 0;
+  let full = false;
+  let loads = 0; // listings started: an older page asked for under an earlier one is dropped
   main.innerHTML = `
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
@@ -61,7 +77,12 @@ views.audit = async (main, params) => {
       <span id="verify-result"></span>` : ""}
     </div>
     <p class="muted checkpoint" id="checkpoint"></p>
-    <div class="panel" id="audit-table"></div>`;
+    <div class="panel" id="audit-table"></div>
+    <div class="row mt-3" id="audit-more" hidden><button type="button" id="audit-older">Show older decisions</button></div>`;
+
+  // Older decisions are left to list; what is listed, when not all: "the newest 100 of 250 decisions".
+  const more = () => full && (total === null || auditRows.length < total);
+  const listedText = () => `the newest ${auditRows.length}${total === null ? "" : ` of ${total}`} decisions`;
 
   const paintTable = () => {
     const table = $("#audit-table");
@@ -76,26 +97,61 @@ views.audit = async (main, params) => {
     });
     visibleIds = filtered.map((r) => r.id);
     const active = Boolean(priority || query);
+    const partial = more();
     const reset = $("#audit-reset");
     if (reset) reset.hidden = !active;
     const count = $("#audit-count");
-    if (count) count.textContent = active ? `Showing ${filtered.length} of ${auditRows.length}` : "";
-    table.innerHTML = filtered.length
-      ? auditTable(filtered)
-      : `<div class="empty">${auditRows.length ? "No decisions match the current filter." : "No decisions recorded."}</div>`;
+    if (count) {
+      const listed = partial ? listedText() : auditRows.length;
+      count.textContent = active ? `Showing ${filtered.length} of ${listed}` : partial ? `Showing ${listed}` : "";
+    }
+    const none = !auditRows.length ? "No decisions recorded."
+      : partial ? `No decisions among the newest ${auditRows.length} match the current filter.`
+      : "No decisions match the current filter.";
+    table.innerHTML = filtered.length ? auditTable(filtered) : `<div class="empty">${none}</div>`;
     wire(table);
+    $("#audit-more").hidden = !partial;
   };
+
+  const listing = (filter, offset) => api(`/api/audit?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE}${offset ? `&offset=${offset}` : ""}${filter ? `&outcome=${filter}` : ""}`);
+  // Another agent or filter chosen meanwhile, or this view left (or shown anew): an answer is stale.
+  const shownTable = $("#audit-table");
+  const stale = (filter) => !shownTable.isConnected || state.agentId !== agentId || $("#outcome-filter")?.value !== filter;
 
   const load = async () => {
     const filter = $("#outcome-filter").value;
+    const asked = ++loads;
     storageSet("oh.audit.outcome", filter);
     try {
-      const rows = await api(`/api/audit?agent_id=${encodeURIComponent(agentId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-      const table = $("#audit-table");
-      // Another agent or filter chosen meanwhile, or the view left: this answer is stale.
-      if (!table || state.agentId !== agentId || $("#outcome-filter")?.value !== filter) return;
+      const [rows, stats] = await Promise.all([listing(filter, 0), counts]);
+      if (asked !== loads || stale(filter)) return;
       auditRows = rows;
+      given = rows.length;
+      full = rows.length === PAGE;
+      total = (filter ? stats?.outcomes?.[filter] : stats?.decisions) ?? null;
       paintTable();
+    } catch (error) {
+      if (state.agentId === agentId) toastError(error.message);
+    }
+  };
+
+  // The next page, after what is listed. Decisions made meanwhile move the pages down, so one
+  // already listed can come again: it is listed once.
+  const loadOlder = async () => {
+    const filter = $("#outcome-filter").value;
+    const asked = loads;
+    try {
+      const rows = await listing(filter, given);
+      if (asked !== loads || stale(filter)) return;
+      const listed = new Set(auditRows.map((r) => r.id));
+      const added = rows.filter((r) => !listed.has(r.id));
+      auditRows = [...auditRows, ...added];
+      given += rows.length;
+      full = rows.length === PAGE;
+      paintTable();
+      // The keyboard goes on from the first older decision the filters show.
+      const first = added.find((r) => visibleIds.includes(r.id));
+      if (first) $(`#audit-table button.open-record[data-id="${CSS.escape(first.id)}"]`)?.focus();
     } catch (error) {
       if (state.agentId === agentId) toastError(error.message);
     }
@@ -107,7 +163,15 @@ views.audit = async (main, params) => {
   });
   $("#outcome-filter").addEventListener("change", load);
   $("#priority-filter").addEventListener("change", paintTable);
-  $("#audit-search").addEventListener("input", paintTable);
+  $("#audit-search").addEventListener("input", (event) => {
+    const query = event.currentTarget.value.trim();
+    if (WHOLE_DECISION_ID.test(query)) {
+      event.currentTarget.value = ""; // it found its decision: the list is not filtered by it
+      location.hash = `#audit/${encodeURIComponent(query.toLowerCase())}`;
+    }
+    paintTable();
+  });
+  $("#audit-older").addEventListener("click", (event) => whileBusy(event.currentTarget, "Loading…", loadOlder));
   $("#audit-reset").addEventListener("click", () => {
     $("#priority-filter").value = "";
     $("#audit-search").value = "";

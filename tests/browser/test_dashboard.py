@@ -1832,6 +1832,57 @@ def test_a_replayed_decision_says_what_it_decided_the_first_time(
     )
 
 
+def test_the_audit_trail_says_it_lists_the_newest_and_pages_to_older_ones(
+    page: Page, live_server: str
+) -> None:
+    """The trail lists the newest 100 decisions and says of how many; older ones come a page at a
+    time. The filters search what is listed, and say how much that is, and a decision's whole id
+    opens its record wherever it is in the trail. The trail's 250 decisions are answered here, so
+    the shared server's never change: the 150th newest is a real one, the others copies of it."""
+    real = httpx.get(f"{live_server}/api/audit", params={"agent_id": TRIAGE, "limit": 1}).json()
+    rows = [{**real[0], "id": f"{n:08x}-0000-4000-8000-{n:012x}"} for n in range(250)]
+    rows[149] = real[0]
+
+    def listed(route: Route) -> None:
+        asked = urllib.parse.parse_qs(urllib.parse.urlsplit(route.request.url).query)
+        offset, limit = int(asked.get("offset", ["0"])[0]), int(asked["limit"][0])
+        route.fulfill(json=rows[offset : offset + limit])
+
+    def counted(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "decisions": len(rows)})
+
+    page.route(re.compile(r".*/api/audit\?.*"), listed)
+    page.route(re.compile(r".*/api/stats\?.*"), counted)
+    open_agent(page, TRIAGE, "audit")
+    listing = page.locator("#audit-table tbody tr")
+    count = page.locator("#audit-count")
+    expect(listing).to_have_count(100)
+    expect(count).to_have_text("Showing the newest 100 of 250 decisions")
+    # Part of an id that is not listed yet finds nothing among what is, and says so.
+    search = page.get_by_label("Filter decisions")
+    search.fill(real[0]["id"][:8])
+    expect(count).to_have_text("Showing 0 of the newest 100 of 250 decisions")
+    expect(page.locator("#audit-table")).to_have_text(
+        "No decisions among the newest 100 match the current filter."
+    )
+    older = page.get_by_role("button", name="Show older decisions")
+    older.click()
+    expect(count).to_have_text("Showing 1 of the newest 200 of 250 decisions")
+    page.get_by_role("button", name="Reset").click()
+    older.click()
+    expect(listing).to_have_count(250)
+    expect(older).to_be_hidden()
+    expect(count).to_have_text("")
+    # A whole id opens its record, listed or not.
+    show(page, "overview")
+    show(page, "audit")
+    expect(listing).to_have_count(100)
+    search.fill(real[0]["id"])
+    expect(page).to_have_url(re.compile(f"#audit/{real[0]['id']}$"))
+    expect(page.get_by_role("dialog")).to_contain_text(real[0]["id"])
+    expect(search).to_have_value("")
+
+
 # -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
 
 TOP_BAR_HEIGHT = "document.querySelector('.topbar').getBoundingClientRect().height"
