@@ -507,8 +507,8 @@ def test_a_registry_agents_schema_errors_stop_at_100_with_short_reasons(tmp_path
     short = hub.decide({"message": bill, "meta": {}}).reasons
     assert short == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
     listed = local.decide({"message": bill, "meta": {}}).reasons
-    assert listed[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
-    assert len(listed) == 9  # one per missing name, as before
+    # Every missing name, once (not once per missing name: `tests/test_decision.py`).
+    assert listed == (f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required",)
 
 
 def test_mendari_test_stops_a_registry_agent_at_the_budget(tmp_path: Path) -> None:

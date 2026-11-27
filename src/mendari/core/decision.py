@@ -596,7 +596,8 @@ class Decision:
         return self.decide(inputs)
 
     def validate(self, inputs: Any) -> list[str]:
-        """Why the input fails the agent's input schema, at most ten reasons. Each names where
+        """Why the input fails the agent's input schema, at most ten reasons, each once (one
+        `required` gives an error per missing name, each worded the same). Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task.
 
@@ -636,8 +637,6 @@ class Decision:
                         "number too large, or the schema refers to itself without end"
                     ]
             errors = sorted(found, key=lambda e: list(map(str, e.path)))
-            if not bounded:  # as it always was
-                return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
             reasons: list[str] = []
             for error in errors:
                 try:

@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from mendari import Agent, AuditStore, Decision, Outcome
+from mendari import Agent, AuditStore, Decision, Outcome, load_agent
 from mendari.errors import AgentValidationError
 from tests.conftest import message
+from tests.support.engine import sorter
 
 
 def test_from_hub(triage: Decision) -> None:
@@ -103,3 +106,22 @@ def test_rejection_reasons_still_say_where_and_why(triage: Decision) -> None:
         "input rejected: message/body: does not match the pattern the schema requires",
         "input rejected: message/channel: is not one of the values the schema allows",
     )
+
+
+def test_a_reason_given_once_per_missing_name_is_listed_once(tmp_path: Path) -> None:
+    """jsonschema gives one error per name a `required` misses, each worded the same (it lists
+    every missing name). An agent the deployment owns listed that reason once per name: with
+    ten or more missing, they filled the ten reasons and the input's other problems were not
+    shown. Each reason is listed once, in the order found, as for an agent on the bounded
+    engine (`tests/test_bounded_budget.py`)."""
+
+    def many(schema: dict[str, Any]) -> None:
+        schema["required"] += [f"f{i}" for i in range(12)]
+        schema["properties"]["age"] = {"type": "integer"}
+
+    decision = Decision(load_agent(sorter(tmp_path, schema=many, agent_id="local/sorter")))
+    assert not decision.agent.bounded
+    assert decision.validate({"message": "my bill", "age": "forty"}) == [
+        f"(root): {', '.join(f'f{i}' for i in range(12))} is required",
+        "age: must be of type integer",
+    ]
