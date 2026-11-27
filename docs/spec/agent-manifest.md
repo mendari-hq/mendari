@@ -379,7 +379,8 @@ instead: [Patterns run on RE2](../guides/authoring-an-agent.md#patterns-run-on-r
 agent is invalid when:
 
 - it holds a pattern RE2 cannot run: a lookahead or lookbehind, a back reference, a conditional
-  or atomic group, a possessive quantifier, or one too large once compiled;
+  or atomic group, a possessive quantifier, a `$` (not multi-line) with more of the pattern after
+  it, or one too large once compiled;
 - its input schema uses a keyword outside those whose work Mendari bounds: `unevaluatedProperties`
   or `unevaluatedItems`, which jsonschema works out on its own and with `re`, `contains`,
   `uniqueItems` and the like are refused; `$ref` names one of the root's `$defs`, whose names are

@@ -318,7 +318,9 @@ SAME = [
     ("[^\\W\\x00-ɏ]+", 0, "abc я"),
     (r"foo$", 0, "foo\n"),
     (r"foo$", 0, "foo\nbar"),
+    (r"(?:pain|ache)$", re.I, "an Ache\n"),
     (r"(?m)^bar$", 0, "foo\nbar\nbaz"),
+    (r"(?m)pain$\W", 0, "chest pain\nnow"),
     (r"x\Z", 0, "x\n"),
     (r"\Ax", 0, "yx"),
     (r"a{,3}b", 0, "aaab"),
@@ -384,6 +386,40 @@ def test_the_differences_left_are_the_ones_written_down(
     written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
     assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
     assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
+
+
+# (pattern, flags, text, where `re` matches): a `$` (not multi-line) with more of the pattern
+# after it, in the same sequence, after the group or alternatives holding it, or in the next copy
+# of a count. Each matched elsewhere on RE2, or nowhere.
+DOLLAR_THEN_MORE = [
+    (r"pain$\W", 0, "chest pain\n", 6),
+    (r"[a-z]$\Z", 0, "a\n", None),
+    (r"(?:pain|ache)$\s", re.I, "an Ache\n", 3),
+    (r"(?:fever$|cough)\b", re.I, "fever\n", 0),
+    (r"(?:\s$){2}", 0, " \n", 0),
+]
+
+
+@pytest.mark.parametrize(("pattern", "flags", "text", "on_re"), DOLLAR_THEN_MORE)
+def test_a_dollar_with_more_of_the_pattern_after_it_is_refused_on_re2(
+    tmp_path: Path, pattern: str, flags: int, text: str, on_re: int | None
+) -> None:
+    """`re`'s `$` stops before a newline that ends the text without taking it, and what follows
+    it matches from there; RE2's can only take that newline, so `pain$\\W` found "chest pain\\n"
+    in `re` and not on RE2, and `[a-z]$\\Z` found "a\\n" on RE2 and not in `re`. Such a pattern
+    makes an agent on the bounded engine invalid, saying what to write instead; a `$` that ends
+    the pattern, or a multi-line one, means the same on both (`SAME`). The same pattern, in an
+    agent the deployment owns, loads as before."""
+    found = re.search(pattern, text, flags)
+    assert (found and found.start()) == on_re
+    problem = patterns.problem(pattern, flags, bounded=True)
+    assert problem is not None
+    assert problem.startswith("uses $ with more of the pattern after it, which RE2 (the engine ")
+    assert "end the pattern with \\Z" in problem
+    with pytest.raises(AgentValidationError) as raised:
+        pulled(bounded_agent(tmp_path, rules=[pattern]))
+    assert raised.value.problems == [f"{RULES}: questions.topic.labels.billing[0] (p0): {problem}"]
+    load_agent(bounded_agent(tmp_path / "local", rules=[pattern], agent_id="local/sorter"))
 
 
 def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:

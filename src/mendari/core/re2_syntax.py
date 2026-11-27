@@ -23,8 +23,10 @@ where RE2 would read the same characters differently:
   inside "mañana", and next to letters outside ASCII the pattern names, `\bрак\b` inside
   "практика" (`re` matches none of them). A boundary next to something that may match nothing
   (`\b\w*`) is RE2's ASCII one.
-- `$` is `re`'s: the end of the text, or before a newline that ends it; `\Z` is the end only;
-  `a{,3}` is `a{0,3}` (RE2 reads it as text).
+- `$` is `re`'s: the end of the text, or before a newline that ends it (RE2 cannot stop before
+  that newline, so its `$` takes it: the same where nothing follows the `$` in a match, and one
+  that more may follow is refused, below); `\Z` is the end only; `a{,3}` is `a{0,3}` (RE2 reads
+  it as text).
 - A count above 1,000 (RE2's largest) is split into counts of at most 1,000 one after another,
   which match the same texts. Counts nested inside each other may multiply to at most 1,000:
   RE2 refuses `(?:a{1,50}){1,50}`.
@@ -32,7 +34,8 @@ where RE2 would read the same characters differently:
   replaced with U+FFFD before a pattern runs (`core/patterns.py`).
 
 What RE2 cannot run is refused with what to write instead (`Unsupported`): lookahead and
-lookbehind, back references, conditional groups, atomic groups and possessive quantifiers.
+lookbehind, back references, conditional groups, atomic groups and possessive quantifiers, and a
+`$` (not multi-line) with more of the pattern after it (`pain$\W` finds "pain\n" in `re`).
 
 `size` is how much of RE2's work a pattern can make on each character of a text
 (`core/caps.py` caps a bounded agent's total).
@@ -65,6 +68,7 @@ def translate(pattern: str, flags: int = 0) -> str:
     """The RE2 pattern for a `re` pattern compiled with `flags` (module docstring). Raises
     `re.error` for a pattern `re` refuses, and `Unsupported` for one RE2 cannot run."""
     tree = _parser.parse(pattern, flags)
+    _ends(list(tree), tree.state.flags)
     return _Writer().sequence(list(tree), tree.state.flags)
 
 
@@ -505,6 +509,35 @@ def _wide_sequence(items: list[Item], edge: str, flags: int) -> bool:
     if not matching:
         return True
     return _wide(matching[0] if edge == "start" else matching[-1], edge, flags)
+
+
+_END_THEN_MORE = (
+    "uses $ with more of the pattern after it, which RE2 (the engine agents from a registry or a "
+    "store run on) does not have: in re, $ stops before a newline that ends the text, and what "
+    "follows matches from there; match that newline as \\n, and end the pattern with \\Z, or "
+    f"\\n?\\Z for the end or a newline that ends it ({_GUIDE})"
+)
+
+
+def _ends(items: Sequence[Item], flags: int, followed: bool = False) -> None:
+    """Refuse a `$` (not multi-line) that more of the pattern may follow in a match: an item
+    after it in its sequence, after the group or alternatives holding it (`followed`), or the
+    next copy of a count around it. RE2's `$` takes the newline `re`'s stops before (`_at`), so
+    what follows it would match from another place."""
+    for index, (op, av) in enumerate(items):
+        name = str(op)
+        after = followed or index + 1 < len(items)
+        if name == "AT" and str(av) == "AT_END" and not flags & _c.SRE_FLAG_MULTILINE:
+            if after:
+                raise Unsupported(_END_THEN_MORE)
+        elif name == "SUBPATTERN":
+            _, added, removed, inner = av
+            _ends(list(inner), (flags | added) & ~removed, after)
+        elif name == "BRANCH":
+            for alternative in av[1]:
+                _ends(list(alternative), flags, after)
+        elif name in _REPEATS:
+            _ends(list(av[2]), flags, after or av[1] > 1)  # a copy may follow another
 
 
 def _at(av: Any, flags: int) -> str:
