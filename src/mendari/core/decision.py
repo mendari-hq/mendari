@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 import uuid
@@ -599,7 +600,8 @@ class Decision:
         """Why the input fails the agent's input schema, at most ten reasons, each once (one
         `required` gives an error per missing name, each worded the same). Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
-        input, and reasons are stored in the audit trail and copied into the FHIR Task.
+        input, and reasons are stored in the audit trail and copied into the FHIR Task. A number
+        JSON cannot carry (NaN, an infinity) is refused before the schema runs (`_not_finite`).
 
         The check of an agent on the bounded engine (`Agent.bounded`: one from a registry or a
         store) holds to its input limits (`origin.shape_problem`) and to a time budget: the
@@ -614,6 +616,10 @@ class Decision:
             return [
                 f"{too_long}: longer than {MAX_BOUNDED_TEXT_CHARS:,} characters, the most "
                 f"{reader} reads"
+            ]
+        if not_finite := _not_finite(inputs):
+            return [
+                f"{place}: must be a finite number, not NaN or an infinity" for place in not_finite
             ]
         alone = bounded and not budget_active()
         with time_budget() if alone else nullcontext():
@@ -1103,6 +1109,34 @@ def _review_of(row: Mapping[str, Any]) -> Review:
 
 
 _KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")
+
+
+def _not_finite(inputs: Any) -> list[str]:
+    """Where an input holds a number JSON cannot carry, NaN or an infinity: Python's json reads
+    them (and so the server does), but no schema keyword bounds them, as every comparison with
+    NaN is false, and no provider can send them on. The first ten the input holds, each place
+    once (`_where`), sorted as the schema's reasons are. Walked without recursion, each
+    container once, with a path built only for a number found."""
+    found: list[list[Any]] = []
+    links: list[tuple[int, Any]] = []  # each value's container (its index here, -1: none) and key
+    stack: list[tuple[Any, int]] = [(inputs, -1)]
+    seen: set[int] = set()  # by identity: a container held twice (or in itself) is walked once
+    while stack and len(found) < 10:
+        value, at = stack.pop()
+        if isinstance(value, float) and not math.isfinite(value):
+            path: list[Any] = []
+            while at >= 0:
+                at, key = links[at]
+                path.append(key)
+            found.append(path[::-1])
+        elif isinstance(value, Mapping | list | tuple) and id(value) not in seen:
+            seen.add(id(value))
+            items = list(value.items() if isinstance(value, Mapping) else enumerate(value))
+            for key, item in reversed(items):  # taken off the stack in the input's own order
+                links.append((at, key))
+                stack.append((item, len(links) - 1))
+    shown = sorted(found, key=lambda path: list(map(str, path)))
+    return list(dict.fromkeys(map(_where, shown)))
 
 
 def _where(path: Iterable[Any]) -> str:

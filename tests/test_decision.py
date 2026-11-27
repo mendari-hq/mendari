@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ from jsonschema import Draft202012Validator
 from mendari import Agent, AuditStore, Decision, Outcome, load_agent
 from mendari.errors import AgentValidationError
 from tests.conftest import message
-from tests.support.engine import sorter
+from tests.support.engine import pulled, sorter
 
 
 def test_from_hub(triage: Decision) -> None:
@@ -124,4 +125,39 @@ def test_a_reason_given_once_per_missing_name_is_listed_once(tmp_path: Path) -> 
     assert decision.validate({"message": "my bill", "age": "forty"}) == [
         f"(root): {', '.join(f'f{i}' for i in range(12))} is required",
         "age: must be of type integer",
+    ]
+
+
+NOT_FINITE = "must be a finite number, not NaN or an infinity"
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_a_number_json_cannot_carry_is_refused_as_an_input_problem(
+    tmp_path: Path, value: float
+) -> None:
+    """Python's json reads NaN and the infinities, and so does the server, but no schema keyword
+    bounds them (every comparison with NaN is false: 30 <= NaN <= 45 held) and an agent's
+    service cannot be sent them (a decision crashed, a 500 with nothing recorded, or decided on
+    canned answers). Such an input is refused before any provider runs, as an input the schema
+    refuses, for an agent the deployment owns and one it does not, naming each place."""
+
+    def measured(schema: dict[str, Any]) -> None:
+        schema["properties"]["temperature"] = {"type": "number", "minimum": 30, "maximum": 45}
+        schema["properties"]["readings"] = {"type": "array", "items": {"type": "object"}}
+
+    folder = sorter(tmp_path, schema=measured)
+    inputs = {
+        "message": "my bill",
+        "temperature": value,
+        "readings": [{"pulse": 72.0, "oxygen": value}, {"Not A Field": value}],
+    }
+    places = ["readings/0/oxygen", "readings/1/*", "temperature"]
+    for agent in (load_agent(folder), pulled(folder)):
+        decision = Decision(agent)
+        assert decision.validate(inputs) == [f"{place}: {NOT_FINITE}" for place in places]
+        result = decision.decide(inputs)
+        assert result.outcome is Outcome.BLOCK and result.answers == {}
+        assert result.reasons == tuple(f"input rejected: {p}: {NOT_FINITE}" for p in places)
+    assert Decision(load_agent(folder)).validate({**inputs, "temperature": 37.5}) == [
+        f"{place}: {NOT_FINITE}" for place in places[:2]
     ]

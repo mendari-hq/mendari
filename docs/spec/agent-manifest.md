@@ -459,7 +459,8 @@ and a priority from FHIR `request-priority`: `routine`, `urgent`, `asap`, `stat`
 
 Evaluation order (MUST):
 
-1. If the input fails the input schema, the outcome is `BLOCK` and no provider is called.
+1. If the input fails the input schema, or holds a number JSON cannot carry (NaN or an infinity,
+   which no schema keyword bounds), the outcome is `BLOCK` and no provider is called.
 2. Provider slots answer their questions, and score answers receive their expected `value`.
 3. Policy `rules` are evaluated in order over the available answers. A rule's condition
    matches an answer when the answer's confidence is ≥ `when.min_confidence`, its label is in
