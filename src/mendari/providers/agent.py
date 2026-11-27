@@ -30,7 +30,6 @@ Configuration & security:
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import uuid
@@ -58,6 +57,7 @@ from mendari.providers.base import (
     Answer,
     Provider,
     ProviderOutput,
+    finite_number,
     read_problems,
     refuse_if_over_quota,
     select_fields,
@@ -783,15 +783,10 @@ def _validate_usage(raw: Any) -> dict[str, Any]:
     cost = raw.get("cost_usd", raw.get("cost"))
     if cost is None:
         cost_usd: float | None = None
-    elif (
-        isinstance(cost, int | float)
-        and not isinstance(cost, bool)
-        and math.isfinite(cost)
-        and 0 <= cost <= MAX_CALL_COST_USD
-    ):
-        cost_usd = float(cost)
     else:
-        raise _invalid("usage cost is malformed")
+        cost_usd = finite_number(cost)
+        if cost_usd is None or not 0 <= cost_usd <= MAX_CALL_COST_USD:
+            raise _invalid("usage cost is malformed")
     return {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
 
 
@@ -828,12 +823,8 @@ def _tool_evidence(tool_calls: list[Any]) -> list[str]:
 
 
 def _probability(value: Any) -> TypeGuard[int | float]:
-    return (
-        isinstance(value, int | float)
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and 0.0 <= value <= 1.0
-    )
+    number = finite_number(value)
+    return number is not None and 0.0 <= number <= 1.0
 
 
 def _invalid(detail: str) -> ProviderError:

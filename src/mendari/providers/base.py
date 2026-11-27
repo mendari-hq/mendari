@@ -112,6 +112,22 @@ MAX_CALL_TOKENS = 10_000_000
 MAX_CALL_COST_USD = 1_000.0
 
 
+def finite_number(value: Any) -> float | None:
+    """A JSON number as a finite float, or None for anything else: not a number (a boolean is
+    not one), NaN or an infinity, or an integer too large for a float (Python's `json` reads a
+    few hundred digits as an `int`, which `float` and `math.isfinite` refuse with
+    `OverflowError`). The numbers an answer gives (an agent service's or a model's, or a mock
+    file's canned one) are checked through this, so such a number makes the answer malformed,
+    never a raw error."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 @dataclass
 class Metered:
     """One provider type's remote calls: how many were sent (`sending`), how many answered with
