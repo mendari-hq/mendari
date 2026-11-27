@@ -186,6 +186,8 @@ All MUST hold:
 
 ### 3.3 The input schema
 
+- The input schema is an object at its root, the schema of the input's fields: a boolean schema
+  alone (`true` or `false`) is invalid.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root

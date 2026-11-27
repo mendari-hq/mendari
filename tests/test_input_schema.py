@@ -21,6 +21,7 @@ from mendari.core import input_schema
 from mendari.core.schema_graph import _graph
 from mendari.errors import AgentValidationError
 from tests.conftest import FIXTURE_AGENTS, ROOT, TRIAGE_DIR, message
+from tests.support.engine import SCHEMA, pulled, sorter
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 BODY = ("properties", "message", "properties", "body")
@@ -172,6 +173,27 @@ def test_format_regex_is_refused_because_it_compiles_the_input(triage_copy: Path
         "input schema: format: format 'regex' is not allowed in an agent's input schema"
     ]
     assert input_schema.problems({"type": "string", "format": "date"}) == []
+
+
+@pytest.mark.parametrize("root", ["true", "false", "[]", "null"])
+def test_an_input_schema_whose_root_is_not_an_object_fails_to_load(
+    tmp_path: Path, root: str
+) -> None:
+    """The input schema is an object at its root, the schema of the input's fields, as the
+    agent holds it (`Agent.input_schema`). JSON Schema's `true` or `false` alone passed every
+    check and decided, then broke the Decision Card, which reads the input's fields from the
+    root: a 500 on the agent's page and a registry refusal that named no problem. It is refused
+    at load, for an agent the deployment owns and one from a registry alike, saying why."""
+    folder = sorter(tmp_path)
+    (folder / SCHEMA).write_text(root, encoding="utf-8")
+    shown = {"[]": "a list"}.get(root, root)
+    problem = f"input schema: the root is {shown}, not an object (the schema of the input's fields)"
+    for load in (load_agent, pulled):
+        with pytest.raises(AgentValidationError) as raised:
+            load(folder)
+        assert raised.value.problems == [problem], load
+    assert input_schema.problems(json.loads(root)) == [problem]
+    assert input_schema.problems({}) == []
 
 
 def test_local_references_and_the_root_dialect_still_work(triage_copy: Path) -> None:

@@ -5,7 +5,9 @@ jsonschema resolves a `$ref` it does not find in the document by fetching it: an
 server calls an address the agent chose, on every input check, with no timeout) or a local file
 (`file://`, outside the agent). A nested `$schema`, or a `$dynamicAnchor` reached from a
 metaschema, makes it check part of the input against another document than the agent's. So at
-load (`check`) an input schema must be self-contained:
+load (`check`) an input schema must be an object at its root, the schema of the input's fields
+(JSON Schema's `true` or `false` alone is refused: what reads the schema, the Decision Card among
+them, reads those fields from the root), and self-contained:
 
 - `$ref`, `$dynamicRef` and `$recursiveRef` start with `#` and resolve to a schema in the
   document (an object or a boolean);
@@ -46,6 +48,7 @@ below another (on the same value or a property's, an item's) at least doubles th
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterator, Mapping
 from typing import Any
@@ -70,7 +73,13 @@ _COUNTED = 10**9  # counts stop here: past it, a message says "more than 1,000,0
 
 
 def problems(schema: Any) -> list[str]:
-    """Why an agent's input schema is not self-contained (module docstring); [] if it is."""
+    """Why an agent's input schema is not an object at its root, or not self-contained (module
+    docstring); [] if it is both."""
+    if not isinstance(schema, dict):
+        return [
+            f"input schema: the root is {_kind(schema)}, not an object (the schema of the "
+            "input's fields)"
+        ]
     found: list[str] = []
     references: list[tuple[str, str]] = []
     stack: list[tuple[str, Any]] = [("", schema)]
@@ -110,7 +119,7 @@ def problems(schema: Any) -> list[str]:
                     "schema"
                 )
             stack.append((here, value))
-    if not found and isinstance(schema, dict):
+    if not found:
         resolver = Registry().resolver_with_root(DRAFT202012.create_resource(schema))
         for here, reference in references:
             try:
@@ -123,6 +132,15 @@ def problems(schema: Any) -> list[str]:
             if not isinstance(target, dict | bool):  # `#/required/0`: a string, not a schema
                 found.append(f"input schema: {here}: {reference!r} is not a schema")
     return sorted(found)
+
+
+def _kind(value: Any) -> str:
+    """A JSON value that is not an object, as a message names it."""
+    if isinstance(value, bool) or value is None:
+        return json.dumps(value)  # true, false, null
+    if isinstance(value, list):
+        return "a list"
+    return "a text" if isinstance(value, str) else "a number"
 
 
 def expansion_problems(schema: Any) -> list[str]:
