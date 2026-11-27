@@ -3,7 +3,8 @@
 
 A template may use `{recommendation}`, `{priority}`, and `{<question>}` for any question of the
 agent, which is replaced by that question's label, e.g. "Referral to {specialty} is missing
-information". A question without an answer (its provider failed) reads as "unknown".
+information"; no question takes a built-in's name (`spec.cross_reference_problems`). A question
+without an answer (its provider failed) reads as "unknown".
 
 A CDS Hooks card is read by a person (`fill_display`, LP-23f): there each label reads as its
 display name (`Question.name_of`: the agent's `names`, else a readable form of the label), and no

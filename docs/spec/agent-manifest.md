@@ -113,7 +113,8 @@ All MUST hold:
 - `id` is `namespace/name`, each part lowercase letters, digits and dashes, starting with a
   letter or a digit.
 - Question keys and labels match `^[a-z][a-z0-9_]*$`. A question has 2–255 labels, each with a
-  non-empty criterion.
+  non-empty criterion. No question is keyed `recommendation` or `priority`: those are the
+  templates' built-in placeholders (§9.11).
 - Every question is answered by exactly one provider slot. Slots answer only declared questions.
   A slot's `use` names one of its variants.
 - `policy.primary` is a question. Rule conditions reference existing questions and labels;
