@@ -623,6 +623,24 @@ def test_eval_share_sends_the_signed_counts(
     assert "drop --limit" in capsys.readouterr().err
 
 
+def test_eval_refuses_what_only_a_shared_run_reads_on_a_run_it_does_not_share(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--ticket`, `--supersedes` and `--consent-remote` are read by a shared run only: without
+    `--share` or `--share-out` they were ignored, a ticket file that is not there included, and
+    the run went on unshared. Refused before the run, as `--key` is without `--publish`."""
+    args = ["eval", TRIAGE.id, "--dataset", str(SITE_DATASET), "--baseline", "none"]
+    for option in (
+        ["--ticket", str(tmp_path / "no-such-ticket.json")],
+        ["--supersedes", "6fa744bc-2648-4b1c-a1b9-ac78046de809"],
+        ["--consent-remote"],
+    ):
+        assert main([*args, *option]) == 1, option
+        out, err = capsys.readouterr()
+        assert out == "", option
+        assert err == f"error: {option[0]} is for a shared run: add --share or --share-out\n"
+
+
 def _never_called(request: httpx.Request) -> httpx.Response:
     raise AssertionError(f"a request left for {request.url}")
 

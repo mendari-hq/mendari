@@ -278,7 +278,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         max_critical_misses=args.max_critical_misses,
     )
     held = _held_to(args)
-    sharing = bool(args.share or args.share_out)
+    sharing = _sharing(args)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
     targets = _targets(args)
@@ -468,6 +468,22 @@ def _no_target(targets: Any) -> list[str]:
         "example --target-critical-miss 1%) for the lowest automation threshold these cases "
         "support."
     ]
+
+
+def _sharing(args: argparse.Namespace) -> bool:
+    """Whether the run is shared as a site's (`--share`, or `--share-out` to read it first).
+    Without either, what only a shared run reads is refused before the run: it was ignored,
+    a `--ticket` file that is not there included, and the run went on unshared."""
+    if args.share or args.share_out:
+        return True
+    for flag, given in (
+        ("--ticket", args.ticket),
+        ("--supersedes", args.supersedes),
+        ("--consent-remote", args.consent_remote),
+    ):
+        if given:
+            raise MendariError(f"{flag} is for a shared run: add --share or --share-out")
+    return False
 
 
 def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
@@ -3910,7 +3926,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="a shared run may call a provider off this machine (recorded)",
     )
     evaluate.add_argument(
-        "--ticket", metavar="FILE", help="a ticket fetched on another machine (offline sharing)"
+        "--ticket",
+        metavar="FILE",
+        help="the ticket a shared run answers, fetched on another machine (offline sharing)",
     )
     evaluate.add_argument(
         "--supersedes", metavar="REPORT", help="a shared run corrects this report of the site's"
