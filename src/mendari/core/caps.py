@@ -21,10 +21,10 @@ refused at load, in words saying what to write instead, when
   it, `rules_runs`) and its schema's runs on one value come to more than `MAX_AGENT_PATTERNS`;
 - the same runs, each weighed by its pattern's size (`re2_syntax.size`: the characters,
   classes and `.`s it holds, each as often as a count repeats it), come to more than
-  `MAX_AGENT_PATTERN_SIZE` (`agent_size`). RE2 runs a pattern's copies side by side, so its time
-  on a character grows with the size: 500 patterns of `.{0,999}a.{0,999}b` (2,001 each), within
-  every other cap, took 148 s on 10,000 characters. The shipped agents' patterns (about 1,200 to
-  2,600 each) take milliseconds.
+  `MAX_AGENT_PATTERN_SIZE` (`schema_problems`, with `rules_size` and `schema_size`). RE2 runs a
+  pattern's copies side by side, so its time on a character grows with the size: 500 patterns
+  of `.{0,999}a.{0,999}b` (2,001 each), within every other cap, took 148 s on 10,000
+  characters. The shipped agents' patterns (about 1,200 to 2,600 each) take milliseconds.
 
 The caps do not make a hard bound alone: on 10,000 characters of emoji or Chinese text, where
 RE2's automaton runs out of memory and steps through a pattern's copies one by one, one search
@@ -163,13 +163,6 @@ def _question_patterns(rules: Any, question: str, weight: Weight) -> int:
         for item in items
         if isinstance(item, Mapping) and isinstance(item.get("pattern"), str)
     )
-
-
-def agent_size(manifest: AgentManifest, configs: Mapping[str, Any], schema: Any) -> int:
-    """The size of the patterns one decision runs on each character, at most: the rules' runs
-    and the input schema's on one value, each weighed by its pattern's size. Its patterns must
-    have compiled (`load_agent` checks them first)."""
-    return rules_runs(manifest, configs, rules_size) + schema_runs(schema, schema_size)
 
 
 # -- the input schema ----------------------------------------------------------------------------
