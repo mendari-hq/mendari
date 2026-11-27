@@ -5718,14 +5718,16 @@ class AuditStore(RateBuckets):
         self, db: _Session
     ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str]]:
         """The grading rounds' rows a full verification checks (`core/written.py`
-        `check_stored`): each round's state and stored report, each assignment's grades, and
-        each item row's item id."""
+        `check_stored`): each round's state and stored report, each assignment's grader and
+        grades, and each item row's item id."""
         rounds = {
             str(row["id"]): row for row in db.all("SELECT id, state, report FROM written_rounds")
         }
         assignments = {
             str(row["id"]): row
-            for row in db.all("SELECT id, round_id, item_id, grades FROM written_assignments")
+            for row in db.all(
+                "SELECT id, round_id, item_id, user_id, grades FROM written_assignments"
+            )
         }
         items = {
             str(row["id"]): str(row["item"]) for row in db.all("SELECT id, item FROM written_items")

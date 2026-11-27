@@ -1016,11 +1016,26 @@ def test_a_stored_report_edited_in_the_database_is_not_served_and_breaks_verific
                            WHERE a.item_id <> (SELECT max(id) FROM written_items))""",
             (),
         ),
+        # A grade given to another grader: a round closed after it would credit them.
+        (
+            """UPDATE written_assignments SET user_id = (SELECT max(user_id)
+                                                         FROM written_assignments)
+               WHERE id = (SELECT min(a.id) FROM written_assignments a
+                           WHERE a.user_id <> (SELECT max(user_id) FROM written_assignments))""",
+            (),
+        ),
         # A closed round reopened, or its report removed.
         ("UPDATE written_rounds SET state = 'open'", ()),
         ("UPDATE written_rounds SET report = NULL", ()),
     ],
-    ids=["grade-changed", "grade-removed", "grade-moved", "round-reopened", "report-removed"],
+    ids=[
+        "grade-changed",
+        "grade-removed",
+        "grade-moved",
+        "grade-given-to-another",
+        "round-reopened",
+        "report-removed",
+    ],
 )
 def test_verify_checks_every_stored_grade_and_closed_round_against_the_chain(
     world: World, sql: str, params: tuple[str, ...]

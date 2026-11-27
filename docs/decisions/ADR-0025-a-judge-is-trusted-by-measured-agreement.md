@@ -98,7 +98,8 @@ read caveats: a number that is shown is a number that is used.
 
 12. **What a round stores is held to what the chain committed to.** A closed round's report
     is served only while its hash is the one its closing chained, and a full verification of
-    the audit chain checks every closed round's report and every stored grade's commitment.
+    the audit chain checks every closed round's report and every stored grade's commitment and
+    grader.
 
 ## Consequences
 
