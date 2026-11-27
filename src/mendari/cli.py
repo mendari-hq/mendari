@@ -994,6 +994,8 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_leaderboard(args: argparse.Namespace) -> int:
     from mendari.evals import evaluate, leaderboard, resolve_dataset
 
+    if args.run and not args.dataset:  # it would run nothing, and say nothing beside --report
+        raise MendariError("--run evaluates a configuration on each --dataset: name at least one")
     agent = resolve_agent(args.agent)
     reports = [_read_json(path, "--report", shape=dict) for path in args.report]
     datasets = []

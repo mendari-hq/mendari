@@ -141,6 +141,25 @@ def test_cli_runs_configurations_and_merges(
     assert "examples" in capsys.readouterr().out
 
 
+def test_the_cli_refuses_a_run_with_no_dataset_to_run_it_on(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--run` evaluates a configuration on each `--dataset`: with none it ran nothing, and
+    beside a `--report` it said nothing and exited 0, the board without the configuration's
+    row. Refused before anything is read or written."""
+    refused = "--run evaluates a configuration on each --dataset: name at least one"
+    out = tmp_path / "leaderboard.json"
+    saved = tmp_path / "report.json"
+    saved.write_text(json.dumps(report(load_agent(TRIAGE_DIR), "examples")))
+    base = ["leaderboard", str(TRIAGE_DIR), "--out", str(out), "--run", "router=agent"]
+    for more in ([], ["--report", str(saved)]):
+        assert main([*base, *more]) == 1, more
+        out_text, err = capsys.readouterr()
+        assert out_text == "", more
+        assert err == f"error: {refused}\n", more
+        assert not out.exists(), more
+
+
 def test_the_cli_says_what_its_tables_are_as_the_card_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
