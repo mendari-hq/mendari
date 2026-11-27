@@ -172,9 +172,6 @@ const agentPath = (namespace: string, name: string) =>
 
 export const agent = (namespace: string, name: string) => get<AgentDetail>(agentPath(namespace, name));
 
-export const agentVersion = (namespace: string, name: string, version: string) =>
-  get<AgentVersion>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}`);
-
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
 
 export const RISK_WORDS: Record<number, string> = {
