@@ -41,6 +41,7 @@ import httpx
 
 from mendari.core.https_only import is_local_host
 from mendari.errors import ProviderError
+from mendari.providers.http import Budgeted
 
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 # The NAT64 well-known prefix (RFC 6052): its last 32 bits are an IPv4 address.
@@ -178,10 +179,11 @@ def check_public(url: str) -> None:
         raise ProviderError("invalid_endpoint", f"{error.why}: {HOW_TO_ALLOW}") from None
 
 
-class PublicOnly(httpcore.SyncBackend):
+class PublicOnly(Budgeted):
     """A network backend that opens a connection only to a public address: it looks the host up
     itself, refuses unless every address is public, and connects to the address it checked,
-    never to the name again. TLS is negotiated above this, for the name."""
+    never to the name again. TLS is negotiated above this, for the name. Each address it tries,
+    and each step of the connection, waits at most what remains of the attempt (`Budgeted`)."""
 
     def connect_tcp(
         self,

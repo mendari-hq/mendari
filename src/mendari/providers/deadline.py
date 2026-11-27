@@ -17,7 +17,8 @@ answer's headers), the clocks being checked only once its body arrives.
 - a remote call that would start after it is not made, before any credential is fetched or any
   budget charged (`refuse_if_past`);
 - a call under way waits at most what remains of it: each HTTP attempt's timeout is clamped
-  to it (`clamp`), no retry waits past it, and a response read in chunks stops at it;
+  to it (`clamp`) and holds for the attempt whole, each step of its connection included
+  (`http.Budgeted`), no retry waits past it, and a response read in chunks stops at it;
 - either way the provider fails with `timeout`, from the closed set, and the policy holds the
   decision for a person (a failure never automates; a missing primary abstains).
 

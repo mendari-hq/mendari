@@ -7,9 +7,13 @@ one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
 `invalid_input`, sent nowhere.
 
 Inside a decision, every attempt waits at most what remains of its deadline
-(`providers/deadline.py`): its timeout is clamped to it, no retry is waited past it, and a
-response read in chunks stops at it (`timeout`). Inside a decision or not, an attempt ends at its
-own timeout as a whole, never only at each read's.
+(`providers/deadline.py`): its timeout is clamped to it, and no retry is waited past it
+(`timeout`). Inside a decision or not, an attempt ends at its own timeout as a whole, never only
+at each step's: httpx bounds each step (connecting, the TLS handshake, each write and each read)
+by a timeout of its own, so on the clients Mendari calls with each step waits at most what
+remains of the attempt (`Budgeted`), and on any client a response read in chunks stops at its
+end. Not bounded, as before: looking a name up, and a name of the deployment's with several
+addresses, which is tried at each with what remained when connecting began.
 
 A deployment may also list the origins its remote providers may be called at
 (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, comma-separated, read as `MENDARI_FHIR_ALLOWED_SERVERS` is).
@@ -28,13 +32,16 @@ import json
 import math
 import os
 import re
+import ssl
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 
 from mendari.errors import MendariError, ProviderError, ProviderErrorCode
@@ -47,10 +54,82 @@ ALLOWED_ORIGINS_ENV = "MENDARI_PROVIDER_ALLOWED_ORIGINS"
 _ORIGINAL_CLIENT = httpx.Client
 _POOL_LOCK = threading.Lock()
 _POOLED_CLIENT: httpx.Client | None = None
+# When the attempt under way ends (`time.monotonic`), for the steps of its connection to wait at
+# most until (`Budgeted`); None outside one. Per thread: one attempt per connection at a time.
+_ATTEMPT_ENDS: ContextVar[float | None] = ContextVar("attempt_ends", default=None)
+
+
+def _within(timeout: float | None, late: type[Exception]) -> float | None:
+    """`timeout`, or what remains of the attempt under way when that is less; `late` (httpcore's
+    timeout of the step) once nothing remains, so that no step starts after the attempt ends."""
+    ends = _ATTEMPT_ENDS.get()
+    if ends is None:
+        return timeout
+    left = ends - time.monotonic()
+    if left <= 0:
+        raise late("the attempt's time is up")
+    return left if timeout is None else min(timeout, left)
+
+
+class Budgeted(httpcore.SyncBackend):
+    """httpcore's network backend, each step of a connection held to the attempt under way
+    (`_post_once`): connecting, the TLS handshake, each write and each read wait at most what
+    remains of it, and none starts after it. httpx's timeout bounds each step on its own, so a
+    server that answers a little inside each wait (its headers, then its body) could otherwise
+    hold an attempt for as many timeouts as it takes steps. The clients Mendari calls with
+    connect through it: the shared one (`_shared_client`) and `reach.public_client`."""
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[Any] | None = None,
+    ) -> httpcore.NetworkStream:
+        stream = super().connect_tcp(
+            host,
+            port,
+            timeout=_within(timeout, httpcore.ConnectTimeout),
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+        return _BudgetedStream(stream)
+
+
+class _BudgetedStream(httpcore.NetworkStream):
+    """A connection's stream, each step held to the attempt under way (`Budgeted`)."""
+
+    def __init__(self, stream: httpcore.NetworkStream):
+        self._stream = stream
+
+    def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        return self._stream.read(max_bytes, _within(timeout, httpcore.ReadTimeout))
+
+    def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        self._stream.write(buffer, _within(timeout, httpcore.WriteTimeout))
+
+    def close(self) -> None:
+        self._stream.close()
+
+    def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,
+    ) -> httpcore.NetworkStream:
+        timeout = _within(timeout, httpcore.ConnectTimeout)
+        return _BudgetedStream(self._stream.start_tls(ssl_context, server_hostname, timeout))
+
+    def get_extra_info(self, info: str) -> Any:
+        return self._stream.get_extra_info(info)
 
 
 def _shared_client() -> httpx.Client:
-    """Thread-safe pooled HTTP client for production calls (reuses TCP/TLS sessions)."""
+    """Thread-safe pooled HTTP client for production calls (reuses TCP/TLS sessions). It reads
+    a proxy from the environment as httpx does, and every pool it connects through, its own and
+    a proxy's, holds each attempt to its time (`Budgeted`): httpx takes no network backend, so
+    each pool is given one after it is built (`reach` builds its own transport's pool)."""
     global _POOLED_CLIENT
     with _POOL_LOCK:
         if _POOLED_CLIENT is None or _POOLED_CLIENT.is_closed:
@@ -58,6 +137,10 @@ def _shared_client() -> httpx.Client:
                 follow_redirects=False,
                 limits=httpx.Limits(max_connections=64, max_keepalive_connections=32),
             )
+            for transport in (_POOLED_CLIENT._transport, *_POOLED_CLIENT._mounts.values()):
+                pool = getattr(transport, "_pool", None)  # None: a pattern with no proxy
+                if pool is not None:
+                    pool._network_backend = Budgeted()
         return _POOLED_CLIENT
 
 
@@ -253,11 +336,14 @@ def _post_once(
     max_bytes: int,
 ) -> Any:
     """One attempt, which ends at its timeout (or what remains of the deadline) as a whole:
-    httpx's timeout bounds each read, so an answer arriving a little inside each wait would
-    otherwise hold the caller as long as the server likes."""
+    httpx's timeout bounds each step on its own, so an answer arriving a little inside each wait
+    would otherwise hold the caller as long as the server likes. Each step of a connection the
+    attempt makes through `Budgeted` waits at most until its end, and each chunk of the answer
+    is checked against it, on any client."""
     allowed = deadline.clamp(timeout_s)
     timeout = httpx.Timeout(allowed)
     stop_at = time.monotonic() + allowed
+    attempt = _ATTEMPT_ENDS.set(stop_at)
     try:
         with session.stream(
             "POST",
@@ -289,6 +375,8 @@ def _post_once(
         raise ProviderError("timeout") from None
     except httpx.HTTPError as error:
         raise ProviderError("provider_unavailable", type(error).__name__) from None
+    finally:
+        _ATTEMPT_ENDS.reset(attempt)
     try:
         return json.loads(b"".join(chunks))
     except (ValueError, RecursionError):

@@ -11,8 +11,11 @@ Connect answer here through `httpx.MockTransport`s: nothing leaves the machine.
 from __future__ import annotations
 
 import json
+import socket
+import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +30,7 @@ from mendari.core.spec import Outcome, Priority
 from mendari.errors import MendariError, ProviderError
 from mendari.evals.behaviour_tests import load_cases
 from mendari.parallel import parallel_map
-from mendari.providers import deadline, http
+from mendari.providers import deadline, http, reach
 from mendari.providers.agent import AgentProvider
 from mendari.providers.llm import LlmProvider
 from mendari.server.app import create_app
@@ -367,6 +370,95 @@ def test_a_slow_response_stops_at_its_own_timeout_outside_a_decision() -> None:
     took = time.monotonic() - started
     assert error.value.code == "timeout"
     assert took < 2.5  # the timeout, one chunk, and room for a busy runner; not 5 s
+
+
+# Each wait of `pausing`: under the one second an attempt below has, so that no single step of
+# it times out on its own.
+PAUSE = 0.9
+
+
+@contextmanager
+def pausing(port: list[int]) -> Iterator[None]:
+    """A server on this machine, on a raw socket, that waits `PAUSE` before its answer's
+    headers and again before its body: each wait inside one step's timeout. Its port is put in
+    `port`. On leaving, its waits end, its sockets close and its thread is joined."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(10)  # a client that never comes cannot keep the thread
+    port.append(listener.getsockname()[1])
+    stop = threading.Event()
+
+    def serve() -> None:
+        try:
+            connection, _ = listener.accept()
+        except OSError:
+            return
+        with connection:
+            try:
+                connection.recv(65_536)
+                head = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                if not stop.wait(PAUSE):
+                    connection.sendall(head + b"Content-Length: 2\r\n\r\n")
+                if not stop.wait(PAUSE):
+                    connection.sendall(b"{}")
+            except OSError:  # the client hung up, as it should once its time is up
+                pass
+
+    thread = threading.Thread(target=serve)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+        listener.close()
+
+
+@pytest.mark.parametrize(
+    ("client", "in_decision"),
+    [("shared", True), ("shared", False), ("public", True)],
+)
+def test_an_attempt_ends_at_its_time_whatever_the_server_waits_before_each_part(
+    client: str, in_decision: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """httpx bounds each step of a request by its timeout on its own (connecting, each write,
+    each read): a server that waits a little inside each, before its headers and again before
+    its body, held an attempt for two timeouts, so a decision's deadline let it run past the
+    platform's limit, before the audit is written. Through the clients Mendari calls with (the
+    deployment's shared one, and the one an organization's connection is called through), on a
+    real socket, an attempt ends at its time, whole: the deadline's in a decision, its own
+    timeout outside one. Nothing is left open."""
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
+    http.close_shared_client()  # built afresh, with no proxy
+    port: list[int] = []
+    session: httpx.Client | None = None
+    host = "127.0.0.1"
+    if client == "public":
+        # The connection's name looks up to this machine, which the test lets pass as public.
+        monkeypatch.setattr(reach, "resolve", lambda name, at: ["127.0.0.1"])
+        monkeypatch.setattr(reach, "is_public", lambda address: True)
+        monkeypatch.setattr(reach, "_CLIENT", None)
+        session, host = reach.public_client(), "agents.example.org"
+    threads = threading.active_count()
+    try:
+        with pausing(port):
+            url = f"http://{host}:{port[0]}/v1"
+            started = time.monotonic()
+            with pytest.raises(ProviderError) as error:
+                if in_decision:
+                    with deadline.decision_deadline(1.0):
+                        http.post_json(session, url, {}, headers={}, timeout_s=15)
+                else:
+                    http.post_json(session, url, {}, headers={}, timeout_s=1.0)
+            took = time.monotonic() - started
+    finally:
+        if session is not None:
+            session.close()
+        http.close_shared_client()
+    assert error.value.code == "timeout"
+    assert took < 1.4  # its one second, and room for a busy runner; not two waits of 0.9 s
+    assert threading.active_count() == threads
 
 
 # -- the setting -------------------------------------------------------------------------------
