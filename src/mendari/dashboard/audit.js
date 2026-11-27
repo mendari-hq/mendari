@@ -232,7 +232,12 @@ async function openRecord(id) {
   // names what is shown, so a slow answer never replaces a newer drawer.
   if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
-  const sameAgent = !r.agent_id || r.agent_id === state.agentId;
+  // The agent that made it: its row's (`agent_id`), as the record names it (`agent.id`). Opened
+  // by its id alone (the palette, a bare `#audit/<id>`), it can be another agent's than the one
+  // chosen: its codes are then shown as they are, never in the chosen agent's words, and it is
+  // not replayed into the chosen agent's Try it.
+  const recordAgent = found.agent_id ?? r.agent?.id;
+  const sameAgent = recordAgent === state.agentId;
   const recLabel = (code) => (sameAgent ? labelName(r.primary ?? state.detail.primary, code) : code);
   const at = visibleIds.indexOf(id);
   const prevId = at > 0 ? visibleIds[at - 1] : null;
@@ -262,6 +267,7 @@ async function openRecord(id) {
         <span>→ <b>${r.recommendation ? `${esc(recLabel(r.recommendation))}</b> <span class="mono muted">${esc(r.recommendation)}</span>` : "no recommendation</b>"}</span>
         ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
       <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
+      ${sameAgent ? "" : recordAgentNote(recordAgent)}
       ${guardrailTrace(r)}
       ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
@@ -269,7 +275,7 @@ async function openRecord(id) {
       ${r.data_coverage ? coveragePanel(id, r.data_coverage, r.ehr_declaration) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
-      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a)).join("")}
+      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, { own: sameAgent })).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       ${found.actions?.length ? `<h3>Actions</h3>
         <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>
@@ -292,7 +298,23 @@ async function openRecord(id) {
   shown.querySelectorAll("[data-step]").forEach((btn) => btn.addEventListener("click", () => {
     if (btn.dataset.step) location.hash = `#audit/${encodeURIComponent(btn.dataset.step)}`;
   }));
+  // Chosen as the picker chooses it: the address keeps `#audit/<id>`, so the record opens again
+  // over that agent's trail.
+  shown.querySelector("[data-record-agent]")?.addEventListener("click", (event) => {
+    const select = $("#agent-select");
+    select.value = event.currentTarget.dataset.recordAgent;
+    select.dispatchEvent(new Event("change"));
+  });
   wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
+}
+
+// Whose decision it is, when not the chosen agent's; where that agent is served here, a way to
+// show the decision with it (its words, its Try it).
+function recordAgentNote(agentId) {
+  const served = state.agents.find((a) => a.id === agentId);
+  return `<p class="callout neutral record-agent">Made by another agent, <b>${esc(served?.name ?? agentId)}</b>
+    <span class="mono">${esc(agentId)}</span>: its labels show as codes here.
+    ${served ? `<button type="button" data-record-agent="${esc(agentId)}">Show it with ${esc(served.name)}</button>` : ""}</p>`;
 }
 
 // Where what a decision keeps of its input is erased, on a patient's request or for a case

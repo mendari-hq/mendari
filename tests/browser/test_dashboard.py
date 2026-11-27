@@ -1745,6 +1745,67 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
     expect(page.locator("#drawer-title")).to_have_text("Human review · Nurse")
 
 
+def test_another_agents_record_is_not_replayed_into_the_chosen_one(
+    page: Page, live_server: str
+) -> None:
+    """A decision opened by its id alone (the palette's "Open decision", a bare `#audit/<id>`)
+    can be another agent's than the one chosen. Its record says whose it is, shows its labels as
+    codes, not in the chosen agent's words, and offers no replay: that would load its input into
+    the chosen agent's Try it, where Decide records a decision for the wrong agent. Shown with
+    its own agent, it is in that agent's words and replays there."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+    assert decision["recommendation"] == "self_care"  # "Care at home" in its own agent's words
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_contain_text(decision["id"])
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_have_count(0)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · self_care")
+    whose = dialog.locator(".record-agent")
+    expect(whose).to_contain_text(CLINICAL_NAME)
+    whose.get_by_role("button", name=f"Show it with {CLINICAL_NAME}").click()
+    expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#audit/{decision['id']}$"))
+    expect(page.locator("#agent-select")).to_have_value(CLINICAL)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · Care at home")
+    expect(dialog.locator(".record-agent")).to_have_count(0)
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_be_visible()
+
+
+def test_another_agents_record_borrows_none_of_the_chosen_agents_words(
+    page: Page, live_server: str
+) -> None:
+    """Two agents can ask the same question (two versions of one agent, a fork): a decision of
+    the other one is still shown in its own codes, never in the chosen agent's names for its
+    labels and questions. The record is answered here as the triage fixture's, with the clinical
+    review's questions."""
+    decision = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+
+    def as_triage(route: Route) -> None:
+        found = route.fetch().json()
+        found["agent_id"] = TRIAGE
+        found["record"]["agent"]["id"] = TRIAGE
+        route.fulfill(json=found)
+
+    page.route(f"**/api/audit/{decision['id']}", as_triage)
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(CLINICAL)})")
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(dialog.locator(".record-agent")).to_contain_text(TRIAGE_NAME)
+    expect(page.locator("#drawer-title")).to_have_text("Human review · self_care")
+    expect(dialog.locator("h4").first).to_contain_text("Disposition")
+    expect(dialog).not_to_contain_text("How soon should the patient")  # the chosen agent's words
+    expect(dialog.get_by_role("button", name="Replay in Try it")).to_have_count(0)
+
+
 # -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
 
 TOP_BAR_HEIGHT = "document.querySelector('.topbar').getBoundingClientRect().height"
