@@ -14,7 +14,9 @@
   - it extracts to an agent that loads with the signed digest, on the engine its pullers run
     (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);
-  - that version does not exist yet.
+  - that version does not exist yet;
+  - the token that sent it and the key that signed it are still live as it is written (read
+    again under the write lock: one revoked while the archive was checked publishes nothing).
 
   Versions are immutable.
 - **What a version shows** (ADR-0012): only what the registry checked or rendered itself,
@@ -294,6 +296,21 @@ _TOKEN_ID = re.compile(r"^[0-9a-f]{16}$")
 _TOKEN_FIELDS = (
     "id, namespace, org, owner, name, created_at, expires_at, revoked_at, revoked_by"  # no hash
 )
+
+
+def _owned(db: Session, token: str) -> dict[str, str] | None:
+    """Whose an owned token is (`id`, `namespace`, `org`, `owner`), read in the caller's
+    session; None for a token that is revoked, expired, or not an owned token at all."""
+    row = db.one(
+        "SELECT id, namespace, org, owner, expires_at, revoked_at "
+        "FROM hub_publisher_tokens WHERE token_sha256 = ?",
+        (_sha(token),),
+    )
+    if row is None or row["revoked_at"] is not None:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) <= datetime.fromisoformat(_now()):
+        return None
+    return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
 
 
 def _check_token_caps(
@@ -1029,16 +1046,7 @@ class RegistryStore(
         """Whose an owned token is (`id`, `namespace`, `org`, `owner`), in one read; None for a
         token that is revoked, expired, or not an owned token at all."""
         with self._db.session(exclusive=False) as db:
-            row = db.one(
-                "SELECT id, namespace, org, owner, expires_at, revoked_at "
-                "FROM hub_publisher_tokens WHERE token_sha256 = ?",
-                (_sha(token),),
-            )
-        if row is None or row["revoked_at"] is not None:
-            return None
-        if datetime.fromisoformat(row["expires_at"]) <= datetime.fromisoformat(_now()):
-            return None
-        return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
+            return _owned(db, token)
 
     def token_used(self, id: str) -> None:
         """Note that an owned token was used today (the deployment's day, `core/clock.py`).
@@ -1059,8 +1067,22 @@ class RegistryStore(
     # -- agents ----------------------------------------------------------------------------------
 
     def publish(
-        self, namespace: str, name: str, version: str, data: bytes, *, by: str = "operator"
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        data: bytes,
+        *,
+        by: str = "operator",
+        token: str | None = None,
     ) -> dict[str, Any]:
+        """Check a signed archive and store it as this version (the module's docstring says
+        what is checked). `token` is the publisher token the request was let through on (None:
+        no token, the operator's own call). The checks take minutes at most, so that token and
+        the key that signed the archive are read again as the version is written, under the lock
+        `revoke_token` and `revoke_key` write under: one revoked (or a token expired) meanwhile
+        publishes nothing, answered as at the start, and a stored version always precedes its
+        key's revocation."""
         revoked = self.revoked_keys(namespace)
         keys = {
             k["key_id"]: archive.load_public_key(k["public_pem"].encode())
@@ -1112,12 +1134,22 @@ class RegistryStore(
                 f"the agent's metadata cannot be served ({type(error).__name__})"
             ) from None
         with self._db.session(exclusive=True) as db:
+            if token is not None:  # as the route answers a token that is not live
+                owned = _owned(db, token)
+                if owned is None or owned["namespace"] != namespace:
+                    raise HubError(f"a token for namespace {namespace!r} is required", 403)
             if db.one(
                 "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
                 (namespace, name, version),
             ):
                 raise HubError(
                     f"{namespace}/{name}@{version} is published; versions are immutable", 409
+                )
+            if db.one(  # as `archive.verify` answers a key that is not trusted
+                "SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (verified.key_id,)
+            ):
+                raise HubError(
+                    f"the archive is signed by a key that is not trusted ({verified.key_id})"
                 )
             if not db.one(
                 "SELECT archive_sha256 FROM hub_archives WHERE archive_sha256 = ?",
@@ -2413,9 +2445,16 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        # Off the event loop: a publish runs the regression check, up to its time limit.
+        # Off the event loop: a publish runs the regression check, up to its time limit. The
+        # token is checked again as the version is written: it may be revoked meanwhile.
         return await run_in_threadpool(
-            store.publish, namespace, name, version, bytes(body), by=actor(request)
+            store.publish,
+            namespace,
+            name,
+            version,
+            bytes(body),
+            by=actor(request),
+            token=bearer(request),
         )
 
     async def small_body(request: Request, model: type[Small]) -> Small:

@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import base64
 import datetime
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ from mendari.core.card import render_card
 from mendari.core.reference import bundled_dir
 from mendari.evals import figures as figures_module
 from mendari.evals import stats
-from mendari.hub import archive
+from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
 from tests.conftest import (
@@ -100,6 +102,39 @@ def test_an_archive_signed_by_an_unregistered_key_is_refused(registry: Registry)
     stranger = archive.load_private_key(archive.generate_key()[0])
     refused = registry.publish(key=stranger)
     assert refused.status_code == 422 and "not trusted" in refused.text
+
+
+def test_a_key_revoked_while_its_archive_is_checked_publishes_nothing(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publish is checked before it is written (the archive extracted, validated and run
+    against the earlier version, minutes at most), and the operator may revoke the signing key
+    meanwhile. The key is read again as the version is written, under the lock `revoke_key`
+    writes under, and refused as a revoked key's archive is at the start: nothing is stored,
+    listed, counter-signed or chained. So a stored version always precedes its key's
+    revocation, which is what a puller checks (`hub/client.py` `_trusted_keys`)."""
+    monkeypatch.setenv(yank.KEY_ENV, base64.b64encode(os.urandom(32)).decode())  # counter-signs
+    key_id = archive.key_id(registry.fixture_publisher()[1].public_key())
+    checked = registry_module._refuse_invalid
+
+    def revoked_meanwhile(agent: Agent) -> None:
+        registry.operator.revoke_key(FIXTURE_NAMESPACE, key_id, reason="lost laptop", by="operator")
+        checked(agent)
+
+    monkeypatch.setattr(registry_module, "_refuse_invalid", revoked_meanwhile)
+    refused = registry.publish()
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"the archive is signed by a key that is not trusted ({key_id})"
+    )
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}").status_code == 404
+    assert registry.operator.latest(registry_module.REVIEWER) == []
+    with registry.operator._db.session(exclusive=False) as db:
+        assert db.all("SELECT * FROM hub_versions") == []
+        assert db.all("SELECT * FROM hub_acceptances") == []
+        chained = [row["event"] for row in db.all("SELECT event FROM hub_events ORDER BY seq")]
+    assert chained[-1] == "key.revoked" and "agent.published" not in chained
+    assert registry.operator.verify()["ok"]
 
 
 def test_the_archive_must_be_the_agent_and_version_in_the_url(registry: Registry) -> None:
