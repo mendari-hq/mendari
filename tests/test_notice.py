@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import Agent, Decision, notices
-from mendari.core.audit import AuditStore
+from mendari.core.audit import NOTICE_EVENT, AuditStore
 from mendari.core.card import render_card
 from mendari.core.registry import discover
 from mendari.server.app import create_app
@@ -142,7 +142,7 @@ def _events(store: AuditStore) -> list[dict[str, Any]]:
     with store._db.session(exclusive=False) as db:
         rows = db.all(
             "SELECT decision_id, event, payload FROM audit_events WHERE event = ?",
-            (notices.EVENT,),
+            (NOTICE_EVENT,),
         )
     return [{**dict(row), "payload": json.loads(row["payload"])} for row in rows]
 

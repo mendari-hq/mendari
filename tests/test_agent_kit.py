@@ -31,6 +31,7 @@ from mendari.core import actions as engine_actions
 from mendari.core import spec
 from mendari.core.spec import ActionSpec
 from mendari.core.spec import Question as SpecQuestion
+from mendari.errors import ProviderError
 from mendari.providers import agent as provider
 from mendari.providers import base
 from mendari.providers.agent import request_body, validate_response
@@ -241,6 +242,24 @@ def test_a_response_the_engine_would_refuse_is_an_error(
     with pytest.raises(AgentError) as raised:
         respond(Case.parse(body_of()), given, **kwargs)
     assert (raised.value.status, raised.value.message) == (502, message)
+
+
+@pytest.mark.parametrize("name", ["model", "service_version"])
+def test_an_id_with_a_final_newline_is_refused_as_the_engine_refuses_it(name: str) -> None:
+    """A version read from a file keeps its newline (`open("VERSION").read()`). The kit took
+    it, as `$` also matches before a final newline; the engine refused every answer that
+    carried it, so every case went to a person. The kit refuses it where it is made."""
+    case = Case.parse(body_of())
+    given = {"request": ("refill", 0.9), "urgent_symptoms": ("no", 0.9)}
+    read: dict[str, Any] = {name: "1.0.0\n"}
+    with pytest.raises(ProviderError, match=f"malformed {name}"):
+        validate_response({**respond(case, given), **read}, QUESTIONS)
+    with pytest.raises(AgentError) as raised:
+        respond(case, given, **read)
+    said = (raised.value.status, raised.value.message)
+    assert said == (502, f"the agent's {name} is not a valid id")
+    stripped: dict[str, Any] = {name: "1.0.0"}
+    assert checked(case, given, **stripped)[name] == "1.0.0"
 
 
 def test_provenance_rationales_usage_and_tool_calls_reach_the_engine() -> None:

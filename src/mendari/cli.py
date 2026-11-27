@@ -278,7 +278,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         max_critical_misses=args.max_critical_misses,
     )
     held = _held_to(args)
-    sharing = bool(args.share or args.share_out)
+    sharing = _sharing(args)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
     targets = _targets(args)
@@ -468,6 +468,22 @@ def _no_target(targets: Any) -> list[str]:
         "example --target-critical-miss 1%) for the lowest automation threshold these cases "
         "support."
     ]
+
+
+def _sharing(args: argparse.Namespace) -> bool:
+    """Whether the run is shared as a site's (`--share`, or `--share-out` to read it first).
+    Without either, what only a shared run reads is refused before the run: it was ignored,
+    a `--ticket` file that is not there included, and the run went on unshared."""
+    if args.share or args.share_out:
+        return True
+    for flag, given in (
+        ("--ticket", args.ticket),
+        ("--supersedes", args.supersedes),
+        ("--consent-remote", args.consent_remote),
+    ):
+        if given:
+            raise MendariError(f"{flag} is for a shared run: add --share or --share-out")
+    return False
 
 
 def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
@@ -978,6 +994,8 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_leaderboard(args: argparse.Namespace) -> int:
     from mendari.evals import evaluate, leaderboard, resolve_dataset
 
+    if args.run and not args.dataset:  # it would run nothing, and say nothing beside --report
+        raise MendariError("--run evaluates a configuration on each --dataset: name at least one")
     agent = resolve_agent(args.agent)
     reports = [_read_json(path, "--report", shape=dict) for path in args.report]
     datasets = []
@@ -3452,12 +3470,34 @@ def _monitored_days(text: str) -> int:
 
 
 def _case_limit(text: str) -> int | None:
-    """`mendari probe --limit`: how many cases, 1 or more, or `all` (None)."""
+    """`--limit` of a command that runs cases (`probe`, `eval`, `calibrate`, `leaderboard`,
+    `written eval`, `written round create`): how many, 1 or more, or `all` (None). Read as
+    `if args.limit:`, 0 was no limit at all and a negative number cut cases off the end."""
     if text == "all":
         return None
-    if not text.isdigit() or int(text) < 1:
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
         raise argparse.ArgumentTypeError("1 case or more, or `all`")
     return int(text)
+
+
+def _audit_time(text: str) -> str:
+    """`mendari audit export --since / --until`: a time in ISO 8601, extended
+    (`2026-11-27T20:05:51Z`) or basic (`20261127T200551Z`, as a backup's name has it), in UTC
+    unless it gives its offset; returned as the store keeps its times (UTC, to the millisecond),
+    which it compares as text. Unread, another form exported nothing, or left out the events of
+    its own second, silently. Checked before any work starts (argparse names the flag)."""
+    from datetime import UTC, datetime
+
+    from mendari.standards.search import stored
+
+    try:
+        parsed = datetime.fromisoformat(text)
+        return stored(parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC))
+    except (ValueError, OverflowError):  # not a time, or past datetime's range in UTC
+        raise argparse.ArgumentTypeError(
+            f"not a time: {text!r}: give one in ISO 8601, such as 2026-11-27T20:05:51Z or "
+            "20261127T200551Z, in UTC unless it gives its offset"
+        ) from None
 
 
 class UsageError(MendariError):
@@ -3778,7 +3818,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="'auto' (the agent's benchmark, never one an agent from a registry carries), 'none', "
         "or a report JSON path",
     )
-    evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
+    evaluate.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only evaluate the first N cases"
+    )
     evaluate.add_argument(
         "--workers", type=int, help="parallel decisions (default: 8 for remote providers, else 1)"
     )
@@ -3886,7 +3928,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="a shared run may call a provider off this machine (recorded)",
     )
     evaluate.add_argument(
-        "--ticket", metavar="FILE", help="a ticket fetched on another machine (offline sharing)"
+        "--ticket",
+        metavar="FILE",
+        help="the ticket a shared run answers, fetched on another machine (offline sharing)",
     )
     evaluate.add_argument(
         "--supersedes", metavar="REPORT", help="a shared run corrects this report of the site's"
@@ -3953,7 +3997,13 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--slot", required=True, help="provider slot")
     calibrate.add_argument("--variant", required=True, help="llm or agent variant of the slot")
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
-    calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
+    calibrate.add_argument(
+        "--limit",
+        type=_case_limit,
+        default=200,
+        metavar="N",
+        help="records to use (default 200, or `all`)",
+    )
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
 
     paired_runs = sub.add_parser(
@@ -3983,7 +4033,9 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument(
         "--dataset", action="append", default=[], help="dataset for every --run (repeat)"
     )
-    board.add_argument("--limit", type=int, help="only the first N cases of each dataset")
+    board.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only the first N cases of each dataset"
+    )
     board.add_argument("--workers", type=int, help="parallel decisions per run")
     board.add_argument(
         "--report",
@@ -4074,8 +4126,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="the events on no decision instead: keys, clients, people, approvals, holds, "
         "reports (with --org, that organization's; without, the deployment's own too)",
     )
-    audit_export.add_argument("--since", help="events at or after this time (ISO 8601, UTC)")
-    audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
+    audit_export.add_argument(
+        "--since",
+        type=_audit_time,
+        metavar="TIME",
+        help="events at or after this time: ISO 8601, UTC unless it gives its offset "
+        "(2026-11-27T20:05:51Z, or 20261127T200551Z as a backup's name has it)",
+    )
+    audit_export.add_argument(
+        "--until",
+        type=_audit_time,
+        metavar="TIME",
+        help="events before this time (read as --since)",
+    )
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
 
@@ -4934,7 +4997,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    written_eval.add_argument("--limit", type=int, help="only run the first N cases")
+    written_eval.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     written_eval.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )
@@ -4994,7 +5059,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    round_create.add_argument("--limit", type=int, help="only run the first N cases")
+    round_create.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     round_create.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )

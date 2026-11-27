@@ -4,7 +4,9 @@
 An assistant or agent framework that speaks MCP starts `mendari mcp` and calls Mendari as tools.
 Each `decide` call runs the named agent under its own policy, exactly as the REST API does: the
 input is checked against the agent's schema, the risk level caps automation, holds and registry
-approvals in the database apply, and the decision is written to the audit trail (`--db`). So a
+approvals in the database apply, an agent from a registry is held while that registry recalls
+it or has not been read for recalls (read in the background, as a running server reads it:
+`server/recalls.py`), and the decision is written to the audit trail (`--db`). So a
 general-purpose agent that reaches a clinical decision gets a governed outcome, never a raw
 model answer.
 
@@ -37,6 +39,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.registry import discover, resolve_agent
 from mendari.errors import MendariError
+from mendari.server.recalls import RecallWatch
 
 # The protocol revisions this server speaks, newest first. A client asking for one of them gets
 # it; any other request is answered with the newest (the client then decides whether to go on).
@@ -144,8 +147,11 @@ class ToolError(MendariError):
 class McpServer:
     """The protocol, independent of the transport: `handle` takes one message, gives the answer."""
 
-    def __init__(self, store: AuditStore):
+    def __init__(self, store: AuditStore, recalls: RecallWatch | None = None):
+        """`recalls` reads the recalls of the registries the agents decided here came from; by
+        default as a running server reads them, in the background."""
         self.store = store
+        self.recalls = RecallWatch(()) if recalls is None else recalls
         self._decisions: dict[str, Decision] = {}
         self._tools: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
             "list_agents": self._list_agents,
@@ -272,7 +278,11 @@ class McpServer:
                 return found is not None
 
             self._decisions[agent_id] = Decision(
-                agent, store=store, hold_source=held, origin_approval=approved
+                agent,
+                store=store,
+                hold_source=held,
+                origin_approval=approved,
+                recall_source=self.recalls.held,
             )
         return self._decisions[agent_id]
 

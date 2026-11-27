@@ -82,7 +82,7 @@ The agent's service must be live (`MENDARI_AGENT_URL`, or the agent's connection
 console): canned answers are not the agent's confidence, and are refused.
 
 ```bash
-mendari calibrate ./portal-agent --slot reader --variant agent --limit 0
+mendari calibrate ./portal-agent --slot reader --variant agent --limit all
 ```
 
 ```text
@@ -96,7 +96,7 @@ add `calibration: models/reader-agent-calibration.json` to the reader/agent vari
 ```
 
 T above 1 means the agent was over-confident. `--dataset` defaults to the agent's `calibration`
-set and `--limit` to 200 cases (0 is all of them). A question needs 100 labelled cases the
+set and `--limit` to 200 cases (`all` is every one). A question needs 100 labelled cases the
 agent answered. `urgent_symptoms` was not fitted: the agent was right on all 400, and an agent
 that is never wrong gives nothing to measure its confidence against. It is left as reported.
 
