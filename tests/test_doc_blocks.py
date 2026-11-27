@@ -64,13 +64,12 @@ def test_every_shell_and_python_block_has_its_marker(block: Any) -> None:
     elif block.kind == "snippet":
         name, _, step_name = block.arg.partition("/")
         stem, _, suffix = name.partition(".")
-        language = "python" if suffix == "py" else "bash"
-        steps = {step.name: step for step in snippets.load(stem, language=language)}
+        assert suffix == "sh" and block.lang != "python", block.where  # the examples are bash
+        steps = {step.name: step for step in snippets.load(stem)}
         assert step_name in steps, f"{block.where}: no step {step_name!r} in {name}"
         assert block.text == steps[step_name].text, (
             f"{block.where}: not the same text as {block.arg}"
         )
-        assert (block.lang == "python") == (language == "python"), block.where
     else:  # include
         assert block.text == f'--8<-- "{block.arg}"', block.where
         assert (snippets.DIRECTORY / block.arg).is_file(), block.where
@@ -87,11 +86,9 @@ def test_every_snippet_step_is_shown_where_the_docs_promise() -> None:
     links to the guide rather than copying the steps; a step it does copy (a `snippet` block) is
     one that exists, and the marker test above keeps its text the step's."""
     steps = {f"{step.file}.sh/{step.name}" for step in snippets.every()}
-    steps |= {f"{step.file}.py/{step.name}" for step in snippets.python_steps()}
     assert {block.arg for block in BLOCKS if block.kind == "snippet"} <= steps
     included = {block.arg for block in BLOCKS if block.kind == "include"}
-    expected = {f"{file}.sh" for file in snippets.FILES} | {f"{f}.py" for f in snippets.PYTHON}
-    assert included == expected
+    assert included == {f"{file}.sh" for file in snippets.FILES}
 
 
 def test_the_quickstart_calls_no_server() -> None:
@@ -152,7 +149,6 @@ def test_the_landing_shows_only_snippet_steps(tmp_path: Path) -> None:
     page = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs").text
     codes = set(re.findall(r'<code id="code-([^"]+)">', page))
     steps = {f"{step.file}-{step.name}" for step in snippets.every()}
-    steps |= {f"{step.file}-{step.name}-python" for step in snippets.python_steps()}
     shown = {
         code for code in codes if not code.endswith(("-prints", "-prints-1")) and code != "setup"
     }

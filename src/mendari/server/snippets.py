@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The API examples, from one source: `dashboard/snippets/*.sh` (and `*.py`, `PYTHON`).
+"""The API examples, from one source: `dashboard/snippets/*.sh`.
 
-Each file is a runnable bash script (or Python program), split into display steps by
-`# step: <name> — <title>` comments. The README shows steps verbatim (`tests/test_doc_snippets.py`
-keeps them equal), and `scripts/check_doc_snippets.py` runs every file in CI, the bash ones
-against a local server, in open mode and with a service key, so an example that stops working
-fails the build instead of a reader. The
+Each file is a runnable bash script, split into display steps by `# step: <name> — <title>`
+comments. The README shows steps verbatim (`tests/test_doc_snippets.py` keeps them equal), and
+`scripts/check_doc_snippets.py` runs every file in CI against a local server, in open mode and
+with a service key, so an example that stops working fails the build instead of a reader. The
 developer landing at `/docs` shows every step (`server/landing.py`) and the API guide
 (`docs/guides/api.md`) includes the files whole; they live under `src/` because the server reads
 them (Vercel's function excludes `docs/`).
@@ -21,9 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DIRECTORY = Path(__file__).resolve().parent.parent / "dashboard" / "snippets"
-FILES = ("quickstart", "fhir", "cds", "auth")  # bash, in reading order
-# Python examples, run without a server (`scripts/check_doc_snippets.py`): `<name>.py`. None today.
-PYTHON: tuple[str, ...] = ()
+FILES = ("quickstart", "fhir", "cds", "auth")  # in reading order
 
 STEP = re.compile(r"^# step: (?P<name>[a-z][a-z0-9-]*) — (?P<title>\S.*)$")
 # A call's URL is always the quoted "$MENDARI/…", so a check can find it and a reader can point
@@ -41,7 +38,6 @@ class Step:
     name: str
     title: str
     text: str  # the commands, as shown and run (no header, no surrounding blank lines)
-    language: str = "bash"  # or "python" (a `PYTHON` file)
 
     def calls(self) -> list[tuple[str, str]]:
         """`(method, path)` of every curl in the step, with a variable in a path as `x`: enough
@@ -57,25 +53,22 @@ class Step:
         return found
 
 
-def load(file: str, directory: Path = DIRECTORY, *, language: str = "bash") -> list[Step]:
-    """The steps of one snippet file (`<file>.sh`, or `<file>.py` for `python`), in order. What
-    comes before the first step (the shebang and the file's comments) is not a step."""
+def load(file: str, directory: Path = DIRECTORY) -> list[Step]:
+    """The steps of one snippet file (`<file>.sh`), in order. What comes before the first step
+    (the shebang and the file's comments) is not a step."""
     steps: list[Step] = []
     header: re.Match[str] | None = None
     lines: list[str] = []
-    suffix = ".py" if language == "python" else ".sh"
-    for line in [*(directory / f"{file}{suffix}").read_text(encoding="utf-8").splitlines(), None]:
+    for line in [*(directory / f"{file}.sh").read_text(encoding="utf-8").splitlines(), None]:
         if line is None or line.startswith("# step:"):
             if header is not None:
                 text = "\n".join(lines).strip()
-                steps.append(Step(file, header["name"], header["title"], text, language))
+                steps.append(Step(file, header["name"], header["title"], text))
             if line is None:
                 break
             header = STEP.match(line)
             if header is None:
-                raise ValueError(
-                    f"{file}{suffix}: write a step as '# step: <name> — <title>': {line}"
-                )
+                raise ValueError(f"{file}.sh: write a step as '# step: <name> — <title>': {line}")
             lines = []
         else:
             lines.append(line)
@@ -83,10 +76,5 @@ def load(file: str, directory: Path = DIRECTORY, *, language: str = "bash") -> l
 
 
 def every(directory: Path = DIRECTORY) -> list[Step]:
-    """Every step of every bash file, in reading order."""
+    """Every step of every file, in reading order."""
     return [step for file in FILES for step in load(file, directory)]
-
-
-def python_steps(directory: Path = DIRECTORY) -> list[Step]:
-    """Every step of every Python file, in reading order."""
-    return [step for file in PYTHON for step in load(file, directory, language="python")]
