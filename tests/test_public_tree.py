@@ -22,6 +22,13 @@ DEPLOYMENT_SPECIFICS = {
 }
 
 
+# A path on someone's own machine: it names them and their folders (and an agent that worked in
+# a checkout writes its scratch folder's path, which holds the same name).
+LOCAL_PATH = re.compile(
+    r"/Users/[A-Za-z][^/\s]*/|/home/[a-z][a-z0-9_-]*/|\b[A-Za-z]:\\Users\\|/private/tmp/claude-\d+/"
+)
+
+
 def _tracked_text() -> dict[str, str]:
     listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True)
     files: dict[str, str] = {}
@@ -60,3 +67,36 @@ def test_the_patterns_find_what_was_scrubbed() -> None:
         assert any(p.search(line) for p in DEPLOYMENT_SPECIFICS.values()), line
     advice = "(`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and"
     assert not any(p.search(advice) for p in DEPLOYMENT_SPECIFICS.values())
+
+
+def test_no_tracked_file_names_a_folder_on_someones_machine() -> None:
+    listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True)
+    found = []
+    for name in listed.stdout.decode().split("\0"):
+        path = ROOT / name
+        if not name or not path.is_file() or name.endswith(("package-lock.json", ".lock")):
+            continue
+        if name == "tests/test_public_tree.py":
+            continue  # the pattern's own examples, below
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # a binary file
+        found += [
+            f"{name}:{number}"
+            for number, line in enumerate(text.splitlines(), 1)
+            if LOCAL_PATH.search(line)
+        ]
+    assert found == []
+
+
+def test_the_local_path_pattern_finds_a_home_folder_and_a_scratch_folder() -> None:
+    for line in (
+        "$W = /Users/someone/Documents/project/.claude/worktrees/x",
+        "/home/dev/src/mendari/tests",
+        r"C:\Users\someone\mendari",
+        "/private/tmp/claude-501/-Users-someone-project/abc/scratchpad",
+    ):
+        assert LOCAL_PATH.search(line), line
+    for line in ("/usr/local/bin/mendari", "a path under ~/.config/mendari", "/home/ page"):
+        assert not LOCAL_PATH.search(line), line

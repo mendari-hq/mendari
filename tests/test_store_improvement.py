@@ -135,6 +135,94 @@ def test_an_author_who_may_not_read_inputs_cannot_build_it(world: Store) -> None
     assert refused.status_code == 403 and "read" in refused.text
 
 
+def test_an_author_who_may_not_read_inputs_runs_no_version_over_it(world: Store) -> None:
+    """What a version decides of a case is a function of its input that the version's author
+    chose (an edit rewrites its rules, a label per character would spell the input out), so an
+    author who may not read inputs runs no version over the improvement dataset: not its proposed
+    tests, nor accepting one, nor a draft's tests with the accepted ones, nor a job or a
+    comparison on it (E18, I2). One who may read inputs still does."""
+    _corrected(world)
+    reader = _author_reader(world)
+    digest = _draft(world, reader)
+    made = _build(world, reader, digest).json()
+    proposed = f"/api/store/versions/{digest}/proposed-tests"
+    shown = world.client.get(proposed, params={"dataset": made["id"]}, headers=reader)
+    assert shown.status_code == 200, shown.text
+    case = shown.json()["cases"][0]["case"]
+    accepted = world.client.post(
+        f"{proposed}/{made['id']}/{case}", json={"accept": True}, headers=reader
+    )
+    assert accepted.status_code == 200, accepted.text
+    job = world.client.post(
+        "/api/store/jobs", json={"version": digest, "dataset": {"id": made["id"]}}, headers=reader
+    )
+    assert job.status_code == 201, job.text
+    author = world.as_(ORG_A, "agent_author")  # `author` only: no `read_input`
+    for refused in (
+        world.client.get(proposed, params={"dataset": made["id"]}, headers=author),
+        world.client.post(
+            f"{proposed}/{made['id']}/{case}", json={"accept": False}, headers=author
+        ),
+        world.client.post(
+            "/api/store/jobs",
+            json={"version": digest, "dataset": {"id": made["id"]}},
+            headers=author,
+        ),
+        world.client.post(f"/api/store/jobs/{job.json()['id']}/advance", headers=author),
+        world.client.get(
+            "/api/store/comparisons",
+            params={"draft": job.json()["id"], "current": job.json()["id"]},
+            headers=author,
+        ),
+    ):
+        assert refused.status_code == 403 and "read" in refused.text, refused.text
+    tested = world.client.post(f"/api/store/versions/{digest}/tests", headers=author)
+    assert tested.status_code == 200 and tested.json()["proposed"] is None
+    mine = world.client.post(f"/api/store/versions/{digest}/tests", headers=reader).json()
+    assert [c["case"] for c in mine["proposed"]["cases"]] == [case]
+
+
+def test_running_a_version_over_it_chains_each_case_as_the_readers_read(world: Store) -> None:
+    """Each case a version decides over the improvement dataset is chained as an `input.read` of
+    its decision by whoever ran it, as reading the decision's input is (I2): proposed tests and
+    a job's slices alike."""
+    decided = _corrected(world)
+    reader = _author_reader(world)
+    digest = _draft(world, reader)
+    made = _build(world, reader, digest).json()
+
+    def reads() -> list[dict[str, Any]]:
+        with world.db._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT decision_id, payload FROM audit_events WHERE event = 'input.read' "
+                "ORDER BY seq"
+            )
+        return [{"decision": r["decision_id"], **json.loads(r["payload"])} for r in rows]
+
+    built = reads()  # the build's own reads, one per decision, by the reader
+    assert sorted(r["decision"] for r in built) == sorted(decided)
+    readers = {r["reader"] for r in built}
+    shown = world.client.get(
+        f"/api/store/versions/{digest}/proposed-tests",
+        params={"dataset": made["id"]},
+        headers=reader,
+    )
+    assert shown.status_code == 200, shown.text
+    ran = reads()[len(built) :]
+    assert sorted(r["decision"] for r in ran) == sorted(decided)
+    assert {r["reader"] for r in ran} == readers and {r["org"] for r in ran} == {ORG_A}
+    job = world.client.post(
+        "/api/store/jobs", json={"version": digest, "dataset": {"id": made["id"]}}, headers=reader
+    ).json()
+    while job["state"] not in ("done", "failed"):
+        job = world.client.post(f"/api/store/jobs/{job['id']}/advance", headers=reader).json()
+    assert job["state"] == "done", job
+    slices = reads()[len(built) + len(ran) :]
+    assert sorted(r["decision"] for r in slices) == sorted(decided)
+    assert {r["reader"] for r in slices} == readers
+    assert world.db.verify()["ok"]
+
+
 def test_another_organizations_corrections_are_never_in_it(world: Store) -> None:
     mine = _corrected(world)
     theirs = _corrected(world, org=ORG_B)

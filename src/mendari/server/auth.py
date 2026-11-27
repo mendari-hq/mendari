@@ -724,6 +724,16 @@ def credential_in_url_or_form() -> AuthError:
     )
 
 
+def path_is_whole(request: Request) -> bool:
+    """Whether the path the checks read (`request.url.path`) is the path the router routes
+    (`scope["path"]`). A `?` or `#` sent encoded in the path (`%3F`, `%23`) cuts
+    `request.url.path` there: Starlette rebuilds the URL from the decoded path, so the guard, the
+    origin check and the limits would decide on a shorter path than the route that answers. No
+    route's path holds either character, so such a request is refused before any check."""
+    path = str(request.scope.get("path", ""))
+    return "?" not in path and "#" not in path
+
+
 def names_a_credential(names: Iterable[str]) -> bool:
     """Whether query or form parameter names include `access_token`, in any case."""
     return any(name.strip().lower() == "access_token" for name in names)

@@ -205,11 +205,13 @@ class JobStore:
             self.store._append(db, f"store_job:{job_id}", "store_job.created", chained)
         return self.job(org, job_id)
 
-    def advance(self, org: str, job_id: str) -> dict[str, Any]:
+    def advance(self, org: str, job_id: str, *, reader: str | None = None) -> dict[str, Any]:
         """Run the job's next slice, if no other call holds it: claim it in one transaction,
         decide as many cases as fit `SLICE_SECONDS`, keep their ledger lines, and, on the last
         slice, write the report with its ledger (`save_report`, chained `eval.recorded`). Called
-        twice at once, the second does nothing; each case is decided once."""
+        twice at once, the second does nothing; each case is decided once. With a `reader` (a
+        job on the improvement dataset, whose cases are decisions' inputs), each case decided is
+        chained as their read of that decision's input (`chain_input_reads`)."""
         claim, now = uuid.uuid4().hex, datetime.now(UTC)
         with self.store._db.session(exclusive=True) as db:
             row = self._row(db, org, job_id)
@@ -224,9 +226,11 @@ class JobStore:
             )
             done, total = int(row["done"]), int(row["total"])
         try:
-            lines, header, latencies = self._slice(org, row, done, total)
+            lines, header, latencies, cases = self._slice(org, row, done, total)
         except (MendariError, StoreError) as error:
             return self._fail(org, job_id, claim, str(error))
+        if reader is not None:
+            self.store.chain_input_reads(org, cases, reader=reader)
         with self.store._db.session(exclusive=True) as db:
             row = self._row(db, org, job_id)
             if row["claim"] != claim:  # this slice outlived its claim: the next call has it
@@ -245,9 +249,9 @@ class JobStore:
 
     def _slice(
         self, org: str, row: Mapping[str, Any], done: int, total: int
-    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[int]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[int], list[str]]:
         """Decide the next cases (one at least) within `SLICE_SECONDS`: their ledger lines (models
-        named), the ledger's header, and each decision's latency."""
+        named), the ledger's header, each decision's latency, and the cases' own ids."""
         named = json.loads(row["target"])
         target, _ = self._target(org, *_named(named))
         if target.digest != named["digest"]:
@@ -264,7 +268,8 @@ class JobStore:
             results.append(decision.decide(record["input"]))
         part = replace(data, records=data.records[done : done + len(results)])
         built = ledgers.build(decision, part, results)
-        return _lines(built), built.header, [int(r.latency_ms) for r in results]
+        ids = [str(record.get("id")) for record in part.records]
+        return _lines(built), built.header, [int(r.latency_ms) for r in results], ids
 
     def _finish(self, org: str, job_id: str, order: Sequence[str]) -> dict[str, Any]:
         """Write the report of a job whose every case is decided, once, in one transaction with
