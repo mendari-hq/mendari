@@ -281,6 +281,8 @@ def cmd_eval(args: argparse.Namespace) -> int:
     sharing = _sharing(args)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
+    if args.registry and not (sharing or args.publish):  # where neither goes: ignored
+        raise MendariError("--registry is for a shared or published run: add --share or --publish")
     targets = _targets(args)
     if sharing:
         # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
@@ -1003,6 +1005,14 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
 
     if args.run and not args.dataset:  # it would run nothing, and say nothing beside --report
         raise MendariError("--run evaluates a configuration on each --dataset: name at least one")
+    if not args.run:  # a run's options, beside a --report alone, would be ignored
+        for flag, given in (
+            ("--dataset", args.dataset),
+            ("--limit", args.limit),
+            ("--workers", args.workers),
+        ):
+            if given:
+                raise MendariError(f"{flag} is for --run: add one")
     agent = resolve_agent(args.agent)
     reports = [_read_json(path, "--report", shape=dict) for path in args.report]
     datasets = []
@@ -3482,6 +3492,14 @@ def _case_limit(text: str) -> int | None:
     return int(text)
 
 
+def _items(text: str) -> int:
+    """`sandbox smart-launch --limit`: 1 item or more. A plain whole number, 0 decided nothing
+    (the run reported failed) and a negative one all but the last items."""
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
+        raise argparse.ArgumentTypeError("1 item or more")
+    return int(text)
+
+
 def _audit_time(text: str) -> str:
     """`mendari audit export --since / --until`: a time in ISO 8601, extended
     (`2026-11-27T20:05:51Z`) or basic (`20261127T200551Z`, as a backup's name has it), in UTC
@@ -4368,7 +4386,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"the agent to launch, by id or directory: one with a FHIR mapping (default: {demo})",
     )
     smart.add_argument("--patient", help="patient id (default: one with a work item)")
-    smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
+    smart.add_argument("--limit", type=_items, default=5, help="decide at most this many items")
     smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
     smart.add_argument(
         "--expect-org",

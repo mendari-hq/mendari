@@ -160,6 +160,22 @@ def test_the_cli_refuses_a_run_with_no_dataset_to_run_it_on(
         assert not out.exists(), more
 
 
+def test_the_cli_refuses_what_only_a_run_reads_without_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--dataset`, `--limit` and `--workers` are a `--run`'s: beside a `--report` alone they
+    were ignored and the command exited 0. Refused before anything is read or written."""
+    out = tmp_path / "leaderboard.json"
+    saved = tmp_path / "report.json"
+    saved.write_text(json.dumps(report(load_agent(TRIAGE_DIR), "examples")))
+    base = ["leaderboard", str(TRIAGE_DIR), "--out", str(out), "--report", str(saved)]
+    for option in (["--dataset", "examples"], ["--limit", "3"], ["--workers", "2"]):
+        assert main([*base, *option]) == 1, option
+        out_text, err = capsys.readouterr()
+        assert out_text == "" and err == f"error: {option[0]} is for --run: add one\n", option
+        assert not out.exists(), option
+
+
 def test_the_cli_says_what_its_tables_are_as_the_card_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

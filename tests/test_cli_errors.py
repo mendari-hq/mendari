@@ -452,3 +452,16 @@ def test_a_runs_limit_is_1_case_or_more_or_all(
     out, err = capsys.readouterr()
     assert out == "" and err.count("\n") == 1
     assert err.startswith(f"error: mendari {command}: argument --limit: 1 case or more, or `all`")
+
+
+@pytest.mark.parametrize("limit", ["0", "-1", "some"])
+def test_smart_launchs_limit_is_1_item_or_more(
+    limit: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`sandbox smart-launch --limit` was a plain whole number: 0 decided nothing (and the run
+    was reported failed), a negative one all but the last items. Refused before anything runs."""
+    argv = ["sandbox", "smart-launch", "--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD]
+    assert main([*argv, "--limit", limit]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.count("\n") == 1
+    assert err.startswith("error: mendari sandbox smart-launch: argument --limit: 1 item or more")

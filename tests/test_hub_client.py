@@ -641,6 +641,18 @@ def test_eval_refuses_what_only_a_shared_run_reads_on_a_run_it_does_not_share(
         assert err == f"error: {option[0]} is for a shared run: add --share or --share-out\n"
 
 
+def test_eval_refuses_a_registry_for_a_run_it_neither_shares_nor_publishes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--registry` names where a shared or published run goes: on a run that does neither it
+    was ignored. Refused before the run."""
+    args = ["eval", TRIAGE.id, "--dataset", str(SITE_DATASET), "--baseline", "none"]
+    assert main([*args, "--registry", "https://hub.example.org"]) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == "error: --registry is for a shared or published run: add --share or --publish\n"
+
+
 def test_eval_refuses_supersedes_beside_a_ticket_that_already_says_what_it_corrects(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
