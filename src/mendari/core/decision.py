@@ -158,10 +158,6 @@ class DecisionResult:
         answer = self.answers.get(self.primary)
         return answer.confidence if answer else None
 
-    @property
-    def needs_human(self) -> bool:
-        return self.outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN)
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
