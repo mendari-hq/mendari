@@ -454,6 +454,31 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
     assert wrong.status_code == 422
 
 
+def test_a_message_about_another_patient_is_refused(app: TestClient, ehr: FakeEhr) -> None:
+    """An agent that decides about a resource other than the patient (a message) decides only
+    one about the launch's patient: its `subject` names them, or the decision is refused before
+    anything else is read. Without this, a launch for one patient decided another's message."""
+    full_launch(app, ehr)
+    for rid, patient in (("theirs", "someone"), ("yours", PATIENT)):
+        ehr.resources.append(
+            {
+                "resourceType": "Communication",
+                "id": rid,
+                "status": "completed",
+                "subject": {"reference": f"Patient/{patient}"},
+                "payload": [{"contentString": "Can I get a refill on my lisinopril?"}],
+            }
+        )
+    denied = app.post(
+        "/api/smart/decide", json={"agent_id": TRIAGE, "focus": "Communication/theirs"}
+    )
+    assert denied.status_code == 403 and "not about the launch's patient" in denied.text
+    allowed = app.post(
+        "/api/smart/decide", json={"agent_id": TRIAGE, "focus": "Communication/yours"}
+    )
+    assert allowed.status_code != 403, allowed.text
+
+
 def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: FakeEhr) -> None:
     """`$` matches before a final newline: an id with one passed, was read without it and went
     on into the decision's context with its newline."""
