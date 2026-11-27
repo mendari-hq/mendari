@@ -231,7 +231,8 @@ def test_what_the_checks_show_of_an_organization_is_the_caller_s_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two organizations' EHRs are registered; the operator's checks count its own, and the
-    other's FHIR base is in no answer. The EHR check refuses the other's as an unknown one."""
+    other's FHIR base is in no answer. The EHR check refuses the other's as an unknown one, and
+    so a base that is not a URL, one that does not even split as one included."""
     configure(monkeypatch)
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
     monkeypatch.setenv(
@@ -253,7 +254,7 @@ def test_what_the_checks_show_of_an_organization_is_the_caller_s_only(
         ehr = next(c for c in shown.json()["checks"] if c["key"] == "ehr")
         assert ehr["state"] == "attention" and "1 EHR registered to launch" in ehr["detail"]
         assert "zqother" not in shown.text
-        for base in (OTHER_EHR, "https://ehr.unknown.example/fhir", "not a url"):
+        for base in (OTHER_EHR, "https://ehr.unknown.example/fhir", "not a url", "http://["):
             refused = client.post("/api/system/ehr-check", headers=operator, json={"base": base})
             assert refused.status_code == 404, base
             assert refused.json()["detail"] == "no EHR with this FHIR base is registered to you"

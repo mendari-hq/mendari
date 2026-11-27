@@ -729,6 +729,35 @@ def test_an_unregistered_ehr_is_refused_before_any_call(
     assert none.get("/api/health").status_code == 200
 
 
+@pytest.mark.parametrize(
+    ("registered", "status", "reason"),
+    [(None, 422, "issuer"), (REGISTERED, 403, "unregistered")],
+)
+def test_an_iss_that_is_not_a_url_is_refused_with_the_launch_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tenants: tuple[FakeEhr, FakeEhr],
+    capsys: pytest.CaptureFixture[str],
+    registered: str | None,
+    status: int,
+    reason: str,
+) -> None:
+    """An `iss` that does not even split as a URL (`http://[`) is refused as any other launch
+    is, never a 500: in open mode with no EHR registered as an issuer off the allow-list, with
+    EHRs registered as an unregistered one. The launch's page and one `smart.launch.refused`
+    line, and nothing leaves for any server."""
+    a, b = tenants
+    app = signed_site(tmp_path / "a.db", monkeypatch, registered, a, b)
+    capsys.readouterr()
+    refused = launch(app, iss="http://[")
+    assert refused.status_code == status, refused.text
+    assert refused.headers["content-type"].startswith("text/html")
+    assert "set-cookie" not in refused.headers
+    assert a.requests == [] and b.requests == []
+    events = [e for e in security_lines(capsys.readouterr().out) if e["event"] != "request"]
+    assert [(e["event"], e["reason"]) for e in events] == [("smart.launch.refused", reason)]
+
+
 def test_a_view_level_launch_cannot_decide(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
 ) -> None:
@@ -992,6 +1021,7 @@ def test_a_registration_is_keyed_on_the_normalized_base(monkeypatch: pytest.Monk
         (f"{TENANT_A}=:decide", "must look like"),
         ("ehrs.example.org/fhir=clinic-a:view", "must look like"),
         (f"{TENANT_A}?x=1=clinic-a:view", "must look like"),
+        ("http://[=clinic-a:view", "must look like"),  # not even a URL
         (f"{TENANT_A}=clinic-a:view,{TENANT_A}/=clinic-b:view", "registered twice"),
         ("https://other.example.org/fhir=clinic-a:view", "not on MENDARI_FHIR_ALLOWED_SERVERS"),
     ],
