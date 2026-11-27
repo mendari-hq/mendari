@@ -117,6 +117,11 @@ After a restore, **before serving from it**:
    mendari audit export --since <the backup's time> --db <the incident's database>
    ```
 
+   The time is ISO 8601, in UTC unless it gives its offset: a backup the one-machine install
+   made carries it in its name (`mendari-20261124T020000Z.dump` is
+   `--since 20261124T020000Z`). A time the command cannot read is refused, never taken as an
+   empty list.
+
    Then, on the restored database:
    - keys and clients revoked (`key.revoked`, `client.revoked`): revoke them again
      (`mendari access revoke`);

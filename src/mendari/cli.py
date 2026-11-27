@@ -3460,6 +3460,26 @@ def _case_limit(text: str) -> int | None:
     return int(text)
 
 
+def _audit_time(text: str) -> str:
+    """`mendari audit export --since / --until`: a time in ISO 8601, extended
+    (`2026-11-27T20:05:51Z`) or basic (`20261127T200551Z`, as a backup's name has it), in UTC
+    unless it gives its offset; returned as the store keeps its times (UTC, to the millisecond),
+    which it compares as text. Unread, another form exported nothing, or left out the events of
+    its own second, silently. Checked before any work starts (argparse names the flag)."""
+    from datetime import UTC, datetime
+
+    from mendari.standards.search import stored
+
+    try:
+        parsed = datetime.fromisoformat(text)
+        return stored(parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC))
+    except (ValueError, OverflowError):  # not a time, or past datetime's range in UTC
+        raise argparse.ArgumentTypeError(
+            f"not a time: {text!r}: give one in ISO 8601, such as 2026-11-27T20:05:51Z or "
+            "20261127T200551Z, in UTC unless it gives its offset"
+        ) from None
+
+
 class UsageError(MendariError):
     """A command line argparse refuses: one line, naming the command and where its help is."""
 
@@ -4074,8 +4094,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="the events on no decision instead: keys, clients, people, approvals, holds, "
         "reports (with --org, that organization's; without, the deployment's own too)",
     )
-    audit_export.add_argument("--since", help="events at or after this time (ISO 8601, UTC)")
-    audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
+    audit_export.add_argument(
+        "--since",
+        type=_audit_time,
+        metavar="TIME",
+        help="events at or after this time: ISO 8601, UTC unless it gives its offset "
+        "(2026-11-27T20:05:51Z, or 20261127T200551Z as a backup's name has it)",
+    )
+    audit_export.add_argument(
+        "--until",
+        type=_audit_time,
+        metavar="TIME",
+        help="events before this time (read as --since)",
+    )
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
 
