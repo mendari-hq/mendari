@@ -3452,10 +3452,12 @@ def _monitored_days(text: str) -> int:
 
 
 def _case_limit(text: str) -> int | None:
-    """`mendari probe --limit`: how many cases, 1 or more, or `all` (None)."""
+    """`--limit` of a command that runs cases (`probe`, `eval`, `calibrate`, `leaderboard`,
+    `written eval`, `written round create`): how many, 1 or more, or `all` (None). Read as
+    `if args.limit:`, 0 was no limit at all and a negative number cut cases off the end."""
     if text == "all":
         return None
-    if not text.isdigit() or int(text) < 1:
+    if not (text.isascii() and text.isdigit()) or int(text) < 1:
         raise argparse.ArgumentTypeError("1 case or more, or `all`")
     return int(text)
 
@@ -3798,7 +3800,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="'auto' (the agent's benchmark, never one an agent from a registry carries), 'none', "
         "or a report JSON path",
     )
-    evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
+    evaluate.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only evaluate the first N cases"
+    )
     evaluate.add_argument(
         "--workers", type=int, help="parallel decisions (default: 8 for remote providers, else 1)"
     )
@@ -3973,7 +3977,13 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--slot", required=True, help="provider slot")
     calibrate.add_argument("--variant", required=True, help="llm or agent variant of the slot")
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
-    calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
+    calibrate.add_argument(
+        "--limit",
+        type=_case_limit,
+        default=200,
+        metavar="N",
+        help="records to use (default 200, or `all`)",
+    )
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
 
     paired_runs = sub.add_parser(
@@ -4003,7 +4013,9 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument(
         "--dataset", action="append", default=[], help="dataset for every --run (repeat)"
     )
-    board.add_argument("--limit", type=int, help="only the first N cases of each dataset")
+    board.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only the first N cases of each dataset"
+    )
     board.add_argument("--workers", type=int, help="parallel decisions per run")
     board.add_argument(
         "--report",
@@ -4965,7 +4977,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    written_eval.add_argument("--limit", type=int, help="only run the first N cases")
+    written_eval.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     written_eval.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )
@@ -5025,7 +5039,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLOT=VARIANT",
         help="use a non-default provider variant (repeatable)",
     )
-    round_create.add_argument("--limit", type=int, help="only run the first N cases")
+    round_create.add_argument(
+        "--limit", type=_case_limit, metavar="N", help="only run the first N cases"
+    )
     round_create.add_argument(
         "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
     )

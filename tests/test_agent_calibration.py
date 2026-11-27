@@ -318,7 +318,7 @@ def a_calibrated_run(
     simulated.write(root, "calibration", 400, seed=1)
     simulated.write(root, "test", 600, seed=2)
     serve(monkeypatch, simulated)
-    arguments = ["calibrate", str(root), "--slot", "reader", "--variant", "agent", "--limit", "0"]
+    arguments = ["calibrate", str(root), "--slot", "reader", "--variant", "agent", "--limit", "all"]
     assert main(arguments) == 0
     relative = "models/reader-agent-calibration.json"
 
@@ -360,7 +360,7 @@ def test_mendari_calibrate_says_when_it_is_given_an_evaluation_set(
     root, _ = a_calibrated_run(tmp_path, monkeypatch)
     capsys.readouterr()
     on_test = ["calibrate", str(root), "--slot", "reader", "--variant", "agent"]
-    assert main([*on_test, "--dataset", "test", "--limit", "0"]) == 0
+    assert main([*on_test, "--dataset", "test", "--limit", "all"]) == 0
     _, err = capsys.readouterr()
     assert err.startswith("note: test is one of this agent's evaluation sets.")
 
