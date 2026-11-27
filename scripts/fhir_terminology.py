@@ -13,17 +13,12 @@ import json
 import sys
 from pathlib import Path
 
-from mendari.core.agent import Agent
-from mendari.core.registry import discover, version_key
+from mendari.core.registry import discover, newest
 from mendari.standards import terminology
 
 
 def main(out: Path) -> None:
-    latest: dict[str, Agent] = {}
-    for agent in discover().agents:
-        current = latest.get(agent.id)
-        if current is None or version_key(agent.version) > version_key(current.version):
-            latest[agent.id] = agent
+    latest = newest(discover().agents)
     found = [*terminology.resources(latest.values()), *terminology.sandbox_resources()]
     out.mkdir(parents=True, exist_ok=True)
     for stale in out.glob("*.json"):

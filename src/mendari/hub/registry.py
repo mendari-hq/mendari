@@ -115,7 +115,7 @@ from mendari.core.db import Backend, Baseline, Session, connect
 from mendari.core.https_only import is_local_host
 from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
 from mendari.core.rate_buckets import RateBuckets
-from mendari.core.registry import version_key
+from mendari.core.registry import precedence
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
 from mendari.evals.share import JOINERS, SiteReportV1, composite_members, where
@@ -466,30 +466,6 @@ def _now_ms() -> str:
 
 def _version_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
-
-
-def precedence(version: str) -> tuple[Any, ...]:
-    """How the registry orders an agent's versions, the newest last: by semantic-version
-    precedence (SemVer 2.0.0, section 11), then as text. The numbers compare as integers would
-    (`version_key`, whatever their length); a release ranks above its pre-releases, whose
-    dot-separated identifiers compare in turn: digits as numbers and below the others, which
-    compare in ASCII order, and fewer identifiers first when the rest are equal; build metadata
-    counts for nothing. Versions of equal precedence (`1.2.0` and `1.02.0`) then compare as text,
-    so no order depends on the order the database reads rows in. `version_key` alone ties a
-    release and its pre-releases, on purpose: one that ties a bundled agent's version may not
-    take its place (`core/agent.py`)."""
-    numbers, hyphen, pre = version.partition("+")[0].partition("-")
-    release = (1,) if not hyphen else (0, tuple(_identifier(part) for part in pre.split(".")))
-    return (version_key(numbers), release, version)
-
-
-def _identifier(part: str) -> tuple[int, int, str]:
-    """A pre-release identifier's place: digits as a number, below any other identifier, which
-    compares in ASCII order."""
-    if part.isascii() and part.isdigit():
-        digits = part.lstrip("0")
-        return (0, len(digits), digits)
-    return (1, 0, part)
 
 
 _NOT_COUNTERSIGNED = (

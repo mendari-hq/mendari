@@ -66,7 +66,7 @@ from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.https_only import is_local_host
 from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
-from mendari.core.registry import SearchPath, discover, version_key
+from mendari.core.registry import SearchPath, discover, newest
 from mendari.core.site_codes import site_codes
 from mendari.core.written import WrittenStore
 from mendari.errors import (
@@ -762,11 +762,7 @@ def create_app(
     if missing:
         raise MendariError(f"MENDARI_AGENTS: agents not installed here: {sorted(missing)}")
     # The newest version of every agent found, served or not.
-    installed: dict[str, Agent] = {}
-    for agent in found.agents:
-        current = installed.get(agent.id)
-        if current is None or version_key(agent.version) > version_key(current.version):
-            installed[agent.id] = agent
+    installed = newest(found.agents)
     agents = {
         agent_id: agent for agent_id, agent in installed.items() if not only or agent_id in only
     }

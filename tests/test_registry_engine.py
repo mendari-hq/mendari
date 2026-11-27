@@ -619,6 +619,31 @@ def test_discover_lists_a_refused_registry_agent_and_serves_the_others(tmp_path:
     assert detail["manifest"]["version"] == "9.9.9"
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "newest"),
+    [
+        # One folder, walked in path order: rc.1 is found before rc.2.
+        (("one", "9.9.9-rc.1"), ("one", "9.9.9-rc.2"), "9.9.9-rc.2"),
+        # A release on a later search path than its pre-release.
+        (("early", "9.9.9-rc.1"), ("late", "9.9.9"), "9.9.9"),
+    ],
+)
+def test_the_newest_of_an_agents_versions_is_by_semantic_version_precedence(
+    tmp_path: Path, first: tuple[str, str], second: tuple[str, str], newest: str
+) -> None:
+    """`version_key` ties a release and its pre-releases (so a pre-release may not take a
+    reference agent's place), and the newest of an agent's versions was whichever was found
+    first among those that tie: rc.1 served over rc.2, a pre-release over its release. The
+    engine orders them as the registry does (`precedence`)."""
+    for base, version in (first, second):
+        other = load_agent(copied(tmp_path / base, CLINICAL_DIR.name, version=version))
+    bases = dict.fromkeys((first[0], second[0]))  # each search path once, in order
+    paths = [SearchPath(tmp_path / base / "cache", "hub") for base in bases]
+    assert resolve_agent(other.id, paths).version == newest
+    client = TestClient(create_app(db_path=tmp_path / "e.db", agents_paths=paths))
+    assert client.get(f"/api/agents/{other.id}").json()["manifest"]["version"] == newest
+
+
 def test_decision_from_path_takes_the_origin_of_the_path(tmp_path: Path) -> None:
     """H3: a pulled agent loaded by its path (`Decision.from_path`) is still an agent from a
     registry, on its engine; a reference agent by its path is maintained."""

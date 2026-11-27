@@ -22,7 +22,7 @@ from mendari.core import clock, tenancy
 from mendari.core.agent import Agent
 from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
-from mendari.core.registry import discover, resolve_agent, version_key
+from mendari.core.registry import discover, newest, resolve_agent
 from mendari.errors import AgentValidationError, HubError, MendariError
 from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
@@ -2952,13 +2952,8 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     if args.agent:
         agents = [resolve_agent(args.agent)]
     else:  # the version a server serves of each agent: the newest
-        newest: dict[str, Agent] = {}
-        for agent in discover().agents:
-            if agent.id not in newest or version_key(agent.version) > version_key(
-                newest[agent.id].version
-            ):
-                newest[agent.id] = agent
-        agents = [newest[agent_id] for agent_id in sorted(newest)]
+        served = newest(discover().agents)
+        agents = [served[agent_id] for agent_id in sorted(served)]
     found_alerts = undelivered = failed = False
     with _read_store(args.db) as store:
         orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
