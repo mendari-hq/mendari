@@ -848,6 +848,9 @@ class Decision:
         acted: tuple[ActionResult, ...] | None = None
         if manifest.actions or checked:
             acted = self._acted(checked, policy, vouched)
+        # An input refused for NaN or an infinity (`validate`) is kept as JSON holds it from here:
+        # its hash, its record and its sealed copy agree, and any JSON reader reads them.
+        inputs = kept_as_json(inputs)
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
         result = DecisionResult(
@@ -1217,6 +1220,16 @@ def _relabel(reason: str, labels: Mapping[str, str]) -> str:
     for label, kept in labels.items():
         reason = reason.replace(f": {label} ", f": {kept} ")
     return reason
+
+
+def kept_as_json(inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    """`inputs` with each NaN and infinity as null, the same mapping when it holds none (all but
+    an input `Decision.validate` refuses for one). Python's json writes them as bare `NaN` and
+    `Infinity` tokens, which no other JSON reader parses: what is hashed, recorded or sealed
+    of an input is kept as JSON any reader parses, the reason naming each place."""
+    if not _not_finite(inputs):
+        return inputs
+    return dict(json.loads(json.dumps(inputs, default=str), parse_constant=lambda _: None))
 
 
 def input_hash(inputs: Any) -> str:

@@ -1241,6 +1241,9 @@ class AuditStore(RateBuckets):
         the principal's chain name, `tenancy.requester`). The actions the agent proposed are
         chained after it, one `action.proposed` each, their arguments kept as the input is: as
         the event's note, sealed under `encrypt`, and not at all where the input is not kept."""
+        from mendari.core.decision import kept_as_json  # here: decision's imports load this module
+
+        inputs = kept_as_json(inputs)  # as a decision keeps a refused NaN: null, so JSON
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"

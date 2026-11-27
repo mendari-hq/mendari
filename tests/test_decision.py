@@ -161,3 +161,40 @@ def test_a_number_json_cannot_carry_is_refused_as_an_input_problem(
     assert Decision(load_agent(folder)).validate({**inputs, "temperature": 37.5}) == [
         f"{place}: {NOT_FINITE}" for place in places[:2]
     ]
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_an_input_refused_for_a_number_json_cannot_carry_is_kept_as_json(
+    tmp_path: Path, value: float
+) -> None:
+    """The refused input was kept as Python writes it, a bare `NaN` token in the stored record,
+    which no JSON reader but Python's parses: an auditor's tool could not read the record or
+    recompute what the chain covers. It is kept with null in each such place (the reason names
+    them), and the decision's input hash is of what is kept. A caller who records the input
+    it holds itself (`AuditStore.record`) gets the same."""
+
+    def measured(schema: dict[str, Any]) -> None:
+        schema["properties"]["temperature"] = {"type": "number"}
+
+    store = AuditStore(tmp_path / "a.db")
+    agent = load_agent(sorter(tmp_path, schema=measured))
+    inputs = {"message": "my bill", "temperature": value, "readings": [value, 37.5]}
+    kept = {"message": "my bill", "temperature": None, "readings": [None, 37.5]}
+
+    def strict(text: str) -> Any:
+        def refused(token: str) -> Any:
+            raise ValueError(f"not JSON: {token}")
+
+        return json.loads(text, parse_constant=refused)
+
+    decided = Decision(agent, store=store).decide(inputs)
+    assert decided.outcome is Outcome.BLOCK
+    by_hand = Decision(agent).decide(inputs)
+    store.record(by_hand, inputs)
+    for result in (decided, by_hand):
+        with store._db.session(exclusive=False) as db:
+            row = db.one("SELECT record FROM decisions WHERE id = ?", (result.id,))
+        assert row is not None and strict(row["record"])["input"] == kept
+    assert decided.input_hash == store.phi.input_hash(kept)
+    assert store.verify()["ok"]
+    store.close()
