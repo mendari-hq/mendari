@@ -815,14 +815,6 @@ def renditions(path: str) -> bool:
     return len(segments) > 1 and (segments[0], segments[1].split("[", 1)[0]) in RENDITIONS
 
 
-def unread_attachments(
-    path: str, pairs: Sequence[tuple[Any, Any]], record: Mapping[str, Any]
-) -> list[str]:
-    """The reason (`read_attachment`) of each note at `path` that could not be read, in order
-    (`unread_notes`, without the formats)."""
-    return [reason for reason, _ in unread_notes(path, pairs, record)]
-
-
 def unread_notes(
     path: str, pairs: Sequence[tuple[Any, Any]], record: Mapping[str, Any]
 ) -> list[tuple[str, str | None]]:
@@ -1054,18 +1046,6 @@ def html_text(markup: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def pick_code(
-    values: Iterable[Any], code_set: CodeSet, translations: Iterable[Any] = ()
-) -> str | None:
-    """The first of a code set's own codes among `values` (Codings, or CodeableConcepts whose
-    codings are read), by the set's system and code: the `code_set` selector (spec §9.6). A coding
-    of another system counts only through `translations` (a site's `{system, code, as}`,
-    LP-23i), and then only as an `as` the set lists; a coding of the set's own system among
-    `values` wins over a translated one. (A field with `paths` reads every path for the set's
-    own codes before a translated one counts: `read_field`.) None when no coding matches."""
-    return picked(values, code_set, translation_table(translations, code_set))[0]
-
-
 def translation_table(translations: Iterable[Any], code_set: CodeSet) -> dict[tuple[str, str], str]:
     """A site's translations into `code_set` as a lookup table: each site code (system, code) to
     the set's own code it stands for. A translation whose `as` the set does not list, or whose
@@ -1084,9 +1064,14 @@ def translation_table(translations: Iterable[Any], code_set: CodeSet) -> dict[tu
 def picked(
     values: Iterable[Any], code_set: CodeSet, table: Mapping[tuple[str, str], str]
 ) -> tuple[str | None, bool]:
-    """`pick_code`'s code, read with a translation table (`translation_table`; a reading builds
-    each set's once, `Reading.translations`), and whether a translation gave it (False for the
-    set's own code, and when there is none)."""
+    """The first of a code set's own codes among `values` (Codings, or CodeableConcepts whose
+    codings are read), by the set's system and code: the `code_set` selector (spec §9.6). A coding
+    of another system counts only through `table`, a site's translations (`{system, code, as}`,
+    LP-23i) as `translation_table` makes them (a reading builds each set's once,
+    `Reading.translations`), and then only as an `as` the set lists; a coding of the set's own
+    system among `values` wins over a translated one. (A field with `paths` reads every path for
+    the set's own codes before a translated one counts: `read_field`.) With it, whether a
+    translation gave it (False for the set's own code); None and False when no coding matches."""
     codings = codings_of(values)
     own = set(code_set.codes)
     for coding in codings:
@@ -1102,7 +1087,7 @@ def picked(
 
 
 def codings_of(values: Iterable[Any]) -> list[Mapping[str, Any]]:
-    """The codings among `values` as a `code_set` selector reads them (`pick_code`): a
+    """The codings among `values` as a `code_set` selector reads them (`picked`): a
     CodeableConcept's codings, a Coding as it is; anything that is not an object is left out."""
     codings: list[Mapping[str, Any]] = []
     for value in values:

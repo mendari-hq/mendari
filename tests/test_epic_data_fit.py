@@ -58,7 +58,7 @@ from mendari.standards.ehr_declarations import (
     excusable,
     parse,
 )
-from mendari.standards.fhir import FhirAdapter, format_label, unread_attachments, unread_notes
+from mendari.standards.fhir import FhirAdapter, format_label, unread_notes
 from mendari.standards.fhir_client import FhirClient
 from mendari.standards.linked import (
     MAX_FOLLOW_READS,
@@ -190,9 +190,9 @@ def test_a_note_none_of_whose_renditions_is_read_counts_once_by_its_text_renditi
         (holder, {"contentType": "application/pdf", "data": b64("A")}),
         (holder, {"contentType": RTF, "data": b64("B")}),
     ]
-    assert unread_attachments("Communication.payload.contentAttachment", pairs, {}) == [
-        "unsupported_type",
-        "unsupported_type",
+    assert unread_notes("Communication.payload.contentAttachment", pairs, {}) == [
+        ("unsupported_type", "pdf"),
+        ("unsupported_type", "rtf"),
     ]
     assert unread_notes("DocumentReference.content.attachment", pairs, {}) == [
         ("unsupported_type", "pdf")

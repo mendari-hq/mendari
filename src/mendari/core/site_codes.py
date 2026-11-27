@@ -164,7 +164,7 @@ def check(maps: SiteCodeMaps, agents: Iterable[Agent]) -> None:
     """Each map against the code sets `agents` declare (spec §9.6 `code_sets`): every set a map
     names is declared by one of them, and every translation's `as` is a code that set declares
     in one of them. A translation then applies in an agent whose set of that name lists its `as`,
-    and in no other (`standards.fhir.pick_code`). An agent whose mapping cannot be read declares no
+    and in no other (`standards.fhir.picked`). An agent whose mapping cannot be read declares no
     set here; it is refused where it is read."""
     from mendari.standards.fhir import read_mapping  # core reads a mapping only here
 
