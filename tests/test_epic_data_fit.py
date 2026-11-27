@@ -898,6 +898,7 @@ SHAPES: dict[str, tuple[str, str]] = {
     ),
     "a key twice": (f'{{"{EHR}": {json.dumps(entry())}, "{EHR}": {{}}}}', "gives a key twice"),
     "a base that is not one": (json.dumps({"ftp://ehr.example.org": entry()}), "base 1 is not"),
+    "a base that is not even a URL": (json.dumps({"http://[": entry()}), "base 1 is not"),
     "a base twice": (json.dumps({EHR: entry(), f"{EHR}/": entry()}), "is given twice"),
     "a key missing": (
         json.dumps({EHR: {k: v for k, v in entry().items() if k != "attested_by"}}),
