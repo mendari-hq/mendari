@@ -450,12 +450,21 @@ class EvaluationStore:
         return {str(row["key_id"]) for row in rows}
 
     def publish_evaluation(
-        self, namespace: str, name: str, version: str, record: Any, *, by: str
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        record: Any,
+        *,
+        by: str,
+        token: str | None = None,
     ) -> dict[str, Any]:
         """Check a signed evaluation and store it: see the module's docstring for the order.
-        Chained `evaluation.published` (and `evaluation.superseded` for the one it replaces)."""
+        Chained `evaluation.published` (and `evaluation.superseded` for the one it replaces).
+        With `token`, the publisher's that sent it, checked again as it is written (a re-run
+        takes a while: one revoked or expired meanwhile stores nothing)."""
         from mendari.hub import regression
-        from mendari.hub.registry import REVIEWER, _unknown_names, record_event
+        from mendari.hub.registry import REVIEWER, _still_owned, _unknown_names, record_event
         from mendari.hub.sites import _recall_free, configuration_problem, wholly_local
 
         evaluation = parse(record)
@@ -567,6 +576,7 @@ class EvaluationStore:
         configuration_text = _canonical_text(configuration)
         subject = f"{namespace}/{name}@{version}"
         with self._db.session(exclusive=True) as db:
+            _still_owned(db, token, namespace)
             if not _recall_free(db, namespace, name, version):
                 raise HubError("version: it is recalled, deleted or not listed", 409)
             if db.one("SELECT id FROM hub_evaluations WHERE id = ?", (evaluation_key,)):

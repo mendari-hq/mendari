@@ -313,6 +313,17 @@ def _owned(db: Session, token: str) -> dict[str, str] | None:
     return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
 
 
+def _still_owned(db: Session, token: str | None, namespace: str) -> None:
+    """Refuse, inside the write it allows, a token revoked or expired since its route checked it
+    (a body read slowly, an archive checked for minutes), with the route's own answer: a token's
+    word is read in the same transaction as the write. None: the operator's command line."""
+    if token is None:
+        return
+    owned = _owned(db, token)
+    if owned is None or owned["namespace"] != namespace:
+        raise HubError(f"a token for namespace {namespace!r} is required", 403)
+
+
 def _check_token_caps(
     db: Session,
     namespace: str,
@@ -835,14 +846,17 @@ class RegistryStore(
         *,
         by: str = "operator",
         most: int | None = None,
+        token: str | None = None,
     ) -> str:
         """Register a publisher key for `namespace`; with `most`, refused (409) once the
         namespace has that many keys, counted in the write's own exclusive session so two
-        requests at once cannot both pass the count."""
+        requests at once cannot both pass the count. With `token`, the publisher's that sent
+        it, checked again in that session (`_still_owned`)."""
         key = archive.load_public_key(public_pem.encode())
         key_id = archive.key_id(key)
         self.namespace(namespace, REVIEWER)
         with self._db.session(exclusive=True) as db:
+            _still_owned(db, token, namespace)
             if most is not None:
                 held = db.one(
                     "SELECT COUNT(*) AS n FROM hub_keys WHERE namespace = ?", (namespace,)
@@ -1131,10 +1145,7 @@ class RegistryStore(
                 f"the agent's metadata cannot be served ({type(error).__name__})"
             ) from None
         with self._db.session(exclusive=True) as db:
-            if token is not None:  # as the route answers a token that is not live
-                owned = _owned(db, token)
-                if owned is None or owned["namespace"] != namespace:
-                    raise HubError(f"a token for namespace {namespace!r} is required", 403)
+            _still_owned(db, token, namespace)
             if db.one(
                 "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
                 (namespace, name, version),
@@ -1493,7 +1504,14 @@ class RegistryStore(
         return None if key is None else yank.registry_public(key)
 
     def recall(
-        self, namespace: str, name: str, version: str, record: Mapping[str, Any], *, by: str
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        record: Mapping[str, Any],
+        *,
+        by: str,
+        token: str | None = None,
     ) -> dict[str, Any]:
         """Store a yank record for one version, after checking it: its fields name exactly this
         version (agent, version, digest, archive), its time is now (within `MAX_SKEW_S`), and its
@@ -1535,6 +1553,7 @@ class RegistryStore(
         stored = {field: record[field] for field in (*yank.FIELDS, "signature")}
         where = ("namespace = ? AND name = ? AND version = ?", (namespace, name, version))
         with self._db.session(exclusive=True) as db:
+            _still_owned(db, token, namespace)  # the publisher's token that sent it, if any
             if db.one(f"SELECT version FROM hub_yanks WHERE {where[0]}", where[1]):
                 raise HubError(f"{namespace}/{name}@{version} is already recalled", 409)
             db.all(
@@ -2418,7 +2437,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         await run_in_threadpool(require_publisher, request, namespace)
         body = await small_body(request, KeyRequest)
         key_id = await run_in_threadpool(
-            store.add_key, namespace, body.public_pem, by=actor(request)
+            store.add_key, namespace, body.public_pem, by=actor(request), token=bearer(request)
         )
         return {"namespace": namespace, "key_id": key_id}
 
@@ -2491,7 +2510,13 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError("a publisher's recall is signed by the publisher")
         # Checked above: the namespace's own publisher.
         recalled = await run_in_threadpool(
-            store.recall, namespace, name, version, body.record, by=actor(request)
+            store.recall,
+            namespace,
+            name,
+            version,
+            body.record,
+            by=actor(request),
+            token=bearer(request),
         )
         return await run_in_threadpool(served, recalled, REVIEWER)
 
@@ -2723,7 +2748,9 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
             raise RequestValidationError([problem]) from None
         return await run_in_threadpool(
-            lambda: store.publish_evaluation(namespace, name, version, parsed, by=actor(request))
+            lambda: store.publish_evaluation(
+                namespace, name, version, parsed, by=actor(request), token=bearer(request)
+            )
         )
 
     @app.get("/v1/agents/{namespace}/{name}/{version}/evaluations")

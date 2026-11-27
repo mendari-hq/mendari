@@ -218,6 +218,27 @@ def test_a_non_publisher_token_is_refused_before_the_body_is_read(published: Reg
     assert stored(published) == []
 
 
+def test_a_token_revoked_while_its_evaluation_is_checked_stores_nothing(
+    published: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An evaluation is read, checked and re-run after its token is checked, which takes a
+    while: the token is checked again as it is written, so one revoked meanwhile stores
+    nothing, with the answer it gets at the start."""
+    from mendari.hub.registry import token_id
+
+    token = published.mint("mendari")
+    record = signed(published.key)
+    parsed = evaluations.parse
+
+    def meanwhile_the_token_ends(*args: Any) -> Any:
+        published.operator.revoke_token(token_id(token), org="tests", by="operator")
+        return parsed(*args)
+
+    monkeypatch.setattr(evaluations, "parse", meanwhile_the_token_ends)
+    refused(send(published, record, token=token), 403, "a token for namespace 'mendari'")
+    assert stored(published) == [] and events(published, "evaluation.published") == []
+
+
 def test_a_revoked_keys_evaluations_are_listed_and_left_out(published: Registry) -> None:
     record = signed(published.key, "agent")
     assert send(published, record).status_code == 201
