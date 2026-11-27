@@ -5502,8 +5502,11 @@ class AuditStore(RateBuckets):
         each stored grade against the commitment its `written.graded` chained, and each closed
         round's stored report against the hash its `written.round_closed` chained; a grade or
         a report changed in the database, or one no event accounts for, breaks it with
-        `reason: "written"` (`written`: what was checked, where there is any). Nothing is marked
-        or written."""
+        `reason: "written"` (`written`: what was checked, where there is any).
+
+        Everything is read in one snapshot of the database (`db.Backend.snapshot`): what is
+        written while it runs, an event and its rows alike, is not seen, and is the next
+        verification's to check. Nothing is marked or written."""
         if since_checkpoint and (notes or head is not None):
             raise ValueError("notes and a signed head are checked by a full verification only")
         return self._verify(notes=notes, since_checkpoint=since_checkpoint, head=head)[0]
@@ -5597,14 +5600,14 @@ class AuditStore(RateBuckets):
         head: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`verify`, and the last event checked (`seq`, `hash`; None for none)."""
-        with self._db.session(exclusive=False) as db:
+        # Every read is of one snapshot: an event and the rows it is about are committed
+        # together, so the rows read are those the events read account for, whatever is written
+        # while the verification runs (the next one checks that).
+        with self._db.snapshot() as db:
             recorded = _checkpoints(db)
             start = recorded[-1] if since_checkpoint and recorded else None
-            # The events checked are those up to the head as it is now (`top`), read a page at
-            # a time (`_chain_pages`), so a long chain is never held whole. Appends are
-            # serialized (the chain's lock), so every event up to `top` is written, with its
-            # decision row, before anything below is read: every row an event checked names is
-            # in what is read after, as when the events were read first.
+            # The events checked are those up to the head (`top`), read a page at a time
+            # (`_chain_pages`), so a long chain is never held whole.
             found_top = db.one("SELECT MAX(seq) AS top FROM audit_events")
             top = None if found_top is None or found_top["top"] is None else int(found_top["top"])
             first = None if start is None else int(start["seq"])
@@ -5617,16 +5620,6 @@ class AuditStore(RateBuckets):
             records = {row["id"]: json.loads(row["record"]) for row in decided}
             rows_of = {row["id"]: row for row in decided}
             owners = {row["id"]: row["org"] for row in decided}
-            # A full verification checks every decision row against the chain (`_unchained`):
-            # the events chained since those read excuse a row written, or resolved, after them.
-            later: dict[str, set[str]] = {}
-            if start is None:
-                for row in db.all(
-                    "SELECT decision_id, event FROM audit_events WHERE seq > ? "
-                    f"AND event IN ({', '.join('?' for _ in _DECISION_STATES)})",
-                    (top or 0, *_DECISION_STATES),
-                ):
-                    later.setdefault(str(row["decision_id"]), set()).add(str(row["event"]))
             subjects = _subject_orgs(db)
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if notes else []
             # An agent store's versions (LP-20e): each against its chained hash and newest state.
@@ -5697,7 +5690,7 @@ class AuditStore(RateBuckets):
             return {"ok": False, "events": total, "reason": "statement"}, None
         # The rows themselves, once the chain holds: a chain cut short reads as cut first.
         if start is None:
-            found = _unsettled(rows_of, settled, later, created_at_seq)
+            found = _unsettled(rows_of, settled, created_at_seq)
             if found is not None:
                 return {"ok": False, "events": total, **found, "reason": "decision"}, None
         since = {} if start is None else {"checkpoint": start}
@@ -6301,19 +6294,18 @@ def _row_as_chained(row: Mapping[str, Any], record: Any) -> bool:
 def _unsettled(
     rows: Mapping[str, Mapping[str, Any]],
     settled: Mapping[str, set[str]],
-    later: Mapping[str, set[str]],
     created: Mapping[str, int],
 ) -> dict[str, Any] | None:
     """What a full `verify` finds wrong with the decision rows themselves (None: nothing): a
     decision that awaits review (HUMAN_REVIEW or ABSTAIN) taken off the queue with no chained
     review (`broken_at` its `decision.created`, the earliest such), or rows that no
     `decision.created` chained (`unchained`, how many: a decision added past the store). Each
-    row's events are those read (`settled`) and those chained since (`later`), so a decision
-    made or resolved beside the verification never reads as a break."""
+    row's events are those read (`settled`), of the same snapshot as the rows, so a decision
+    made or resolved beside the verification is not read at all."""
     unchained = 0
     dropped: list[int] = []
     for decision_id, row in rows.items():
-        events = settled.get(decision_id, set()) | later.get(decision_id, set())
+        events = settled.get(decision_id, set())
         if "decision.created" not in events:
             unchained += 1
             continue

@@ -31,6 +31,7 @@ import pytest
 from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import accounts
+from mendari.core import audit as audit_module
 from mendari.core.agent import Agent
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.written import (
@@ -1045,3 +1046,36 @@ def test_verify_finds_a_grade_no_event_accounts_for(world: World) -> None:
     )
     broken = world.store.verify()
     assert broken["ok"] is False and broken["reason"] == "written" and "broken_at" not in broken
+
+
+def test_a_grade_recorded_while_verify_runs_is_no_break(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`verify` reads the chain's head, then the rounds' rows. A grade another request records
+    in between (its own connection, committed) has its row but an event after the head: every
+    read is of one snapshot, so the verification sees neither, says what it said before, and
+    the next one sees both."""
+    round_id = world.round(2)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=0)
+    shown = world.rounds.next_item(a, org=CLINIC)
+    assert shown is not None
+    assignment = str(shown["assignment"])
+    before = world.store.verify()
+    assert before["ok"] and before["written"] == {"rounds": 0, "grades": 0}
+    original = audit_module._subject_orgs
+    graded: list[str] = []
+
+    def concurrent(db: Any) -> Any:
+        # Read after the chain's head and before the rounds' rows.
+        if not graded:
+            graded.append(assignment)
+            world.rounds.record_grades(assignment, a, PASS, org=CLINIC)
+        return original(db)
+
+    monkeypatch.setattr(audit_module, "_subject_orgs", concurrent)
+    assert world.store.verify() == before
+    assert graded == [assignment]
+    after = world.store.verify()
+    assert after["ok"] and after["events"] == before["events"] + 1
+    assert after["written"] == {"rounds": 0, "grades": 1}
