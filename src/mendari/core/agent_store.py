@@ -1383,15 +1383,13 @@ class AgentStore:
         """Every kept file hashes to its key and has its size, and every version whose files are
         kept hashes to its digest (`mendari store verify`). Read only."""
         problems: list[str] = []
+        kept: dict[str, bytes] = {}
+        sizes: dict[str, int] = {}
         with self.store._db.session(exclusive=False) as db:
-            kept = {
-                str(row["sha256"]): bytes(row["data"])
-                for row in db.all("SELECT sha256, data FROM store_files")
-            }
-            sizes = {
-                str(row["sha256"]): int(row["size"])
-                for row in db.all("SELECT sha256, size FROM store_files")
-            }
+            # Each file's content and size in one read: a purge meanwhile removes both or neither.
+            for row in db.all("SELECT sha256, size, data FROM store_files"):
+                kept[str(row["sha256"])] = bytes(row["data"])
+                sizes[str(row["sha256"])] = int(row["size"])
             versions = db.all("SELECT id, org, digest, files FROM store_versions")
         for sha, data in kept.items():
             if hashlib.sha256(data).hexdigest() != sha or len(data) != sizes[sha]:
