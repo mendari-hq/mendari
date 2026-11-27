@@ -5,6 +5,22 @@ Notable changes to Mendari, newest first. Each release has a section named by it
 no section, or whose section is not the newest. Changes to an agent are in the agent's own
 `CHANGELOG.md`.
 
+## 0.1.1
+
+A security fix to 0.1.0. Update if you serve an agent store (`MENDARI_AGENT_STORE=on`).
+
+- **An author who may not read inputs runs no version over them.** In 0.1.0 a member whose
+  only role was `agent_author` could run a draft over the organization's improvement dataset
+  (its reviewed decisions' inputs, LP-20i) and read what the draft decided of each case; a
+  draft whose rules spell an input out could so read the inputs back, with no read recorded.
+  Every route that runs a version over that dataset (the proposed tests, deciding one, the
+  accepted ones in a draft's tests, jobs and comparisons) now needs the permission to read
+  inputs, and each case decided is chained as the runner's `input.read` of its decision.
+- **A path with an encoded `?` or `#` is refused** (`404`) before any check, so the sign-in
+  guard, the origin check and the limits decide on the path that is routed.
+- The package's Documentation link, the README and what `mendari new` prints and writes name
+  the documentation site, https://mendari-hq.github.io/mendari/.
+
 ## 0.1.0
 
 The first release, a research preview: everything in it runs on synthetic

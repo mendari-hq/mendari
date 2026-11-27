@@ -51,7 +51,7 @@ first time). Name a release's image by digest instead, so that what runs is exac
 published:
 
 ```bash
-./mendari-site install --image ghcr.io/mendari-hq/mendari-engine:v0.1.0@sha256:<digest>
+./mendari-site install --image ghcr.io/mendari-hq/mendari-engine:v0.1.1@sha256:<digest>
 ```
 
 For a trial on a private network without a certificate, add `--self-signed`. Browsers will warn

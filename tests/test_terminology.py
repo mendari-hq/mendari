@@ -44,6 +44,19 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # its version is released). 0.1.0 is released: its fixed resources never change, and a change
 # needs a new version.
 PINNED = {
+    # A security fix: the same definitions as 0.1.0, each carrying the version.
+    "0.1.1": {
+        "CodeSystem/decision-outcome": "a5a28ba2fbf3cc46",
+        "CodeSystem/audit-event": "de226edda3460e51",
+        "CodeSystem/audit-administrative-event": "d30a1d2939c62fca",
+        "CodeSystem/card-override-reasons": "11217fdd40a17d08",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
+        "NamingSystem/agent-version": "1448a6d6492ce83f",
+        "CodeSystem/sandbox": "692fa42e13980e6f",
+        "CodeSystem/message-channel": "30e600da5e45a2d6",
+    },
     "0.1.0": {
         # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
         "CodeSystem/decision-outcome": "7688b8fb74597a15",
@@ -83,7 +96,7 @@ PINNED = {
         # events are `store_version.*` and `registry_agent.*`.
         "CodeSystem/audit-administrative-event": "eaacdc14fcb32d46",
         "NamingSystem/audit-subject": "5804d858d1fb1240",
-    }
+    },
 }
 
 
