@@ -1122,17 +1122,17 @@ class AuditStore(RateBuckets):
                 )
             }
             entries = [
-                (decision_id, self._bound("input.read", {"reader": reader}, org))
+                (decision_id, self._bound({"reader": reader}, org))
                 for decision_id in ids
                 if decision_id in kept
             ]
             self._append_many(db, "input.read", entries)
         return len(entries)
 
-    def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
-        """A payload as chained (`kind`): with the organization of the row it is about (`org`,
-        which the caller read in the same transaction). Every kind but the deployment's names
-        it (`_append_many` refuses one that does not)."""
+    def _bound(self, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
+        """A payload as chained: with the organization of the row it is about (`org`, which the
+        caller read in the same transaction). Every kind but the deployment's names it
+        (`_append_many` refuses one that does not)."""
         return {**payload, "org": org}
 
     def ready_to_keep(self) -> None:
@@ -1285,9 +1285,7 @@ class AuditStore(RateBuckets):
             # (`cds <id>`, LP-23b); never anyone else in open mode.
             if requester is not None:
                 created["requested_by"] = requester
-            self._append(
-                db, result.id, "decision.created", self._bound("decision.created", created, org)
-            )
+            self._append(db, result.id, "decision.created", self._bound(created, org))
             # Each action proposed with the answer (spec §13.9), in the same transaction: what the
             # chain keeps of it (`ActionResult.chained`), and its arguments apart, as a note,
             # exactly when the decision's input is kept.
@@ -1295,7 +1293,6 @@ class AuditStore(RateBuckets):
                 (
                     result.id,
                     self._bound(
-                        "action.proposed",
                         {
                             **action.chained(),
                             "note_ref": self._keep_note(
@@ -1386,7 +1383,7 @@ class AuditStore(RateBuckets):
                 "note": None,
                 "note_ref": self._keep_note(db, decision_id, "review.resolved", note),
             }
-            chained = self._bound("review.resolved", payload, row["org"])
+            chained = self._bound(payload, row["org"])
             self._append(db, decision_id, "review.resolved", chained)
             # Each held action is resolved here and nowhere else, so exactly once: a held action
             # exists only on a decision that awaits review, and this is the only way out of it.
@@ -1403,10 +1400,7 @@ class AuditStore(RateBuckets):
             self._append_many(
                 db,
                 "action.resolved",
-                [
-                    (decision_id, self._bound("action.resolved", item, row["org"]))
-                    for item in resolved
-                ],
+                [(decision_id, self._bound(item, row["org"])) for item in resolved],
             )
         answer = {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
         if resolved:
@@ -1472,7 +1466,7 @@ class AuditStore(RateBuckets):
                 db,
                 decision_id,
                 "action.proposed",
-                self._bound("action.proposed", payload, item["org"]),
+                self._bound(payload, item["org"]),
             )
         if epoch is not None:  # committed: this process need not look again
             self._hash_epoch = epoch
@@ -1519,7 +1513,7 @@ class AuditStore(RateBuckets):
                 "UPDATE decisions SET observed_label = ? WHERE id = ?", (final_label, decision_id)
             )
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
-            chained = self._bound("outcome.recorded", payload, row["org"])
+            chained = self._bound(payload, row["org"])
             self._append(db, decision_id, "outcome.recorded", chained)
 
     def record_card_feedback(
@@ -1577,7 +1571,7 @@ class AuditStore(RateBuckets):
                     "outcome_timestamp": item["outcome_timestamp"],
                     "reporter": requester,
                 }
-                entries.append((card, self._bound(CARD_FEEDBACK, payload, rows[card]["org"])))
+                entries.append((card, self._bound(payload, rows[card]["org"])))
             return self._append_many(db, "card.feedback", entries)
 
     def record_feedback(
@@ -1651,7 +1645,7 @@ class AuditStore(RateBuckets):
                 "expected": answer,
                 "replaces": previous["id"] if previous else None,
             }
-            chained = self._bound("feedback.recorded", payload, row["org"])
+            chained = self._bound(payload, row["org"])
             self._append(db, decision_id, "feedback.recorded", chained)
         return {
             "id": feedback_id,
@@ -2106,7 +2100,7 @@ class AuditStore(RateBuckets):
                 (erased_at, erased_by, note_id),
             )
             payload = {"note_id": note_id, "reason": reason, "erased_by": erased_by}
-            chained = self._bound("note.erased", payload, row["org"])
+            chained = self._bound(payload, row["org"])
             self._append(db, row["decision_id"], "note.erased", chained)
         return {**payload, "decision_id": row["decision_id"], "erased_at": erased_at}
 
@@ -2136,7 +2130,7 @@ class AuditStore(RateBuckets):
                 erased = [
                     (
                         row["decision_id"],
-                        self._bound("note.erased", {"note_id": row["id"], **retention}, row["org"]),
+                        self._bound({"note_id": row["id"], **retention}, row["org"]),
                     )
                     for row in doomed
                 ]
@@ -2280,7 +2274,6 @@ class AuditStore(RateBuckets):
                     (
                         decision_id,
                         self._bound(
-                            "input.read",
                             {"reader": reader, **({"notes": named} if named else {})},
                             orgs.get(decision_id),
                         ),
@@ -2375,13 +2368,10 @@ class AuditStore(RateBuckets):
             self._append_many(
                 db,
                 "note.erased",
-                [
-                    (decision_id, self._bound("note.erased", {"note_id": note, **who}, org))
-                    for note in notes
-                ],
+                [(decision_id, self._bound({"note_id": note, **who}, org)) for note in notes],
             )
             if kept is not None:
-                self._append(db, decision_id, "input.erased", self._bound("input.erased", who, org))
+                self._append(db, decision_id, "input.erased", self._bound(who, org))
         return {
             "decision_id": decision_id,
             "input": kept is not None,
@@ -2452,7 +2442,6 @@ class AuditStore(RateBuckets):
                     (
                         f"written:{round_id}",
                         self._bound(
-                            "written.erased",
                             {
                                 "round": round_id,
                                 "erased": count,
@@ -2493,7 +2482,7 @@ class AuditStore(RateBuckets):
                     [
                         (
                             row["decision_id"],
-                            self._bound("input.purged", purged, row["org"]),
+                            self._bound(purged, row["org"]),
                         )
                         for row in rows
                     ],
@@ -3401,7 +3390,7 @@ class AuditStore(RateBuckets):
                 "UPDATE automation_holds SET lifted_by = ?, lifted_at = ? WHERE id = ?",
                 (lifted["lifted_by"], lifted["lifted_at"], hold_id),
             )
-            chained = self._bound("automation.lifted", lifted, row["org"])  # NULL: every one's
+            chained = self._bound(lifted, row["org"])  # NULL: every one's
             self._append(db, f"hold:{hold_id}", "automation.lifted", chained)
         return True
 
@@ -3440,9 +3429,7 @@ class AuditStore(RateBuckets):
                 "UPDATE governance_approvals SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (_now(), revoked_by, approval_id),
             )
-            payload = self._bound(
-                "governance.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
-            )
+            payload = self._bound({"id": approval_id, "revoked_by": revoked_by}, org)
             self._append(db, f"governance:{approval_id}", "governance.revoked", payload)
         return True
 
@@ -3508,9 +3495,7 @@ class AuditStore(RateBuckets):
                 "UPDATE registry_approvals SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (_now(), revoked_by, approval_id),
             )
-            payload = self._bound(
-                "registry_agent.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
-            )
+            payload = self._bound({"id": approval_id, "revoked_by": revoked_by}, org)
             self._append(db, f"registry_approval:{approval_id}", "registry_agent.revoked", payload)
         return True
 
@@ -3825,7 +3810,7 @@ class AuditStore(RateBuckets):
                 "expires_at_before": row["expires_at"],
                 "overlap_hours": overlap_hours,
             }
-            chained = self._bound("key.rotated", rotated, row["org"])
+            chained = self._bound(rotated, row["org"])
             self._append(db, f"key:{key_id}", "key.rotated", chained)
         return {**new, "replaces": {"id": key_id, "expires_at": until}}
 
@@ -3871,7 +3856,7 @@ class AuditStore(RateBuckets):
                 "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (revoked["revoked_at"], revoked_by, key_id),
             )
-            chained = self._bound("key.revoked", revoked, row["org"])
+            chained = self._bound(revoked, row["org"])
             self._append(db, f"key:{key_id}", "key.revoked", chained)
         return True
 
@@ -3985,7 +3970,7 @@ class AuditStore(RateBuckets):
                 (revoked["revoked_at"], revoked_by, client_id),
             )
             db.all("DELETE FROM oauth_tokens WHERE client_id = ?", (client_id,))
-            chained = self._bound("client.revoked", revoked, row["org"])
+            chained = self._bound(revoked, row["org"])
             self._append(db, f"client:{client_id}", "client.revoked", chained)
         return True
 

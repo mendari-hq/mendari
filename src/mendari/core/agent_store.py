@@ -647,7 +647,7 @@ class AgentStore:
                     name: pulled.get(name)
                     for name in ("registry", "namespace", "key_id", "archive_sha256", "accepted")
                 }
-            chained = self.store._bound("store_version.created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"store_version:{version_id}", "store_version.created", chained)
         return Stored(version_id, org, agent.digest, agent.id, agent.version, state, not validation)
 
@@ -683,7 +683,7 @@ class AgentStore:
             payload: dict[str, Any] = {"digest": digest, "by": by}
             if reason is not None:
                 payload["reason"] = reason
-            chained = self.store._bound("store_version.withdrawn", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(
                 db, f"store_version:{found['id']}", "store_version.withdrawn", chained
             )
@@ -862,7 +862,7 @@ class AgentStore:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (row_id, org, key_id, pem, by, now),
             )
-            chained = self.store._bound("store_key.added", {"key_id": key_id, "by": by}, org)
+            chained = self.store._bound({"key_id": key_id, "by": by}, org)
             self.store._append(db, f"store_key:{row_id}", "store_key.added", chained)
         return {"key_id": key_id, "added_by": by, "added_at": now, "revoked_at": None}
 
@@ -881,7 +881,7 @@ class AgentStore:
                 raise StoreError(f"key {key_id} is revoked already", 409)
             now = _now()
             db.all("UPDATE store_keys SET revoked_at = ? WHERE id = ?", (now, found["id"]))
-            chained = self.store._bound("store_key.revoked", {"key_id": key_id, "by": by}, org)
+            chained = self.store._bound({"key_id": key_id, "by": by}, org)
             self.store._append(db, f"store_key:{found['id']}", "store_key.revoked", chained)
         return {"key_id": key_id, "revoked_at": now}
 
@@ -1086,7 +1086,7 @@ class AgentStore:
             )
             payload = {"dataset": dataset_id, "sha256": data.sha256, "kind": kind,
                        "cases": len(data.records), "by": by}  # fmt: skip
-            chained = self.store._bound("store_dataset.created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"store_dataset:{dataset_id}", "store_dataset.created", chained)
         return self.dataset(org, dataset_id)
 
@@ -1230,7 +1230,7 @@ class AgentStore:
                 )
                 payload = {"digest": before["digest"], "by": approver, "promotion": before["id"],
                            "replaced_by": promotion_id}  # fmt: skip
-                chained = self.store._bound("store_version.retired", payload, org)
+                chained = self.store._bound(payload, org)
                 self.store._append(
                     db, f"store_version:{before['version_id']}", "store_version.retired", chained
                 )
@@ -1254,7 +1254,7 @@ class AgentStore:
                 "reports": sorted(set(reports)),
                 "automate": automate,
             }
-            chained = self.store._bound("store_version.promoted", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"store_version:{row['id']}", "store_version.promoted", chained)
         if before is not None:
             self._forget(str(before["digest"]))
@@ -1284,7 +1284,7 @@ class AgentStore:
                 (RETIRED, now, found["version_id"]),
             )
             payload = {"digest": found["digest"], "by": by, "promotion": promotion_id}
-            chained = self.store._bound("store_version.retired", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(
                 db, f"store_version:{found['version_id']}", "store_version.retired", chained
             )
@@ -1366,7 +1366,7 @@ class AgentStore:
                 (str(uuid.uuid4()), org, digest, dataset_id, case_id, state, by, now),
             )
             payload = {"dataset": dataset_id, "case": case_id, "digest": digest, "by": by}
-            chained = self.store._bound(f"store_dataset.proposal_{state}", payload, org)
+            chained = self.store._bound(payload, org)
             if accept:
                 self.store._append(
                     db, f"store_dataset:{dataset_id}", "store_dataset.proposal_accepted", chained

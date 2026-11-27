@@ -387,7 +387,7 @@ class WrittenStore:
                 "items": len(rows),
                 "seed": seed,
             }
-            chained = self.store._bound("written.round_created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{round_id}", "written.round_created", chained)
         return {
             "round": round_id,
@@ -495,7 +495,6 @@ class WrittenStore:
                 (
                     f"written:{round_id}",
                     self.store._bound(
-                        "written.assigned",
                         {
                             "round": round_id,
                             "item": hashes[row_id],
@@ -631,7 +630,7 @@ class WrittenStore:
                 "report_sha256": report["result_sha256"],
                 "by": by,
             }
-            chained = self.store._bound("written.round_closed", payload, owner)
+            chained = self.store._bound(payload, owner)
             self.store._append(db, f"written:{round_id}", "written.round_closed", chained)
         return {
             "round": round_id,
@@ -786,7 +785,7 @@ class WrittenStore:
                 "assignment": str(row["id"]),
                 "grader": user_id,
             }
-            chained = self.store._bound("written.item_read", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{row['round_id']}", "written.item_read", chained)
         criteria = header["criteria"]
         return {
@@ -874,7 +873,7 @@ class WrittenStore:
                     "sha256": grade_ref(salt, round_id, item, assignment_id, given),
                 },
             }
-            chained = self.store._bound("written.graded", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{round_id}", "written.graded", chained)
             remaining = db.one(
                 "SELECT count(*) AS n FROM written_assignments a "
