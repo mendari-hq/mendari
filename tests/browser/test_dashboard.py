@@ -1806,6 +1806,32 @@ def test_another_agents_record_borrows_none_of_the_chosen_agents_words(
     expect(dialog.get_by_role("button", name="Replay in Try it")).to_have_count(0)
 
 
+def test_a_replayed_decision_says_what_it_decided_the_first_time(
+    page: Page, live_server: str
+) -> None:
+    """Replayed from its record, a decision's input comes back in Try it with what it decided the
+    first time, in words: beside a record agent's form, and in a message agent's toast."""
+    record = httpx.post(
+        f"{live_server}/api/agents/{CLINICAL}/decide",
+        json={"note": {"text": "Patient reports mild throat pain for two days."}},
+        timeout=30,
+    ).json()
+    page.goto(f"/?agent={CLINICAL}#audit/{record['id']}")
+    page.get_by_role("dialog").get_by_role("button", name="Replay in Try it").click()
+    expect(page).to_have_url(re.compile("#try$"))
+    expect(page.locator("#expected")).to_have_text(
+        "Loaded from the audit trail (original: Human review · Care at home): "
+        "edit any field and decide to compare."
+    )
+    message = decide_triage(live_server, "Crushing chest pain and my left arm is numb")
+    page.goto(f"/?agent={TRIAGE}#audit/{message['id']}")
+    page.get_by_role("dialog").get_by_role("button", name="Replay in Try it").click()
+    expect(page.locator("#body")).to_have_value("Crushing chest pain and my left arm is numb")
+    expect(page.locator("#toast")).to_have_text(
+        "Loaded case from audit trail (was Human review · Nurse)"
+    )
+
+
 # -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
 
 TOP_BAR_HEIGHT = "document.querySelector('.topbar').getBoundingClientRect().height"

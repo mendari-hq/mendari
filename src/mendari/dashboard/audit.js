@@ -290,7 +290,7 @@ async function openRecord(id) {
     state.replayDraft = {
       agentId: state.agentId,
       input: r.input,
-      original: { id: r.decision_id, outcome: r.decision?.outcome, recommendation: r.decision?.recommendation },
+      original: { id: r.id, outcome: r.outcome, recommendation: r.recommendation, primary: r.primary },
     };
     closeDrawer({ restoreFocus: false, closedByUser: false });
     location.hash = "#try";
