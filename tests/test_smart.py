@@ -520,14 +520,14 @@ def test_the_store_keeps_launches_single_use_and_expires_them(store: AuditStore)
     """Both backends (the `store` fixture runs on SQLite and Postgres)."""
     now = int(time.time())
     store.smart_put("state-1", "pending", {"iss": ISS}, now + 60, secret="binding")
-    assert store.smart_get("state-1", "session") is None  # kinds are separate
+    assert store.smart_read("state-1", "session") is None  # kinds are separate
     assert store.smart_take("state-1", "pending", secret="binding") == {"iss": ISS}
     assert store.smart_take("state-1", "pending", secret="binding") is None  # works once
     store.smart_put("old", "session", {"patient": "p"}, now - 1)
-    assert store.smart_get("old", "session") is None
+    assert store.smart_read("old", "session") is None
     store.smart_put("sid", "session", {"patient": "p"}, now + 60)
     store.smart_delete("sid", "session")
-    assert store.smart_get("sid", "session") is None
+    assert store.smart_read("sid", "session") is None
 
 
 # -- the launch is a principal (C5, ADR-0006): sign-in on, EHRs registered ------------------------
@@ -832,7 +832,7 @@ def test_signing_out_of_mendari_ends_the_launch(
     out = app.post("/auth/logout")
     assert out.status_code == 204
     assert any(c.startswith("__Host-mendari_smart=") for c in out.headers.get_list("set-cookie"))
-    assert AuditStore(db).smart_get(sid, "session") is None
+    assert AuditStore(db).smart_read(sid, "session") is None
     app.cookies.set(f"__Host-{smart_routes.COOKIE}", sid, domain="mendari.test")
     assert app.get("/api/smart/session").json() == {"active": False}
     assert app.get("/api/smart/patient").status_code == 401
@@ -859,8 +859,8 @@ def test_a_later_launch_in_the_same_browser_ends_the_earlier_one(
     assert app.get("/api/smart/patient").status_code == 200
     assert app.post("/auth/logout").status_code == 204
     with AuditStore(db_target) as store:
-        assert store.smart_get(first, "session") is None
-        assert store.smart_get(second, "session") is None
+        assert store.smart_read(first, "session") is None
+        assert store.smart_read(second, "session") is None
 
 
 def test_a_launch_made_with_sign_in_off_is_refused_once_sign_in_is_on(

@@ -175,8 +175,9 @@ class Backend(ABC):
         stops answering without closing (a network black hole) is not bounded here: the caller
         bounds its own wait (`server/readiness.py`)."""
 
-    def close(self) -> None:  # noqa: B027 - optional hook
-        pass
+    @abstractmethod
+    def close(self) -> None:
+        """Release what the backend holds open: the in-memory database, the Postgres pool."""
 
 
 class SqliteSession(Session):

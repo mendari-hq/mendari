@@ -3146,10 +3146,6 @@ class AuditStore(RateBuckets):
                 (row, kind, expires_at, _canonical(stored)),
             )
 
-    def smart_get(self, key: str, kind: str, *, secret: str | None = None) -> dict[str, Any] | None:
-        row = self.smart_read(key, kind, secret=secret)
-        return None if row is None else row[0]
-
     def smart_read(
         self, key: str, kind: str, *, secret: str | None = None
     ) -> tuple[dict[str, Any], int] | None:
@@ -4251,10 +4247,6 @@ class AuditStore(RateBuckets):
             )
         return [_membership(r) for r in rows]
 
-    def active_membership(self, user_id: str, org: str) -> dict[str, Any] | None:
-        found = self.memberships(org=org, user_id=user_id)
-        return found[0] if found else None
-
     def membership_in_force(self, user_id: str, org: str) -> dict[str, Any] | None:
         """`user_id`'s membership of `org` in force, as it is now (one indexed read, nothing
         cached): what a memberships-mode request acts with (server/auth.py)."""
@@ -5248,7 +5240,7 @@ class AuditStore(RateBuckets):
                 reviewed += 1
                 if row["human_override"]:
                     overrides += 1
-                    rec = str(row["recommendation"] or "(abstained)")
+                    rec = str(row["recommendation"])
                     chosen = str(row["final_label"] or "")
                     if chosen:
                         clusters[(rec, chosen)] = clusters.get((rec, chosen), 0) + 1
