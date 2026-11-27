@@ -5,6 +5,45 @@ Notable changes to Mendari, newest first. Each release has a section named by it
 no section, or whose section is not the newest. Changes to an agent are in the agent's own
 `CHANGELOG.md`.
 
+## Unreleased
+
+Fixes from a bug and dead-code audit of the whole source tree (the details, and what was
+removed, are in `notes/bug-audit-2026-11-27.md`). None raised automation or released an action.
+
+- **The audit trail.** `mendari audit verify` and the System checks read the trail as one
+  snapshot: a grade, a store version or an erased note written while they run is no longer
+  reported as a broken chain (with its `audit.broken` alert). A written round's grade moved to
+  another grader in the database breaks verification, and a round whose stored grades the chain
+  does not hold is not closed. A stored checkpoint statement this deployment's key did not sign
+  is named as such, and never called signed.
+- **The registry.** A key or publish token revoked while a publish is checked publishes
+  nothing. An agent's versions are ordered by semantic-version precedence, in the registry and
+  in the engine: a release is newer than its pre-releases, and `rc.10` newer than `rc.2`.
+- **Refusals where there was a crash (a 500 or a traceback):** a FHIR base that does not even
+  split as a URL (`http://[`) on the SMART launch, a CDS hook and the EHR check; an input schema
+  that is not an object; a number no float holds, from an agent service, a model, a mock file,
+  a ledger or a benchmark; a `Retry-After` date no clock holds; an impossible date on a
+  publisher's evaluation.
+- **Decisions.** NaN or an infinity in an input is an input problem (a recorded BLOCK); each
+  schema reason is listed once; a question named `recommendation` or `priority` is refused at
+  load; on an agent from a registry, a `$` with more of the pattern after it is refused (write
+  `\Z` or `\n?\Z`); a phone number right after another is found by the PHI check.
+- **Deadlines and Bulk Data.** A call to an agent service or a model ends at its deadline as a
+  whole, whatever the server waits before each part. A 429 while an export is polled is waited
+  out.
+- **`mendari mcp`** holds an agent from a registry until its registry's recalls are read, as a
+  running server does.
+- **The command line.** `mendari audit export --since/--until` read times, the basic form a
+  backup's name carries included, and refuse anything else. `--limit` is 1 case or more, or
+  `all`: `calibrate --limit 0` is now `--limit all`. Options a run would have ignored are
+  refused (on `eval`, `leaderboard` and `sandbox smart-launch`). The agent kit refuses an id
+  ending in a newline, as the engine does.
+- **The console and the Hub.** The audit trail says it lists the newest decisions, of how many,
+  and pages to older ones; a whole decision id searched for opens it. Another agent's record is
+  shown in its own codes and not offered for replay. A failed read of the holds is said, never
+  taken for none. The palette opens a decision by its whole id only. On the Hub, a risk filter
+  that is not a number is ignored, not shown as an outage.
+
 ## 0.1.1
 
 A security fix to 0.1.0. Update if you serve an agent store (`MENDARI_AGENT_STORE=on`).
