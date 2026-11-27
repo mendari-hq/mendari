@@ -42,7 +42,7 @@ from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems
 from mendari.evals.result import result_from_ledger, result_sha256
 
-QUEUED, RUNNING, DONE, FAILED, CANCELLED = "queued", "running", "done", "failed", "cancelled"
+QUEUED, RUNNING, DONE, FAILED = "queued", "running", "done", "failed"
 SLICE_SECONDS = 20.0  # well under a function's limit (vercel.json: 300 s)
 CLAIM_SECONDS = 120  # a slice not finished by then is repeated by the next call
 REMOTE_LIMIT = 200  # a remote arm's cases, as the evaluation route caps them
