@@ -367,7 +367,6 @@ def _label(value: str, what: str, most: int) -> str:
 RESERVED_NAMESPACES = ("mendari", "openhealth")
 # A claim only holds a name until its first publish is reviewed: an organization holds a few.
 MAX_PENDING_CLAIMS = 3
-ClaimStatus = Literal["pending", "approved", "refused"]
 
 
 def reserved_namespace(name: str) -> bool:

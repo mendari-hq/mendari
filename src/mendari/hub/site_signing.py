@@ -68,7 +68,6 @@ SECRET_BYTES = 32
 _SITE_ID = re.compile(r"^[0-9a-f]{16}\Z")
 _KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}\Z")
 _NONCE = re.compile(r"^[0-9a-f]{32}\Z")
-_COMMITMENT = re.compile(r"^hmac-sha256:[0-9a-f]{64}\Z")
 
 KEY_FILE_FORMAT = "mendari.site-key/1"
 SITE_FILE = "site.json"
@@ -272,7 +271,3 @@ class Site:
 
     def sign(self, format: str, fields: Mapping[str, Any], **options: Any) -> dict[str, Any]:
         return sign(format, fields, site=self.id, key=self.key, **options)
-
-
-def is_commitment(value: Any) -> bool:
-    return isinstance(value, str) and _COMMITMENT.match(value) is not None
