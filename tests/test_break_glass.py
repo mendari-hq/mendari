@@ -152,15 +152,15 @@ def test_ending_sessions_ends_a_group_s_kinds_and_never_a_claim(
     assert code == 0 and "ended 3 in" in err  # live ones: the expired row is not counted
     assert out["kinds"] == ["member", "oidc-pending", "user"] and out["ended"] == 3
     for kind in ("user", "member", "oidc-pending"):
-        assert store.smart_get(f"{kind}-1", kind) is None
-    assert store.smart_get("session-1", "session") is not None  # launches: not asked
+        assert store.smart_read(f"{kind}-1", kind) is None
+    assert store.smart_read("session-1", "session") is not None  # launches: not asked
     assert not store.smart_claim("jti", "client\njti-1", until)  # still claimed
     code, out, _ = run(
         capsys, "access", "end-sessions", "--kind", "all", "--reason", REASON, "--db", db_target
     )
     assert code == 0 and out["ended"] == 2
-    assert store.smart_get("session-1", "session") is None
-    assert store.smart_get("pending-1", "pending", secret="binding") is None
+    assert store.smart_read("session-1", "session") is None
+    assert store.smart_read("pending-1", "pending", secret="binding") is None
     assert not store.smart_claim("jti", "client\njti-1", until)  # a claim outlives everything
     first, second = events(store, "sessions.ended")
     assert (first["kinds"], second["kinds"]) == (

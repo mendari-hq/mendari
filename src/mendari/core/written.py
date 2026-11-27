@@ -36,7 +36,7 @@ What a round stores is held to what the chain committed to. The round's seed is 
 is made and chained (`written.round_created`), so nobody chooses the bootstrap's draws once
 grades exist. A closed round's report is served only while its hash is the one its
 `written.round_closed` chained (`rounds`), and `AuditStore.verify` checks every closed round's
-report and every stored grade's commitment (`check_stored`)."""
+report and every stored grade's commitment and grader (`check_stored`)."""
 
 from __future__ import annotations
 
@@ -154,12 +154,13 @@ def check_stored(
     items: Mapping[str, str],
 ) -> tuple[int | None, dict[str, int]]:
     """What the rounds' rows hold, against what the chain committed to (`AuditStore.verify`):
-    each stored grade against the commitment its `written.graded` chained, each closed round's
-    stored report against the hash its `written.round_closed` chained, and no stored grade or
-    closed round without its event. `events`: the chain's `written.graded` and
-    `written.round_closed`, in order; `rounds` and `assignments` by id; `items`: an item row's
-    id to its item id. The `seq` of the first event its row does not match (0: a row no event
-    accounts for), or None; and what was checked, counted."""
+    each stored grade against the commitment its `written.graded` chained, and its round, item
+    and grader against that event's, each closed round's stored report against the hash its
+    `written.round_closed` chained, and no stored grade or closed round without its event.
+    `events`: the chain's `written.graded` and `written.round_closed`, in order; `rounds` and
+    `assignments` by id; `items`: an item row's id to its item id. The `seq` of the first event
+    its row does not match (0: a row no event accounts for), or None; and what was checked,
+    counted."""
     counts = {"rounds": 0, "grades": 0}
     graded: set[str] = set()
     closed: set[str] = set()
@@ -177,14 +178,11 @@ def check_stored(
                 return seq, counts
             if body is None or salt is None or row is None:
                 return seq, counts
-            said = grade_ref(
-                salt,
-                str(row["round_id"]),
-                items.get(str(row["item_id"]), ""),
-                assignment,
-                body.get("values") or {},
-            )
-            if said != ref.get("sha256") or payload.get("round") != row["round_id"]:
+            item = items.get(str(row["item_id"]), "")
+            said = grade_ref(salt, str(row["round_id"]), item, assignment, body.get("values") or {})
+            # The commitment holds no grader: whose grade it is, is the event's own word.
+            chained = (payload.get("round"), payload.get("item"), payload.get("grader"))
+            if said != ref.get("sha256") or chained != (row["round_id"], item, row["user_id"]):
                 return seq, counts
             graded.add(assignment)
             counts["grades"] += 1
@@ -389,7 +387,7 @@ class WrittenStore:
                 "items": len(rows),
                 "seed": seed,
             }
-            chained = self.store._bound("written.round_created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{round_id}", "written.round_created", chained)
         return {
             "round": round_id,
@@ -497,7 +495,6 @@ class WrittenStore:
                 (
                     f"written:{round_id}",
                     self.store._bound(
-                        "written.assigned",
                         {
                             "round": round_id,
                             "item": hashes[row_id],
@@ -633,7 +630,7 @@ class WrittenStore:
                 "report_sha256": report["result_sha256"],
                 "by": by,
             }
-            chained = self.store._bound("written.round_closed", payload, owner)
+            chained = self.store._bound(payload, owner)
             self.store._append(db, f"written:{round_id}", "written.round_closed", chained)
         return {
             "round": round_id,
@@ -788,7 +785,7 @@ class WrittenStore:
                 "assignment": str(row["id"]),
                 "grader": user_id,
             }
-            chained = self.store._bound("written.item_read", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{row['round_id']}", "written.item_read", chained)
         criteria = header["criteria"]
         return {
@@ -876,7 +873,7 @@ class WrittenStore:
                     "sha256": grade_ref(salt, round_id, item, assignment_id, given),
                 },
             }
-            chained = self.store._bound("written.graded", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"written:{round_id}", "written.graded", chained)
             remaining = db.one(
                 "SELECT count(*) AS n FROM written_assignments a "

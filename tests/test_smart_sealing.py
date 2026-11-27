@@ -121,8 +121,10 @@ def test_a_launch_session_row_holds_nothing_readable(
     sid = app.cookies.get(SMART_COOKIE)
     assert sid
     with AuditStore(db_target) as store:
-        kept = store.smart_get(sid, "session")
-    assert kept is not None and kept["access_token"] == "access-0"
+        read = store.smart_read(sid, "session")
+    assert read is not None
+    kept = read[0]
+    assert kept["access_token"] == "access-0"
     assert "refresh_token" not in kept and "id_token" not in kept
     assert set(kept) == {
         *("iss", "access_token", "scope", "patient", "encounter", "fhir_user", "expires_at"),
@@ -175,9 +177,9 @@ def test_a_sealed_row_opens_only_in_its_own_row_and_kind(store: AuditStore, db_t
     for one, other in swaps:
         set_data(db_target, one, data[other])
         set_data(db_target, other, data[one])
-    assert store.smart_get("sid-a", "session") is None
-    assert store.smart_get("sid-b", "session") is None
-    assert store.smart_get("same", "session") is None
+    assert store.smart_read("sid-a", "session") is None
+    assert store.smart_read("sid-b", "session") is None
+    assert store.smart_read("same", "session") is None
     with pytest.raises(SealError):
         store.smart_take("same", "pending", secret="same")
     assert raw_rows(db_target, "session") == [] and raw_rows(db_target, "pending") == []
@@ -203,8 +205,9 @@ def test_a_tampered_or_plaintext_launch_row_ends_the_launch(
     sid = app.cookies.get(SMART_COOKIE)
     assert sid
     with AuditStore(db_target) as store:
-        clear = store.smart_get(sid, "session")
-    assert clear is not None
+        read = store.smart_read(sid, "session")
+    assert read is not None
+    clear = read[0]
     set_data(db_target, row["key_sha256"], json.dumps({**clear, "patient": "other-p9"}))
     ehr.requests.clear()
     assert app.get("/api/smart/patient").status_code == 401
@@ -377,7 +380,7 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
                 "claims": {"roles": ["admin"]}, "org": "default", "absolute_at": until,
             }  # fmt: skip
             store.smart_put(sid, "user", row, until)
-            assert store.smart_get(sid, "user") == row
+            assert store.smart_read(sid, "user") == (row, until)
             viewer = signed_in(store, role="viewer")
         client.cookies.clear()
         cookie = {"cookie": f"__Host-{sessions.SESSION}={sid}"}

@@ -31,6 +31,7 @@ import pytest
 from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import accounts
+from mendari.core import audit as audit_module
 from mendari.core.agent import Agent
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.written import (
@@ -1015,11 +1016,26 @@ def test_a_stored_report_edited_in_the_database_is_not_served_and_breaks_verific
                            WHERE a.item_id <> (SELECT max(id) FROM written_items))""",
             (),
         ),
+        # A grade given to another grader: a round closed after it would credit them.
+        (
+            """UPDATE written_assignments SET user_id = (SELECT max(user_id)
+                                                         FROM written_assignments)
+               WHERE id = (SELECT min(a.id) FROM written_assignments a
+                           WHERE a.user_id <> (SELECT max(user_id) FROM written_assignments))""",
+            (),
+        ),
         # A closed round reopened, or its report removed.
         ("UPDATE written_rounds SET state = 'open'", ()),
         ("UPDATE written_rounds SET report = NULL", ()),
     ],
-    ids=["grade-changed", "grade-removed", "grade-moved", "round-reopened", "report-removed"],
+    ids=[
+        "grade-changed",
+        "grade-removed",
+        "grade-moved",
+        "grade-given-to-another",
+        "round-reopened",
+        "report-removed",
+    ],
 )
 def test_verify_checks_every_stored_grade_and_closed_round_against_the_chain(
     world: World, sql: str, params: tuple[str, ...]
@@ -1045,3 +1061,36 @@ def test_verify_finds_a_grade_no_event_accounts_for(world: World) -> None:
     )
     broken = world.store.verify()
     assert broken["ok"] is False and broken["reason"] == "written" and "broken_at" not in broken
+
+
+def test_a_grade_recorded_while_verify_runs_is_no_break(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`verify` reads the chain's head, then the rounds' rows. A grade another request records
+    in between (its own connection, committed) has its row but an event after the head: every
+    read is of one snapshot, so the verification sees neither, says what it said before, and
+    the next one sees both."""
+    round_id = world.round(2)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=0)
+    shown = world.rounds.next_item(a, org=CLINIC)
+    assert shown is not None
+    assignment = str(shown["assignment"])
+    before = world.store.verify()
+    assert before["ok"] and before["written"] == {"rounds": 0, "grades": 0}
+    original = audit_module._subject_orgs
+    graded: list[str] = []
+
+    def concurrent(db: Any) -> Any:
+        # Read after the chain's head and before the rounds' rows.
+        if not graded:
+            graded.append(assignment)
+            world.rounds.record_grades(assignment, a, PASS, org=CLINIC)
+        return original(db)
+
+    monkeypatch.setattr(audit_module, "_subject_orgs", concurrent)
+    assert world.store.verify() == before
+    assert graded == [assignment]
+    after = world.store.verify()
+    assert after["ok"] and after["events"] == before["events"] + 1
+    assert after["written"] == {"rounds": 0, "grades": 1}

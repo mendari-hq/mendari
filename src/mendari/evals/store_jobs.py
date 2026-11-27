@@ -201,7 +201,7 @@ class JobStore:
                  len(data.records), _canonical(config), QUEUED, total, "[]", by, now),
             )  # fmt: skip
             payload = {"job": job_id, **named, "dataset_sha256": data.sha256, "by": by}
-            chained = self.store._bound("store_job.created", payload, org)
+            chained = self.store._bound(payload, org)
             self.store._append(db, f"store_job:{job_id}", "store_job.created", chained)
         return self.job(org, job_id)
 

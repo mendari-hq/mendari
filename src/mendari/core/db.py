@@ -5,7 +5,11 @@
 A store passes its schema (a DDL template with `{real}`, `{serial}` and `{blob}`), its migration
 hook, its Postgres advisory-lock key and its baseline (below). Exclusive sessions are
 transactions serialised with each other: an IMMEDIATE transaction on SQLite, the advisory lock
-on Postgres. The schema is made under that same lock, in one transaction.
+on Postgres. The schema is made under that same lock, in one transaction. Any other session
+reads what is committed as each of its statements runs, except a snapshot (`Backend.snapshot`),
+whose every read sees the database as its first one did, whatever commits meanwhile: one read
+transaction on SQLite (WAL holds it on the snapshot its first read took, and writers commit
+beside it), a REPEATABLE READ, READ ONLY transaction on Postgres.
 
 **The baseline** (`Baseline`). The first release's schema is each store's baseline: the
 transaction that makes a store's schema also marks it, a row `schema` naming `<store>/<version>`
@@ -157,6 +161,13 @@ class Backend(ABC):
         with every other exclusive session (required for hash-chain appends)."""
 
     @abstractmethod
+    def snapshot(self) -> Any:
+        """Context manager yielding a Session to read in: all of it in one snapshot, so what
+        other sessions commit while it is open is not seen (a check reading several tables
+        reads them as they were together). It only reads: Postgres refuses a write in it, and
+        SQLite rolls one back."""
+
+    @abstractmethod
     def ping(self, sql: str, timeout_s: float) -> None:
         """Run `sql` once and raise whatever the database raised; nothing is created or
         written. `timeout_s` bounds what the driver can: SQLite's wait for a lock, Postgres's
@@ -164,8 +175,9 @@ class Backend(ABC):
         stops answering without closing (a network black hole) is not bounded here: the caller
         bounds its own wait (`server/readiness.py`)."""
 
-    def close(self) -> None:  # noqa: B027 - optional hook
-        pass
+    @abstractmethod
+    def close(self) -> None:
+        """Release what the backend holds open: the in-memory database, the Postgres pool."""
 
 
 class SqliteSession(Session):
@@ -276,6 +288,19 @@ class SqliteBackend(Backend):
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
                 raise
+
+    @contextmanager
+    def snapshot(self) -> Iterator[Session]:
+        with self._connect() as connection:
+            # Deferred: the first read starts the read transaction, and every read after it is
+            # of that snapshot (WAL), while writers commit beside it. The in-memory database's
+            # one connection is held for the whole session (`_connect`).
+            connection.execute("BEGIN")
+            try:
+                yield SqliteSession(connection)
+            finally:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
 
     def ping(self, sql: str, timeout_s: float) -> None:
         if self._memory is not None:
@@ -462,6 +487,14 @@ class PostgresBackend(Backend):
             if exclusive:
                 connection.execute("SELECT pg_advisory_xact_lock(%s)", (self.lock_key,))
             yield PostgresSession(connection, exclusive=exclusive)
+
+    @contextmanager
+    def snapshot(self) -> Iterator[Session]:
+        # This transaction alone, not the pooled connection (READ COMMITTED, `_read_committed`):
+        # its first read takes the snapshot every later one reads.
+        with self._pool.connection() as connection, connection.transaction():
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            yield PostgresSession(connection)
 
     def ping(self, sql: str, timeout_s: float) -> None:
         # The pool verifies the connection it hands out (`check_connection`); the statement then
