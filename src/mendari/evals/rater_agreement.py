@@ -6,8 +6,8 @@
   they agree on and s the sum over levels of the two raters' counts multiplied; exact (Fraction).
 - With linear weights on the levels' declared scores (`weighted_kappa`, Cicchetti-Allison): on
   two levels it is the plain kappa.
-- Its interval (`measured`, `coefficient`): the percentile bootstrap over seeded resamples of the
-  items (`stats.resample_indices`).
+- Its interval (`measured`): the percentile bootstrap over seeded resamples of the items
+  (`stats.resample_indices`).
 
 A coefficient the items leave undefined (both raters gave every item one and the same level) is
 null, `not_estimable`, with its reason. An interval is `not_estimable` when any resample leaves
@@ -73,20 +73,6 @@ def weighted_kappa(
     return 1 - n * observed / expected
 
 
-def coefficient(
-    estimate: Fraction | None,
-    statistic: Any,
-    ratings: Sequence[Any],
-    seed: int,
-    resamples: int,
-    reason: str,
-) -> dict[str, Any]:
-    """A coefficient as a report stores it: its estimate and its percentile-bootstrap interval
-    over `ratings` (the cases), each to six places; `not_estimable` with its reason when the
-    cases leave it undefined, and an interval `not_estimable` when any resample does."""
-    return measured(estimate, statistic, ratings, seed, resamples, reason)[0]
-
-
 def measured(
     estimate: Fraction | None,
     statistic: Any,
@@ -95,9 +81,12 @@ def measured(
     resamples: int,
     reason: str,
 ) -> tuple[dict[str, Any], float | None]:
-    """`coefficient`, and its interval's lower bound as the bootstrap gave it, before rounding
-    (None when the coefficient or its interval is not estimable): a floor is held against this,
-    never against the stored six places, so a bound just under a floor never rounds up to it."""
+    """A coefficient as a report stores it: its estimate and its percentile-bootstrap interval
+    over `ratings` (the cases), each to six places; `not_estimable` with its reason when the
+    cases leave it undefined, and an interval `not_estimable` when any resample does. With it,
+    its interval's lower bound as the bootstrap gave it, before rounding (None when the
+    coefficient or its interval is not estimable): a floor is held against this, never against
+    the stored six places, so a bound just under a floor never rounds up to it."""
     if estimate is None:
         return {"estimate": None, "status": "not_estimable", "reason": reason}, None
     _, low, high, dropped = stats.bootstrap_defined(ratings, statistic, resamples, seed)
@@ -121,6 +110,3 @@ def measured(
         "interval": interval,
     }
     return stored, (low if interval["status"] == "ok" else None)
-
-
-_coefficient = coefficient

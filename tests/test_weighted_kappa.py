@@ -19,7 +19,7 @@ from statsmodels.stats.inter_rater import cohens_kappa
 from statsmodels.stats.proportion import proportion_confint
 
 from mendari.evals import stats, written
-from mendari.evals.rater_agreement import _coefficient, coefficient, kappa, weighted_kappa
+from mendari.evals.rater_agreement import kappa, measured, weighted_kappa
 
 SCALES: dict[str, dict[str, float]] = {
     "yes_no": {"no": 0, "yes": 1},
@@ -161,14 +161,16 @@ def test_bootstrap_interval_matches_scipy() -> None:
     )
     assert low == pytest.approx(reference.confidence_interval.low, abs=1e-12)
     assert high == pytest.approx(reference.confidence_interval.high, abs=1e-12)
-    stored = coefficient(weighted_kappa(pairs, scale), statistic, pairs, 0, 2000, "constant")
+    stored, unrounded = measured(
+        weighted_kappa(pairs, scale), statistic, pairs, 0, 2000, "constant"
+    )
     assert stored["interval"] == {
         "status": "ok",
         "low": round(low or 0, 6),
         "high": round(high or 0, 6),
         "dropped": 0,
     }
-    assert _coefficient is coefficient  # the name the agreement report was written with
+    assert unrounded == low
 
 
 def test_min_failures_is_the_smallest_perfect_sample() -> None:
