@@ -63,9 +63,10 @@ def test_the_template_is_yaml_only_on_spec_0_4_and_says_where_the_guide_is() -> 
 
 
 def test_the_guide_url_names_the_guide_in_this_repository() -> None:
-    prefix = "https://github.com/mendari-hq/mendari/blob/main/"
-    assert AUTHORING_GUIDE.startswith(prefix)
-    assert (ROOT / AUTHORING_GUIDE.removeprefix(prefix)).is_file()
+    # The documentation site builds docs/guides/authoring-an-agent.md at this address.
+    prefix = "https://mendari-hq.github.io/mendari/"
+    assert f"{prefix}guides/authoring-an-agent/" == AUTHORING_GUIDE
+    assert (ROOT / "docs" / "guides" / "authoring-an-agent.md").is_file()
 
 
 def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:

@@ -3259,17 +3259,18 @@ def cmd_store_purge(args: argparse.Namespace) -> int:
 # What `mendari new` writes: an AI agent on spec 0.4 with an offline mock fixture, and its
 # examples, rules, input schema and tests.
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "base"
+# The documentation site (mkdocs.yml `site_url`; a test keeps them equal): a page under docs/ is
+# its path there without `.md`, as a folder.
+DOCS_SITE = "https://mendari-hq.github.io/mendari/"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
-AUTHORING_GUIDE = (
-    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
-)
+AUTHORING_GUIDE = f"{DOCS_SITE}guides/authoring-an-agent/"
 # The workflow `mendari new` writes into the agent's own `.github/workflows/`: Mendari's action
 # (action.yml) at this release's tag, which checks the agent on every change. Its template is
 # kept outside any `.github/` folder: a release holds no CI configuration of its own
 # (scripts/check_excluded.py).
 CI_TEMPLATE = Path(__file__).resolve().parent / "templates" / "ci" / "mendari.yml"
 CI_WORKFLOW = Path(".github") / "workflows" / "mendari.yml"
-CI_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md"
+CI_GUIDE = f"{DOCS_SITE}guides/evaluate-in-ci/"
 
 
 def cmd_new(args: argparse.Namespace) -> int:

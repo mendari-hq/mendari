@@ -4307,9 +4307,10 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      `ghcr`, passed every job.
    - PyPI holds 0.1.0's wheel and sdist. A clean `pip install mendari` runs `mendari test` on the
      demo agent and on a new agent.
-   - **Left, the owner's:** GHCR made the `mendari-engine` package private (an anonymous pull is
-     refused). The organization's Packages → `mendari-engine` → Package settings → Change
-     visibility → Public.
+   - The `mendari-engine` image is public (2026-11-26). GHCR made it private, and the
+     organization allowed only private packages, so the owner turned on Settings → Packages →
+     Package creation → Public, then changed the package's visibility. An anonymous pull of
+     `ghcr.io/mendari-hq/mendari-engine:v0.1.0` (amd64 and arm64) runs `mendari test`.
 
    As planned: The README is the package's page on PyPI, and a release's page never
    changes, so the install wording switches in the release's own commit, never after: a build
@@ -4342,8 +4343,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    package settings if it is private).
 9. **Docs on GitHub Pages.** Done 2026-11-25: Pages is served from GitHub Actions (set through the
    API), and the docs run from `main` deployed https://mendari-hq.github.io/mendari/.
-   **Left:** the build PR that points the README, the package's Documentation link (from the
-   next release) and `mendari new` at the site.
+   The README, the package's Documentation link (on PyPI from the next release), what
+   `mendari new` prints and writes, and the CI workflow it writes name the site; a test holds
+   every site link to a page docs/ builds.
 
    As planned (the deploy workflow is `docs.yml`, LP-15c). The docs host is
    GitHub Pages at `https://mendari-hq.github.io/mendari/` (confirmed by the owner on

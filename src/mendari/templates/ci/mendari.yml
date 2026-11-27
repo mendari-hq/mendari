@@ -8,7 +8,7 @@
 #
 # How to change the limits, compare with a baseline, ask which automation threshold the cases
 # support (a target) or evaluate your live agent with a secret:
-# https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md
+# https://mendari-hq.github.io/mendari/guides/evaluate-in-ci/
 #
 # GitHub reads workflows from a repository's own .github/workflows/. If this folder is the
 # repository, this file is where it must be. If the agent is a folder of a larger repository,
