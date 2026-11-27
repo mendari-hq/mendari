@@ -225,8 +225,6 @@ def apply_policy(
             limits,
             canned,
         )
-    if canned is not None and not any(reason.startswith(canned) for reason in reasons):
-        reasons.append(canned_reason(canned))  # already not AUTO: the reason only
     site_reason = f"site code translated ({', '.join(translated)}): a person decides"
     if translated and not any(reason.startswith(site_reason) for reason in reasons):
         # Already HUMAN_REVIEW or ABSTAIN: the reason only says a translation was read, for the
@@ -235,6 +233,8 @@ def apply_policy(
     for limit in limits:
         if not any(reason.startswith(f"{limit}: a person decides") for reason in reasons):
             reasons.append(f"{limit}: a person decides")  # likewise: no outcome changes
+    if canned is not None and not any(reason.startswith(canned) for reason in reasons):
+        reasons.append(canned_reason(canned))  # likewise, last as its step is (6)
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     decided = PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)

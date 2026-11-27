@@ -406,15 +406,15 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
 
 
 def test_the_error_limit_and_short_reasons_are_a_bounded_agents_only(tmp_path: Path) -> None:
-    """Every agent the deployment owns lists what it always listed."""
+    """Every agent the deployment owns lists every missing name; like a bounded agent, it lists
+    the reason once, not once per missing name (`tests/test_decision.py`)."""
 
     def many(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
 
     outside = load_agent(sorter(tmp_path / "a", schema=many, agent_id="someone/sorter"))
     reasons = Decision(outside).decide({"message": "my bill", "meta": {}}).reasons
-    assert reasons[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
-    assert len(reasons) == 9  # one per missing name, as before
+    assert reasons == (f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required",)
     bounded = pulled(sorter(tmp_path / "b", schema=many))
     reasons = Decision(bounded).decide({"message": "my bill", "meta": {}}).reasons
     assert reasons == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)

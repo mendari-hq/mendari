@@ -789,11 +789,6 @@ def _check_number(node: yaml.Node) -> None:
         _refuse(f"a number of more than {MAX_YAML_NUMBER_PARTS} ':' parts (base 60)", node)
 
 
-def load_yaml(path: Path, name: str, label: str) -> Any:
-    """`parse_yaml` on the file at `path` (for a file outside any agent)."""
-    return parse_yaml(path.read_bytes(), name, label)
-
-
 def parse_yaml(data: bytes, name: str, label: str) -> Any:
     """A YAML file of an agent, parsed safely. One that does not parse, is not UTF-8, nests too
     deep for the parser, holds a value JSON cannot (a string with a lone surrogate, `!!binary`,

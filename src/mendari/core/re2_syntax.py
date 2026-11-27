@@ -17,14 +17,21 @@ where RE2 would read the same characters differently:
   and RE2 folds no case: `ı`, `İ`, `I` and `i` match each other as in `re`, and `\W` never
   matches `ι` (RE2 would fold the class's U+0345 into it). With `(?a)`, as `re`, ASCII only.
 - `\b` and `\B` next to a character the pattern names are written with RE2's own `\b` and
-  `\B`, which see only ASCII letters, digits and `_` as word characters *in the text*: right
-  wherever the character just outside the match is in ASCII. A letter or digit outside ASCII
-  just outside the match does not continue the word: `\bpie` also matches in "épie", `\bma\b`
-  inside "mañana", and next to letters outside ASCII the pattern names, `\bрак\b` inside
-  "практика" (`re` matches none of them). A boundary next to something that may match nothing
-  (`\b\w*`) is RE2's ASCII one.
-- `$` is `re`'s: the end of the text, or before a newline that ends it; `\Z` is the end only;
-  `a{,3}` is `a{0,3}` (RE2 reads it as text).
+  `\B`, which see only ASCII letters, digits and `_` as word characters *in the text*. Each is
+  moved into the character on one side of it and written for each kind of character that one
+  may be, so it is read as `re` reads it; the character on the other side is read as RE2 reads
+  it, which is right unless it is a letter or digit outside ASCII. The boundary is moved so
+  that the other side is one where the pattern allows no such letter or digit (`\w\b\s`, into
+  the `\w`), when it can be; where the pattern allows one on both sides, such a letter or
+  digit on the other side does not continue the word. Just outside the match: `\bpie` also
+  matches in "épie", `\bma\b` inside "mañana", and next to letters outside ASCII the pattern
+  names, `\bрак\b` inside "практика" (`re` matches none of them). Inside it: `\w\B\D` does not
+  match "ñÉ" and `é\Bé` not "éé" (`re` matches both). A boundary next to something that may
+  match nothing (`\b\w*`) is RE2's ASCII one.
+- `$` is `re`'s: the end of the text, or before a newline that ends it (RE2 cannot stop before
+  that newline, so its `$` takes it: the same where nothing follows the `$` in a match, and one
+  that more may follow is refused, below); `\Z` is the end only; `a{,3}` is `a{0,3}` (RE2 reads
+  it as text).
 - A count above 1,000 (RE2's largest) is split into counts of at most 1,000 one after another,
   which match the same texts. Counts nested inside each other may multiply to at most 1,000:
   RE2 refuses `(?:a{1,50}){1,50}`.
@@ -32,7 +39,8 @@ where RE2 would read the same characters differently:
   replaced with U+FFFD before a pattern runs (`core/patterns.py`).
 
 What RE2 cannot run is refused with what to write instead (`Unsupported`): lookahead and
-lookbehind, back references, conditional groups, atomic groups and possessive quantifiers.
+lookbehind, back references, conditional groups, atomic groups and possessive quantifiers, and a
+`$` (not multi-line) with more of the pattern after it (`pain$\W` finds "pain\n" in `re`).
 
 `size` is how much of RE2's work a pattern can make on each character of a text
 (`core/caps.py` caps a bounded agent's total).
@@ -65,6 +73,7 @@ def translate(pattern: str, flags: int = 0) -> str:
     """The RE2 pattern for a `re` pattern compiled with `flags` (module docstring). Raises
     `re.error` for a pattern `re` refuses, and `Unsupported` for one RE2 cannot run."""
     tree = _parser.parse(pattern, flags)
+    _ends(list(tree), tree.state.flags)
     return _Writer().sequence(list(tree), tree.state.flags)
 
 
@@ -310,7 +319,8 @@ class _Writer:
 
     def _side(self, items: Sequence[Item], index: int, flags: int) -> str:
         """Which neighbour a boundary at `index` travels into: the one whose other side names
-        no letter or digit outside ASCII (so the result is exact), else the next one; "" when
+        no letter or digit outside ASCII (so the result is exact), else the next one (exact
+        only where the character on its other side is not one: module docstring); "" when
         neither may hold one (RE2's own `\\b` is exact) or neither can take it."""
         before = items[index - 1] if index else None
         after = items[index + 1] if index + 1 < len(items) else None
@@ -505,6 +515,35 @@ def _wide_sequence(items: list[Item], edge: str, flags: int) -> bool:
     if not matching:
         return True
     return _wide(matching[0] if edge == "start" else matching[-1], edge, flags)
+
+
+_END_THEN_MORE = (
+    "uses $ with more of the pattern after it, which RE2 (the engine agents from a registry or a "
+    "store run on) does not have: in re, $ stops before a newline that ends the text, and what "
+    "follows matches from there; match that newline as \\n, and end the pattern with \\Z, or "
+    f"\\n?\\Z for the end or a newline that ends it ({_GUIDE})"
+)
+
+
+def _ends(items: Sequence[Item], flags: int, followed: bool = False) -> None:
+    """Refuse a `$` (not multi-line) that more of the pattern may follow in a match: an item
+    after it in its sequence, after the group or alternatives holding it (`followed`), or the
+    next copy of a count around it. RE2's `$` takes the newline `re`'s stops before (`_at`), so
+    what follows it would match from another place."""
+    for index, (op, av) in enumerate(items):
+        name = str(op)
+        after = followed or index + 1 < len(items)
+        if name == "AT" and str(av) == "AT_END" and not flags & _c.SRE_FLAG_MULTILINE:
+            if after:
+                raise Unsupported(_END_THEN_MORE)
+        elif name == "SUBPATTERN":
+            _, added, removed, inner = av
+            _ends(list(inner), (flags | added) & ~removed, after)
+        elif name == "BRANCH":
+            for alternative in av[1]:
+                _ends(list(alternative), flags, after)
+        elif name in _REPEATS:
+            _ends(list(av[2]), flags, after or av[1] > 1)  # a copy may follow another
 
 
 def _at(av: Any, flags: int) -> str:

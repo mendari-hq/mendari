@@ -38,14 +38,15 @@ finding is enough (`tests/test_phi_detect.py` keeps the measurement).
 Every pattern is compiled with RE2 (`core/patterns.py`'s engine), because the detector reads
 hostile uploads: a long line costs one pass, never a backtracking search. The patterns hold no
 lookaround, which RE2 cannot run: what earlier heuristics checked with one is checked on
-the captured digits in Python, and the edges of a number are matched characters."""
+the captured digits in Python, the edge before a number is a matched character, and the edge
+after it a word boundary, with no hyphen after it (checked in Python)."""
 
 from __future__ import annotations
 
 import functools
 import re
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from importlib import resources
 from typing import Any
@@ -65,9 +66,12 @@ MAX_VALUES = 200_000
 RE2_MAX_MEMORY = 8 << 20
 
 # Before and after a number: not a word character or a hyphen. RE2 has no lookaround, so the
-# character (or the line's edge) is matched and the digits are read from named groups.
+# character before (or the line's edge) is matched and the digits are read from named groups;
+# after its last digit, a number ends at a word boundary, which matches no character, and a
+# hyphen there is checked in Python (`_numbers`): the character after one number is then left
+# for the edge before the next ("617-555-0100 617-555-1234").
 _EDGE_BEFORE = r"(?:^|[^\w-])"
-_EDGE_AFTER = r"(?:$|[^\w-])"
+_EDGE_AFTER = r"\b"
 _MONTH = (
     r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|"
     r"Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
@@ -178,12 +182,17 @@ def _near(line: str, match: Any, word: Any) -> bool:
 
 
 def _phone(line: str, p: Patterns) -> bool:
-    if any(not _fictional(match) for match in p["phone"].finditer(line)):
+    if any(not _fictional(match) for match in _numbers(p["phone"], line)):
         return True
     return any(
         not _fictional(match) and _near(line, match, p["phone_word"])
-        for match in p["bare_phone"].finditer(line)
+        for match in _numbers(p["bare_phone"], line)
     )
+
+
+def _numbers(pattern: Any, line: str) -> Iterator[Any]:
+    """Each match of a phone pattern that no hyphen follows (`_EDGE_AFTER`)."""
+    return (match for match in pattern.finditer(line) if line[match.end() : match.end() + 1] != "-")
 
 
 def _birth_date(line: str, p: Patterns) -> bool:

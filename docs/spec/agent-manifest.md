@@ -113,7 +113,8 @@ All MUST hold:
 - `id` is `namespace/name`, each part lowercase letters, digits and dashes, starting with a
   letter or a digit.
 - Question keys and labels match `^[a-z][a-z0-9_]*$`. A question has 2–255 labels, each with a
-  non-empty criterion.
+  non-empty criterion. No question is keyed `recommendation` or `priority`: those are the
+  templates' built-in placeholders (§9.11).
 - Every question is answered by exactly one provider slot. Slots answer only declared questions.
   A slot's `use` names one of its variants.
 - `policy.primary` is a question. Rule conditions reference existing questions and labels;
@@ -186,6 +187,8 @@ All MUST hold:
 
 ### 3.3 The input schema
 
+- The input schema is an object at its root, the schema of the input's fields: a boolean schema
+  alone (`true` or `false`) is invalid.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
@@ -376,7 +379,8 @@ instead: [Patterns run on RE2](../guides/authoring-an-agent.md#patterns-run-on-r
 agent is invalid when:
 
 - it holds a pattern RE2 cannot run: a lookahead or lookbehind, a back reference, a conditional
-  or atomic group, a possessive quantifier, or one too large once compiled;
+  or atomic group, a possessive quantifier, a `$` (not multi-line) with more of the pattern after
+  it, or one too large once compiled;
 - its input schema uses a keyword outside those whose work Mendari bounds: `unevaluatedProperties`
   or `unevaluatedItems`, which jsonschema works out on its own and with `re`, `contains`,
   `uniqueItems` and the like are refused; `$ref` names one of the root's `$defs`, whose names are
@@ -455,7 +459,8 @@ and a priority from FHIR `request-priority`: `routine`, `urgent`, `asap`, `stat`
 
 Evaluation order (MUST):
 
-1. If the input fails the input schema, the outcome is `BLOCK` and no provider is called.
+1. If the input fails the input schema, or holds a number JSON cannot carry (NaN or an infinity,
+   which no schema keyword bounds), the outcome is `BLOCK` and no provider is called.
 2. Provider slots answer their questions, and score answers receive their expected `value`.
 3. Policy `rules` are evaluated in order over the available answers. A rule's condition
    matches an answer when the answer's confidence is ≥ `when.min_confidence`, its label is in

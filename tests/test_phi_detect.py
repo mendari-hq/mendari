@@ -110,6 +110,19 @@ def test_the_fictional_phone_range_and_example_domains_pass() -> None:
         assert detect(text) == [], text
 
 
+@pytest.mark.parametrize("separator", [" ", "/"])
+def test_a_phone_number_right_after_another_is_found(separator: str) -> None:
+    """The character after a number (not a word character or a hyphen) was matched, as RE2 has
+    no lookahead, and it is also the edge before the next number: one written in the range
+    kept for fiction hid a real one right after it ("617-555-0100 617-555-1234" held no phone),
+    on purpose or not. A number now ends at a word boundary, which matches no character, and
+    the hyphen is checked apart, so the next one is found; on both engines."""
+    for engine in (phi_detect.re2_patterns(), phi_detect.re_patterns()):
+        for first, second in (("617-555-0100", "617-555-1234"), ("6175550100", "6175551234")):
+            assert phi_detect.kinds_of(f"cell {first}{separator}{second}", engine) == ["phone"]
+            assert phi_detect.kinds_of(f"cell {first}{separator}{first}", engine) == []
+
+
 def test_a_long_hostile_line_costs_one_pass() -> None:
     """Lines built to make a backtracking engine search: on RE2 each is one pass."""
     hostile = [
