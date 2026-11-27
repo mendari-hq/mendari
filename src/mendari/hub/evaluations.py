@@ -184,6 +184,13 @@ def _one_line(text: str) -> str:
     return text
 
 
+def _a_time(text: str) -> str:
+    """A UTC time in `_TIME`'s shape that is also a time: the pattern lets a day or an hour
+    that does not exist through (`2026-02-30T12:00:00Z`), which `skewed` could not read."""
+    datetime.fromisoformat(text.replace("Z", "+00:00"))  # a ValueError names the field
+    return text
+
+
 class DescribedDataset(EvaluatedDataset):
     """A dataset as `mendari.publisher-evaluation/1` names it: also what its cases were built
     from, as the agent's manifest says it (null: the manifest does not say), and who labelled
@@ -220,7 +227,7 @@ class PublisherEvaluationV1(_Closed):
     claimed: ClaimedV1
     models: Models
     engine: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]
-    created_at: Annotated[str, Field(pattern=_TIME)]
+    created_at: Annotated[str, Field(pattern=_TIME), AfterValidator(_a_time)]
     key_id: Annotated[str, Field(pattern=_KEY_ID)]
     signature: Annotated[str, Field(min_length=1, max_length=200)]
 

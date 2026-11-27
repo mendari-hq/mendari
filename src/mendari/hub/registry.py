@@ -14,7 +14,9 @@
   - it extracts to an agent that loads with the signed digest, on the engine its pullers run
     (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);
-  - that version does not exist yet.
+  - that version does not exist yet;
+  - the token that sent it and the key that signed it are still live as it is written (read
+    again under the write lock: one revoked while the archive was checked publishes nothing).
 
   Versions are immutable.
 - **What a version shows** (ADR-0012): only what the registry checked or rendered itself,
@@ -296,6 +298,21 @@ _TOKEN_FIELDS = (
 )
 
 
+def _owned(db: Session, token: str) -> dict[str, str] | None:
+    """Whose an owned token is (`id`, `namespace`, `org`, `owner`), read in the caller's
+    session; None for a token that is revoked, expired, or not an owned token at all."""
+    row = db.one(
+        "SELECT id, namespace, org, owner, expires_at, revoked_at "
+        "FROM hub_publisher_tokens WHERE token_sha256 = ?",
+        (_sha(token),),
+    )
+    if row is None or row["revoked_at"] is not None:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) <= datetime.fromisoformat(_now()):
+        return None
+    return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
+
+
 def _check_token_caps(
     db: Session,
     namespace: str,
@@ -350,7 +367,6 @@ def _label(value: str, what: str, most: int) -> str:
 RESERVED_NAMESPACES = ("mendari", "openhealth")
 # A claim only holds a name until its first publish is reviewed: an organization holds a few.
 MAX_PENDING_CLAIMS = 3
-ClaimStatus = Literal["pending", "approved", "refused"]
 
 
 def reserved_namespace(name: str) -> bool:
@@ -450,6 +466,30 @@ def _now_ms() -> str:
 
 def _version_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
+
+
+def precedence(version: str) -> tuple[Any, ...]:
+    """How the registry orders an agent's versions, the newest last: by semantic-version
+    precedence (SemVer 2.0.0, section 11), then as text. The numbers compare as integers would
+    (`version_key`, whatever their length); a release ranks above its pre-releases, whose
+    dot-separated identifiers compare in turn: digits as numbers and below the others, which
+    compare in ASCII order, and fewer identifiers first when the rest are equal; build metadata
+    counts for nothing. Versions of equal precedence (`1.2.0` and `1.02.0`) then compare as text,
+    so no order depends on the order the database reads rows in. `version_key` alone ties a
+    release and its pre-releases, on purpose: one that ties a bundled agent's version may not
+    take its place (`core/agent.py`)."""
+    numbers, hyphen, pre = version.partition("+")[0].partition("-")
+    release = (1,) if not hyphen else (0, tuple(_identifier(part) for part in pre.split(".")))
+    return (version_key(numbers), release, version)
+
+
+def _identifier(part: str) -> tuple[int, int, str]:
+    """A pre-release identifier's place: digits as a number, below any other identifier, which
+    compares in ASCII order."""
+    if part.isascii() and part.isdigit():
+        digits = part.lstrip("0")
+        return (0, len(digits), digits)
+    return (1, 0, part)
 
 
 _NOT_COUNTERSIGNED = (
@@ -785,9 +825,7 @@ class RegistryStore(
                 record_event(db, "namespace.refused", f"namespace:{name}", decided, row=row)
             if own is not None:  # listed from here: what was published while it was pending
                 waiting = db.all(f"{_NOT_COUNTERSIGNED} AND v.namespace = ?", (name,))
-                for version in sorted(
-                    waiting, key=lambda v: (v["name"], version_key(v["version"]))
-                ):
+                for version in sorted(waiting, key=lambda v: (v["name"], precedence(v["version"]))):
                     # Checked again from what is stored: one that is not genuine stays without
                     # a record, and every client of this registry refuses it.
                     _countersign(db, own, version, by, verified=False)
@@ -1029,16 +1067,7 @@ class RegistryStore(
         """Whose an owned token is (`id`, `namespace`, `org`, `owner`), in one read; None for a
         token that is revoked, expired, or not an owned token at all."""
         with self._db.session(exclusive=False) as db:
-            row = db.one(
-                "SELECT id, namespace, org, owner, expires_at, revoked_at "
-                "FROM hub_publisher_tokens WHERE token_sha256 = ?",
-                (_sha(token),),
-            )
-        if row is None or row["revoked_at"] is not None:
-            return None
-        if datetime.fromisoformat(row["expires_at"]) <= datetime.fromisoformat(_now()):
-            return None
-        return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
+            return _owned(db, token)
 
     def token_used(self, id: str) -> None:
         """Note that an owned token was used today (the deployment's day, `core/clock.py`).
@@ -1059,8 +1088,22 @@ class RegistryStore(
     # -- agents ----------------------------------------------------------------------------------
 
     def publish(
-        self, namespace: str, name: str, version: str, data: bytes, *, by: str = "operator"
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        data: bytes,
+        *,
+        by: str = "operator",
+        token: str | None = None,
     ) -> dict[str, Any]:
+        """Check a signed archive and store it as this version (the module's docstring says
+        what is checked). `token` is the publisher token the request was let through on (None:
+        no token, the operator's own call). The checks take minutes at most, so that token and
+        the key that signed the archive are read again as the version is written, under the lock
+        `revoke_token` and `revoke_key` write under: one revoked (or a token expired) meanwhile
+        publishes nothing, answered as at the start, and a stored version always precedes its
+        key's revocation."""
         revoked = self.revoked_keys(namespace)
         keys = {
             k["key_id"]: archive.load_public_key(k["public_pem"].encode())
@@ -1112,12 +1155,22 @@ class RegistryStore(
                 f"the agent's metadata cannot be served ({type(error).__name__})"
             ) from None
         with self._db.session(exclusive=True) as db:
+            if token is not None:  # as the route answers a token that is not live
+                owned = _owned(db, token)
+                if owned is None or owned["namespace"] != namespace:
+                    raise HubError(f"a token for namespace {namespace!r} is required", 403)
             if db.one(
                 "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
                 (namespace, name, version),
             ):
                 raise HubError(
                     f"{namespace}/{name}@{version} is published; versions are immutable", 409
+                )
+            if db.one(  # as `archive.verify` answers a key that is not trusted
+                "SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (verified.key_id,)
+            ):
+                raise HubError(
+                    f"the archive is signed by a key that is not trusted ({verified.key_id})"
                 )
             if not db.one(
                 "SELECT archive_sha256 FROM hub_archives WHERE archive_sha256 = ?",
@@ -1236,7 +1289,7 @@ class RegistryStore(
             unlisted = self._unlisted(db)
             waiting = [v for v in db.all(_NOT_COUNTERSIGNED) if v["namespace"] not in unlisted]
             for version in sorted(
-                waiting, key=lambda v: (v["namespace"], v["name"], version_key(v["version"]))
+                waiting, key=lambda v: (v["namespace"], v["name"], precedence(v["version"]))
             ):
                 why = _not_genuine(db, version)
                 if why is None:
@@ -1268,9 +1321,10 @@ class RegistryStore(
                 )
 
     def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
-        """The measured regression check of the newest version before `version`, with its
-        version and whether it is recalled since: the gate's baseline. A recalled version stays
-        one, so recalling a good version cannot hide a later regression."""
+        """The measured regression check of the newest version before `version` (`precedence`:
+        a release's own pre-release is before it), with its version and whether it is recalled
+        since: the gate's baseline. A recalled version stays one, so recalling a good version
+        cannot hide a later regression."""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT version, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
@@ -1281,11 +1335,11 @@ class RegistryStore(
         for row in rows:
             check = json.loads(row["metadata"]).get("regression")
             if (
-                version_key(row["version"]) < version_key(version)
+                precedence(row["version"]) < precedence(version)
                 and isinstance(check, dict)
                 and check.get("status") == "measured"
             ):
-                earlier.append((version_key(row["version"]), row["version"], check))
+                earlier.append((precedence(row["version"]), row["version"], check))
         if not earlier:
             return None
         _, found, check = max(earlier, key=lambda item: item[0])
@@ -1310,7 +1364,7 @@ class RegistryStore(
                 )
                 for r in rows
             ),
-            key=lambda v: version_key(v["version"]),
+            key=lambda v: precedence(v["version"]),
         )
 
     def namespace_versions(
@@ -1696,8 +1750,8 @@ class RegistryStore(
         }
 
     def latest(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
-        """The newest version of every agent the viewer reads that is not recalled (yanked or
-        deleted), with its namespace's publisher type."""
+        """The newest version (`precedence`) of every agent the viewer reads that is not
+        recalled (yanked or deleted), with its namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
             rows = db.all("SELECT * FROM hub_versions")
             unlisted = self._unlisted(db)
@@ -1721,7 +1775,7 @@ class RegistryStore(
                 accepted=accepted.get(_key(row)),
             )
             key = (row["namespace"], row["name"])
-            if key not in newest or version_key(item["version"]) > version_key(
+            if key not in newest or precedence(item["version"]) > precedence(
                 newest[key]["version"]
             ):
                 newest[key] = item
@@ -2413,9 +2467,16 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        # Off the event loop: a publish runs the regression check, up to its time limit.
+        # Off the event loop: a publish runs the regression check, up to its time limit. The
+        # token is checked again as the version is written: it may be revoked meanwhile.
         return await run_in_threadpool(
-            store.publish, namespace, name, version, bytes(body), by=actor(request)
+            store.publish,
+            namespace,
+            name,
+            version,
+            bytes(body),
+            by=actor(request),
+            token=bearer(request),
         )
 
     async def small_body(request: Request, model: type[Small]) -> Small:

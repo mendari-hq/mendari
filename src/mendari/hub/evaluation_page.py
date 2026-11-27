@@ -14,7 +14,9 @@ shown with its figures. One that does not verify, or whose key was revoked since
 comparison or the badge. An agent whose evaluations are all such reads `not_verified`, never
 `evaluated`.
 
-**The version.** The newest version that is not recalled, or the one asked for (`version`).
+**The version.** The newest version that is not recalled (by semantic-version precedence, as
+the registry orders versions: a release above its pre-releases), or the one asked for
+(`version`).
 Evaluations belong to a version: a new version starts with none, and says so (`versions.evaluated`
 names the others that have one).
 
@@ -47,7 +49,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlsplit
 
 from mendari.core.https_only import is_https_or_local
-from mendari.core.registry import version_key
 from mendari.core.status import SYNTHETIC_EXAMPLE
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures as served_figures
@@ -148,12 +149,9 @@ def evaluation(
         "versions": {
             "shown": None if shown is None else shown["version"],
             "latest": current[-1]["version"] if current else None,
-            # The versions that hold an evaluation and are not recalled, the newest first.
-            "evaluated": sorted(
-                (v["version"] for v in current if v["version"] in evaluated),
-                key=version_key,
-                reverse=True,
-            ),
+            # The versions that hold an evaluation and are not recalled, the newest first (the
+            # registry's order, `precedence`).
+            "evaluated": [v["version"] for v in reversed(current) if v["version"] in evaluated],
         },
         "agent": None,
         "datasets": [],

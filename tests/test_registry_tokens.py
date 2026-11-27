@@ -173,6 +173,39 @@ def test_a_revoked_token_is_refused_at_once_and_revoking_is_chained(
     assert _verify(db_target)["problem"] == problem
 
 
+@pytest.mark.parametrize("meanwhile", ["revoked", "expired"])
+def test_a_token_revoked_or_expired_while_its_publish_is_checked_publishes_nothing(
+    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch, meanwhile: str
+) -> None:
+    """The token is checked before the archive is read, and the archive is then checked for
+    minutes at most (extract, validation, the regression check): the token is checked again as
+    the version is written, so one revoked or expired meanwhile publishes nothing, with the
+    answer it gets at the start."""
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    minted = _mint(db_target, FIXTURE_NAMESPACE, days=1)
+    checked, real = registry_module._refuse_invalid, registry_module._now
+
+    def meanwhile_the_token_ends(agent: Any) -> None:
+        if meanwhile == "revoked":
+            with RegistryStore(db_target) as store:
+                store.revoke_token(minted["id"], org="acme", by=OWNER)
+        else:  # the clock moved past its expiry, not a sleep
+            moved = datetime.fromisoformat(real()) + timedelta(hours=25)
+            monkeypatch.setattr(registry_module, "_now", lambda: moved.isoformat())
+        checked(agent)
+
+    monkeypatch.setattr(registry_module, "_refuse_invalid", meanwhile_the_token_ends)
+    refused = registry.publish(token=minted["token"])
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["detail"] == f"a token for namespace {FIXTURE_NAMESPACE!r} is required"
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}").status_code == 404
+    assert "agent.published" not in [event["event"] for event in _events(db_target)]
+    monkeypatch.setattr(registry_module, "_refuse_invalid", checked)
+    monkeypatch.setattr(registry_module, "_now", real)
+    assert registry.publish().status_code == 201  # the namespace's own token is not touched
+    assert _verify(db_target)["ok"]
+
+
 def last_row_sha(db_target: str, id: str) -> str:
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         row = db.one("SELECT * FROM hub_publisher_tokens WHERE id = ?", (id,))

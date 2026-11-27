@@ -38,7 +38,7 @@ from mendari.server.app import create_app
 from mendari.server.smart_routes import decide_for
 from mendari.settings import FhirValidation
 from mendari.standards import cds_hooks, linked
-from mendari.standards.fhir import FhirAdapter, renditions, unread_attachments
+from mendari.standards.fhir import FhirAdapter, renditions, unread_notes
 from mendari.standards.fhir_client import FhirClient
 from mendari.standards.linked import MAX_NOTE_READS, Linker, reads_links
 from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, INPUT_HASH_KEY, TRIAGE_DIR
@@ -464,9 +464,9 @@ def test_html_is_read_as_text_and_rtf_abstains(agent: Decision) -> None:
     assert renditions("DocumentReference.content.attachment")
     assert renditions("DiagnosticReport.presentedForm")
     assert not renditions("Communication.payload.contentAttachment")
-    assert unread_attachments("DocumentReference.content.attachment", pairs, {}) == []
-    assert unread_attachments("Communication.payload.contentAttachment", pairs, {}) == [
-        "unsupported_type"
+    assert unread_notes("DocumentReference.content.attachment", pairs, {}) == []
+    assert unread_notes("Communication.payload.contentAttachment", pairs, {}) == [
+        ("unsupported_type", "pdf")
     ]
 
 

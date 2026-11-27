@@ -163,6 +163,10 @@ not look. A review shows
 in `checked.review` and `claimed.risk.confirmed`; the newest review of a version is the one
 shown. A review's note stays in the chain for good.
 
+An agent's versions are listed, and its latest is chosen, by semantic-version precedence
+(SemVer 2.0.0), whatever order they were published in: a release ranks above its pre-releases
+(`1.0.0` above `1.0.0-rc.1`), and the newest earlier version is a publish's regression baseline.
+
 ## Recalls and deletions
 
 A recall (`mendari.yank/1`) names one version exactly (agent, version, digest, archive), with a

@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 
 MAX_SITE_KEYS = 5
 MAX_PEM_BYTES = 2_000  # an Ed25519 public key in PEM is 113 bytes
-SiteStatus = Literal["pending", "verified", "refused", "closed"]
 # Who decides a site: the operator's command (no organization), or a reviewer of one.
 OPERATOR = None
 # What a site key's proof of possession signs: the prefix, then the site's id and the key's id.
