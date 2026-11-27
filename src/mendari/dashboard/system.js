@@ -62,7 +62,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 views.system = async (main, params) => {
   const [checks, holds, health] = await Promise.all([
     api("/api/system/checks"),
-    api("/api/holds").catch(() => []),
+    api("/api/holds").catch(() => null), // not read: said, never taken for none (automationPanel)
     api("/api/health").catch(() => null),
   ]);
   const areas = [];
@@ -174,11 +174,17 @@ function ehrList(ehrs) {
 
 const orgName = () => state.memberships.find((m) => m.org === state.me?.org)?.name ?? null;
 
+// `holds` null: they could not be read. That is said, and holding everything is still offered (it
+// only lowers automation); nothing is said of what agents automate meanwhile.
 function automationPanel(holds) {
   if (!may("approve")) return "";
-  const everything = holds.filter((h) => !h.agent_id);
-  const some = holds.filter((h) => h.agent_id);
-  const listed = holds.map((h) => {
+  const everything = (holds ?? []).filter((h) => !h.agent_id);
+  const some = (holds ?? []).filter((h) => h.agent_id);
+  const unread = holds === null
+    ? `<div class="callout warning holds-unread"><b>The automation holds could not be read</b>, so none is listed here
+        to lift. Check again to read them.</div>`
+    : "";
+  const listed = (holds ?? []).map((h) => {
     const covers = h.agent_id ? `<b>${esc(h.agent_id)}</b>` : "every agent";
     // A hold of the deployment's (set from the command line, for every organization) is lifted
     // there; in memberships mode it comes without its reason (ADR-0008).
@@ -192,14 +198,14 @@ function automationPanel(holds) {
       Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.
       <button type="button" data-lift="${esc(h.id)}">Lift…</button></div>`;
   }).join("");
-  const running = everything.length ? "" : `<p>${some.length
+  const running = everything.length ? "" : `<p>${unread ? "" : some.length
     ? "Other agents automate what their policies allow."
     : "Agents automate what their policies allow, their approvals and their risk level's limits."}
     Holding all automation sends every decision to a person at once, without stopping anything.</p>
     <button type="button" class="danger" data-act="hold-all">Hold all automation…</button>`;
   return `<section class="panel" aria-labelledby="system-automation-title" id="system-automation">
     <h2 id="system-automation-title">Automation</h2>
-    ${listed}${running}
+    ${unread}${listed}${running}
   </section>`;
 }
 

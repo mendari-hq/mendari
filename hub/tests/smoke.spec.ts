@@ -50,6 +50,17 @@ test("search narrows by words and risk level", async ({ page }) => {
   await expect(page.getByText("No agent matches these filters.")).toBeVisible();
 });
 
+test("a risk level in the address that is not one is left out, not said as an outage", async ({ page }) => {
+  // A hand-edited or stale link: the registry refuses a risk that is not a whole number (422).
+  for (const query of ["risk=abc", "risk=2.5", "risk=-1", "risk=1&risk=2"]) {
+    await page.goto(`/?${query}`);
+    await expect(page.locator(".results h3"), query).toHaveText(AGENTS);
+    await expect(page.getByLabel("Risk level"), query).toHaveValue("");
+  }
+  await page.goto("/?q=hostile&risk=abc");
+  await expect(page.locator(".results h3")).toHaveText(["Hostile Text Example"]);
+});
+
 test("an agent page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");

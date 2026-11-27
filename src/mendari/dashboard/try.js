@@ -7,7 +7,7 @@ import { schemaForm, wireSchemaForm } from "./form.js";
 import { codesToggle, isMessageAgent, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./manifest.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, emptyState, esc, focusHeading, icon, may, agentPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { $, api, copyText, emptyState, esc, focusHeading, icon, may, agentPath, outcomeText, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -63,6 +63,11 @@ function fhirError(message) {
   if (message) $("#fhir-json").setAttribute("aria-invalid", "true");
   else $("#fhir-json").removeAttribute("aria-invalid");
 }
+
+// What a replayed decision decided the first time (`state.replayDraft.original`, audit.js), in
+// the words its record's title uses: "Human review · Nurse".
+const decidedText = (orig) => `${outcomeText(orig.outcome)}${orig.recommendation
+  ? ` · ${labelName(orig.primary ?? state.detail.primary, orig.recommendation)}` : ""}`;
 
 const shadowChecked = () => Boolean($("#try-shadow")?.checked);
 const shadowHeaders = (shadow) => (shadow ? { "content-type": "application/json", "x-mendari-shadow": "1" } : undefined);
@@ -208,9 +213,7 @@ async function tryRecord(main) {
     load(replay);
     $("#record").value = JSON.stringify(replay, null, 2);
     const orig = replayMeta?.original;
-    const origNote = orig?.outcome
-      ? ` (original: ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})`
-      : "";
+    const origNote = orig?.outcome ? ` (original: ${decidedText(orig)})` : "";
     $("#expected").textContent = `Loaded from the audit trail${origNote}: edit any field and decide to compare.`;
     toast("Loaded case from audit trail");
   } else {
@@ -311,7 +314,7 @@ async function tryMessage(main) {
     if (fields.language && typeof pat.preferred_language === "string") $("#language").value = pat.preferred_language;
     if (fields.age && typeof pat.age_band === "string") $("#age").value = pat.age_band;
     const orig = replayMeta?.original;
-    const origNote = orig?.outcome ? ` (was ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})` : "";
+    const origNote = orig?.outcome ? ` (was ${decidedText(orig)})` : "";
     toast(`Loaded case from audit trail${origNote}`);
   }
   showMode();

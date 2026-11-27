@@ -15,7 +15,7 @@ views.overview = async (main) => {
     // Verifying the chain reads every event: the deployment's operators alone (the server says
     // the same; ADR-0008): an administrator of the organization that operates it.
     may("operate") ? api("/api/audit/verify") : null,
-    api("/api/holds").catch(() => []),
+    api("/api/holds").catch(() => null), // not read: said, never taken for none (holdNotice)
     api(`${agentPath()}/validation-brief?days=30`).catch(() => null),
     // A new deployment's operator sees what is left to set up first (system.js).
     setupChecks(),

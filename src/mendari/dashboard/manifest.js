@@ -72,15 +72,17 @@ function plainReason(reason, r) {
 }
 
 // One question's answer as the engine gave it, for the decision record: each label's probability,
-// the provider and an ordinal's expected score.
-export function answerChart(id, question, a) {
+// the provider and an ordinal's expected score. `own`: the chosen agent made it, so its words and
+// its policy's tones apply; another agent's answer gets neither.
+export function answerChart(id, question, a, { own = true } = {}) {
+  const words = own ? questionText(question) : slotText(question);
   const rows = Object.entries(a.probabilities ?? {}).sort((x, y) => y[1] - x[1])
-    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label) }));
-  return `<h4>${esc(questionText(question))} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h4>
+    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: own ? labelTone(question, label) : "" }));
+  return `<h4>${esc(words)} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h4>
     ${rows.length ? chartHtml({
       id: `answer-${id}-${question}`,
       type: "bars",
-      ariaLabel: `${questionText(question)} ${rows.map((row) => `${row.label} ${pct(row.value)}`).join(", ")}. Chosen: ${a.label}.`,
+      ariaLabel: `${words} ${rows.map((row) => `${row.label} ${pct(row.value)}`).join(", ")}. Chosen: ${a.label}.`,
       rows,
     }) : `<p class="muted">${esc(a.label)}</p>`}
     ${a.evidence?.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
@@ -100,10 +102,17 @@ export const statusNotice = (agent) => (agent?.status_label
 export const holdsFor = (holds, agent) => (holds ?? []).filter((h) =>
   (h.agent_id == null || h.agent_id === agent.id) && (h.agent_digest == null || h.agent_digest === agent.digest));
 
-export const holdNotice = (holds, agent) => (holdsFor(holds, agent).length
-  ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
+// `holds` null: they could not be read, which is said, never taken for none.
+export const holdNotice = (holds, agent) => {
+  if (holds === null) {
+    return `<p class="callout warning holds-unread"><b>The automation holds could not be read</b>, so this page cannot say
+      whether one covers this agent. Reload it to try again.</p>`;
+  }
+  return holdsFor(holds, agent).length
+    ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
       have automated, with the same recommendation and priority. See the Decision Card.</p>`
-  : "");
+    : "";
+};
 
 // The picker's groups, in this order; one group only, and the picker is a plain list. An agent of
 // an origin not listed here is in a group of its own at the end, so none is ever left out.
