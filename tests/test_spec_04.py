@@ -393,6 +393,56 @@ def test_a_problem_names_where_and_never_a_value() -> None:
     assert action_schema_problems(listed)[0].startswith("tags[]: ")
 
 
+def _taking(properties: dict[str, Any]) -> dict[str, Any]:
+    return {**OBJECT, "properties": properties}
+
+
+@pytest.mark.parametrize(
+    ("schema", "free"),
+    [
+        (None, True),  # no schema: the arguments are whatever the agent sends
+        (_taking({"message": {"type": "string", "maxLength": 2000}}), True),
+        (_taking({"code": {"type": "string", "maxLength": 8}}), True),  # a dose fits in 8
+        (_taking({"tags": {"type": "array", "items": {"type": "string"}}}), True),
+        (_taking({"anything": {"type": "array"}}), True),  # a list of anything
+        (_taking({"who": _taking({"note": {"type": "string"}})}), True),  # however deep
+        (_taking({"rows": {"type": "array", "items": _taking({"n": {"type": "string"}})}}), True),
+        ({"type": "string"}, True),  # a root that is a string
+        (_taking({}), False),  # no arguments at all
+        (_taking({"queue": {"type": "string", "enum": ["refill", "front_desk"]}}), False),
+        (_taking({"kind": {"type": "string", "const": "refill"}}), False),
+        (_taking({"days": {"type": "integer"}, "dose": {"type": "number"}}), False),
+        (_taking({"urgent": {"type": "boolean"}}), False),
+        (_taking({"picked": {"type": "array", "items": {"type": "integer"}}}), False),
+        (
+            _taking({"routes": {"type": "array", "items": {"type": "string", "enum": ["oral"]}}}),
+            False,
+        ),
+    ],
+)
+def test_arguments_hold_free_text_unless_every_string_is_enumerated(
+    schema: dict[str, Any] | None, free: bool
+) -> None:
+    """ADR-0027: an action's arguments can hold free text when their schema admits a string not
+    limited to an `enum` or a `const`, or a list of anything, or when there is no schema. The
+    closed keyword set makes it decidable from the manifest: no pattern can narrow a string, and
+    a short one still holds a dose."""
+    declared: dict[str, Any] = {"description": "Does something.", "effect": "write"}
+    if schema is not None:
+        declared["schema"] = schema
+    action = ActionSpec.model_validate(declared)
+    assert action.free_text is free
+    assert spec.holds_free_text(schema) is free
+
+
+def test_free_text_is_found_without_recursion_in_a_schema_as_deep_as_one_may_be() -> None:
+    assert spec.holds_free_text(nested(4)) is True  # its leaf is a string, four objects down
+    deep: dict[str, Any] = {"type": "string", "enum": ["a", "b"]}
+    for _ in range(3):
+        deep = _taking({"a": deep})
+    assert action_schema_problems(deep) == [] and spec.holds_free_text(deep) is False
+
+
 # -- the request ----------------------------------------------------------------------------------
 
 

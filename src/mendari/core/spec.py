@@ -576,6 +576,38 @@ def _scalar(value: Any) -> bool:
     return value is None or isinstance(value, bool | int | float)
 
 
+def holds_free_text(schema: Mapping[str, Any] | None) -> bool:
+    """Whether arguments `schema` allows can hold free text (ADR-0027): it admits a string that
+    is not limited to an `enum` or a `const`, or a list of anything (an array with no `items`),
+    or there is no schema at all (arguments nothing checks). The closed keyword set
+    (`ACTION_SCHEMA_KEYWORDS`) makes this decidable from the manifest alone: no pattern or format
+    narrows a string, and a length does not (a dose fits in a few characters). `schema` is one
+    `action_schema_problems` accepts; walked with a stack, never by recursion."""
+    if schema is None:
+        return True
+    stack: list[Any] = [schema]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, Mapping):
+            return True  # not a schema this engine checks arguments by
+        kind = node.get("type")
+        if kind == "string":
+            if "enum" not in node and "const" not in node:
+                return True
+        elif kind == "array":
+            if "items" not in node:
+                return True
+            stack.append(node["items"])
+        elif kind == "object":
+            properties = node.get("properties", {})
+            if not isinstance(properties, Mapping):
+                return True
+            stack.extend(properties.values())
+        elif kind not in ("integer", "number", "boolean"):
+            return True
+    return False
+
+
 def action_schema_problems(schema: Any) -> list[str]:
     """Why `schema` is not an arguments schema spec section 13.3 allows, or nothing: the
     closed keyword set, each keyword's own shape, and the bounds. Walked with a stack, never by
@@ -696,6 +728,12 @@ class ActionSpec(_Strict):
         if problems:
             raise ValueError("schema: " + "; ".join(problems))
         return value
+
+    @property
+    def free_text(self) -> bool:
+        """Whether its arguments can hold free text (`holds_free_text`, ADR-0027): then it is
+        never released without a person where its gate would be `auto` (`core/policy.py`)."""
+        return holds_free_text(self.json_schema)
 
     def request(self, name: str) -> dict[str, Any]:
         """The action as a request to the agent declares it (spec section 13.5)."""

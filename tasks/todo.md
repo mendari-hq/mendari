@@ -20,7 +20,48 @@ The loop, and where the platform stands:
    the dashboard: discover, pull, shadow on real workflows, validate locally, approve.
 5. **Share back:** site evidence (signed counts, never cases): in place on the Hub.
 
-## Plan: the engineering to A+ (2026-11-23, owner request), the current work
+## Plan: the trust core to the state of the art (2026-11-27, owner request), the current work
+
+**Objective.** The owner asked which part of the engine must be world class, and the answer was
+the trust core: the machinery that decides when an agent may act on its own and keeps proving
+that decision still holds. The reviewed recommendation, the sources and the order of work are
+in `notes/trust-core.md`. Each wave has a decision record first and is one pull request: built
+test first in worktrees, combined, reviewed by an engineer who built none of it, run on the
+full suite (SQLite and Postgres) and the browser suite, merged when CI is green, then checked
+in production.
+
+- [ ] **Wave T1. No free text is released unread** (ADR-0027). The judge gate's first design
+  (`notes/trust-core-judge-gate-draft.md`) was reviewed before anything was built and found
+  unsound while a held text still went out on a label confirmation, an agent could move its
+  words into an action's arguments, and a `contact` action with a free-text message was
+  released with AUTO. So first, with nothing statistical in it:
+  - [ ] A1: a decision that carries a text does not automate (`apply_policy`'s step 8; the
+    actions cap becomes step 9); an evaluation still measures the agent's own policy.
+  - [ ] A2: an action whose arguments can hold free text is never released without a person
+    where its gate would be `auto`.
+  - [ ] A3: a held text is kept for its reviewer as an action's arguments are; the review
+    gives each text a verdict; free text is released by name.
+  - [ ] B1: the console's review shows the texts and takes the verdicts.
+  - [ ] B2: the spec, the guides, the threat model, the Card and the packet say so.
+  - [ ] Review by an engineer who built none of it; the whole suite; the pull request.
+- [ ] **Wave T2. A judge clears a text, kept honest by spot checks.** A round the server runs
+  on the organization's own connection, on cases like those that would automate; the writer,
+  the judge and their settings bound; a design fixed before grades exist; three graders; an
+  exact bound on the share of cleared texts a clinician would fail; a named approval; a random
+  share of cleared texts sent to a person, blind to why.
+- [ ] **Wave T3. The loop closes.** Spot checks of automated decisions; monitoring that stays
+  valid when read every day (confidence sequences); a confirmed alert holds automation by
+  itself and a person lifts it (the owner's answer to the question ADR-0010 and ADR-0019 left
+  open); the daily job covers an organization's store versions; alerts are chained and not
+  repeated.
+- [ ] **Wave T4. The steps inside an agent.** A trace in the agent contract, kept as inputs
+  are; evaluations and policy rules read it.
+- [ ] **Wave T5. Sharper statistics.** Prediction-powered inference for judged figures; a
+  bias-corrected interval for kappa; adjudication where two clinicians differ.
+- The owner's, which no engineering replaces: a design-partner site and clinician labels (real
+  outcomes); the external security review.
+
+## Plan: the engineering to A+ (2026-11-23, owner request)
 
 **Objective.** The owner graded the product C+ against the north star and asked for all of the
 engineering first; what depends on them (going public, the security review, a design-partner
