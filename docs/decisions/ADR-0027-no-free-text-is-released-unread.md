@@ -22,7 +22,9 @@ person and no check between the agent and a patient or a chart:
   AUTO decision. An agent that declared no `outputs` at all could send its words this way.
 - **A hold was not a reading.** A decision sent to a person was resolved by confirming its
   label, and that released every held action unless the reviewer named one to deny. The
-  written text was not on the reviewer's screen, since it was kept nowhere.
+  written text was not on the reviewer's screen, since it was kept nowhere. And an action a
+  caller asked for after the reviewer had read the queue was released with the rest, by a
+  reviewer who never saw it.
 
 The only protection was an author's own `allow_auto: false`. An author who left it out
 automated unread text, and a committee had to notice.
@@ -72,16 +74,23 @@ record), on the review this one builds.
    replaces ADR-0025's "a decision returns what the agent wrote and does not store it" for a
    held text only: the text of an automated or a blocked decision is still kept nowhere.
 
-5. **Free text is released by name.** Resolving a review:
+5. **Free text is released by name, and so is what a reviewer may not have been shown.**
+   Resolving a review:
    - gives each written text a verdict, `release` or `withhold`, chained as `output.resolved`
      (the output's name, the verdict, the reviewer). A review that leaves one out is refused;
    - releases a held action whose arguments can hold free text only when it names it
      (`release_actions`). Confirming the label no longer releases it;
+   - releases a held action a caller asked for after the decision was made only when it names
+     it, whatever its arguments. Its reviewer may have read the queue before it was asked
+     for, so a label alone does not speak for it: the review has to name it, and a review
+     screen names what it showed. Found while this was checked before release: a label
+     confirmed from a queue read a moment earlier released an action asked for in between;
    - when a text is withheld, releases no held action that needs an automated decision or a
      person unless it names it: a manifest does not say which action uses which text.
 
-   A held action with no free text, on a decision none of whose texts is withheld, is resolved
-   as before: released when the reviewer confirms the label, unless named in `deny_actions`.
+   A held action the agent proposed with its answer, with no free text, on a decision none of
+   whose texts is withheld, is resolved as before: released when the reviewer confirms the
+   label, unless named in `deny_actions`.
    A review that overrides the recommendation denies every held action, named or not, as
    before; a text's verdict does not depend on the label. Where the text is not kept (point
    4), the verdict is still required: the reviewer read the draft where the caller shows it,
@@ -114,8 +123,9 @@ record), on the review this one builds.
   inputs are. A deployment in PHI mode `hash` keeps none, and its reviewers give their verdict
   on a draft Mendari does not show.
 - **Reviewing changes for callers.** A review of a decision that carries texts must give a
-  verdict on each, and a free-text action must be named to be released. A caller that
-  confirmed labels and relied on the release has to say so explicitly.
+  verdict on each, and a free-text action, or one asked for after the decision was made, must
+  be named to be released. A caller that confirmed labels and relied on the release has to
+  say so explicitly.
 - **A rationale is still returned.** An answer's evidence (a rationale of up to 500
   characters, the names of the tools called) goes back with every decision. It is evidence
   for a reviewer and is not a text for a patient or a chart; an integration that sends it on
@@ -159,6 +169,10 @@ record), on the review this one builds.
 - **Treat a short string as an identifier.** A dose fits in sixteen characters.
 - **Keep released texts as well.** Nothing reads them yet; spot checks will need a sample, not
   every text.
+- **Have a review say what it was shown** (the queue as of some event, sent back with the
+  label), to release what came with the answer and nothing newer. It asks every caller to
+  carry a token for a case the action's own record already tells apart: an action that came
+  with the answer is chained with the decision, so a reviewer who sees the decision sees it.
 - **Withhold the draft from the answer of a decision that awaits a person, too.** The person
   who decides needs it, and where texts are not kept (PHI mode `hash`) the answer is the only
   place it is.

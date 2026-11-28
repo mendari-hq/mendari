@@ -274,11 +274,15 @@ export function actionsList(actions, { choose = false, brief = false } = {}) {
   if (!actions?.length) return "";
   return `<ul class="actions-list" aria-label="Proposed actions">${actions.map((action) => `<li data-action="${esc(action.id)}" data-disposition="${esc(action.disposition)}">
     <div class="row"><b>${actionName(action)}</b> ${effectBadge(action.effect)} ${dispositionBadge(action.disposition)}
-      <span class="muted">${esc(actionReason(action.reason))}</span></div>
+      <span class="muted">${esc(actionReason(action.reason))}${askedLater(action) ? " · asked for after the decision" : ""}</span></div>
     ${brief ? "" : actionArguments(action)}
     ${choose && action.disposition === "held" ? releaseChoice(action) : ""}
   </li>`).join("")}</ul>`;
 }
+
+// A caller asked for the action after the decision was made (`source: request`), so possibly
+// after its reviewer read the queue: a review releases it only by name (ADR-0027).
+const askedLater = (action) => action.source === "request";
 
 // What an unticked held action is told (the review view keeps it in step with the tick), and
 // why one starts unticked.
@@ -288,12 +292,14 @@ const FREE_TEXT = "Its arguments can hold free text: read them before releasing.
 // A held action's tick. Ticked, the action is released when the reviewer confirms the
 // decision. An action whose arguments can hold free text (`free_text`, ADR-0027) starts
 // unticked and says why: nobody releases what they have not read. Any other starts ticked, as
-// it always did. The tick is described by what it is told, so a screen reader says it too.
+// it always did. One asked for after the decision (`data-asked`) is on this screen, so its
+// tick names it in the review. The tick is described by what it is told, so a screen reader
+// says it too.
 function releaseChoice(action) {
   const id = esc(action.id);
   const free = action.free_text === true;
   return `<div class="release-choice">
-      <label class="pick"><input type="checkbox" data-release="${id}"${free ? ` data-free-text aria-describedby="why-${id} off-${id}"` : " checked"}> Release when I confirm</label>
+      <label class="pick"><input type="checkbox" data-release="${id}"${askedLater(action) ? " data-asked" : ""}${free ? ` data-free-text aria-describedby="why-${id} off-${id}"` : " checked"}> Release when I confirm</label>
       <span class="release-off" id="off-${id}"${free ? "" : " hidden"}>${free ? NOT_RELEASED : ""}</span>
     </div>
     ${free ? `<p class="muted release-why" id="why-${id}">${FREE_TEXT}</p>` : ""}`;

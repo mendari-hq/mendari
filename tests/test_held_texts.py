@@ -698,6 +698,52 @@ def test_a_reviewer_denies_one_action_and_names_another(store: AuditStore, write
     ]
 
 
+def test_an_action_asked_for_after_the_decision_is_released_only_by_name(
+    store: AuditStore, writer: Path
+) -> None:
+    """A caller may ask for an action after the decision was made (`source: request`), and so
+    after its reviewer read the queue. Confirming the label does not release that one, whatever
+    its arguments: the reviewer may never have been shown it. It is denied (`not_named`) unless
+    the review names it, and what the agent proposed with its answer is released as before."""
+    decision = held(store, writer)
+    result = decision(message(LETTER))
+    shown_first = held_actions(store, result.id)  # what a reviewer who reads the queue now sees
+    assert [(a["name"], a["source"]) for a in shown_first] == [
+        ("assign_queue", "answer"),
+        ("send_reply", "answer"),
+    ]
+    asked = decision.authorize_action(result.id, "assign_queue", {"queue": "front_desk"})
+    assert (asked["disposition"], asked["reason"]) == ("held", "awaiting_review")
+    later = held_actions(store, result.id)[-1]
+    assert (later["id"], later["source"]) == (asked["id"], "request")
+    assert "free_text" not in later  # enumerated arguments: named for when it was asked
+    answer = store.resolve_review(
+        result.id, final_label="refill", reviewer="rn-1", texts=dict(RELEASE)
+    )
+    assert answer["human_override"] is False
+    assert resolved(answer) == [
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "denied", "not_named"),
+        ("assign_queue", "denied", "not_named"),
+    ]
+    # Named, it is released: whoever names an action was shown it.
+    other = decision(message(LETTER))
+    asked = decision.authorize_action(other.id, "assign_queue", {"queue": "front_desk"})
+    named = store.resolve_review(
+        other.id,
+        final_label="refill",
+        reviewer="rn-1",
+        texts=dict(RELEASE),
+        release_actions=[asked["id"]],
+    )
+    assert resolved(named) == [
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "denied", "not_named"),
+        ("assign_queue", "released", "confirmed"),
+    ]
+    assert held_actions(store, other.id) == [] and store.verify()["ok"]
+
+
 def test_naming_what_is_not_held_or_what_is_also_denied_refuses_the_review(
     store: AuditStore, writer: Path
 ) -> None:

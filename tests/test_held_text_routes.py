@@ -131,6 +131,41 @@ def test_the_queue_and_the_record_show_a_held_text_and_the_review_takes_its_verd
     assert done.status_code == 200 and "outputs" not in done.json()
 
 
+def test_an_action_asked_for_after_the_queue_was_read_is_not_released_by_the_label_alone(
+    client: TestClient,
+) -> None:
+    """A reviewer reads the queue; a caller then asks for one more action on that decision
+    (`POST …/actions`), which is held with it. The reviewer confirms the label as the queue
+    showed the decision: the action they were never shown is denied (`not_named`), and the
+    queue says how each action was proposed (`source`), so whoever shows a review knows which
+    to name."""
+    decided = decide(client, PLAIN)  # no text and no action: a label to confirm
+    assert decided["outcome"] == "HUMAN_REVIEW" and decided["recommendation"] == "other"
+    (seen,) = [entry for entry in client.get("/api/review").json() if entry["id"] == decided["id"]]
+    assert "actions" not in seen
+    asked = client.post(
+        f"/api/agents/{AGENT}/actions",
+        json={
+            "decision_id": decided["id"],
+            "name": "assign_queue",
+            "arguments": {"queue": "front_desk"},
+        },
+    )
+    assert asked.status_code == 200, asked.text
+    assert (asked.json()["disposition"], asked.json()["reason"]) == ("held", "awaiting_review")
+    (now,) = [entry for entry in client.get("/api/review").json() if entry["id"] == decided["id"]]
+    (later,) = now["actions"]
+    assert (later["source"], later["disposition"]) == ("request", "held")
+    assert "free_text" not in later
+    answer = client.post(
+        f"/api/review/{decided['id']}", json={"final_label": "other", "reviewer": "rn-1"}
+    )
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["human_override"] is False
+    assert resolved(answer.json()) == [("assign_queue", "denied", "not_named")]
+    assert client.get("/api/audit/verify").json()["ok"]
+
+
 def test_a_review_over_http_that_is_not_well_formed_echoes_nothing_it_was_sent(
     client: TestClient,
 ) -> None:

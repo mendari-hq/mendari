@@ -39,11 +39,18 @@ is valid.
   `POST /api/review/{id}` takes two more fields. `texts` gives each text the decision holds a
   verdict, `release` or `withhold`: a review of a decision that holds a text, without a verdict
   on each, is refused (`409`). `release_actions` names the held actions to release: one whose
-  arguments can hold free text, and every held action once a text is withheld, is released
-  only when named. One left out is denied (`not_named`), and the review still succeeds: read
-  `actions` in its answer. A decision with no text and no free-text action is reviewed as
-  before. The review queue and a decision's record list the held texts under `outputs`, and
-  mark an action whose arguments can hold free text (`free_text`).
+  arguments can hold free text, one your caller asked for after the decision was made
+  (`POST …/actions`; the queue says `source: request`), and every held action once a text is
+  withheld, is released only when named. One left out is denied (`not_named`), and the review
+  still succeeds: read `actions` in its answer. A decision with no text, whose actions came
+  with the agent's answer and take no free text, is reviewed as before. The review queue and
+  a decision's record list the held texts under `outputs`, and mark an action whose arguments
+  can hold free text (`free_text`).
+- **A fix: a review released an action its reviewer never saw.** A caller may ask for one
+  more action on a decision that waits for review. Asked for after the reviewer had read the
+  queue, it was released when they confirmed the label. Such an action is now released only
+  when the review names it: a label alone no longer speaks for an action the reviewer may not
+  have been shown.
 - **What is kept.** A text held for review is kept for its reviewer as the decision's input
   is, apart from the audit chain: sealed under PHI mode `encrypt` and read by whoever may read
   inputs, each read chained; in the clear under `off`; not at all under `hash`, or for an
@@ -65,6 +72,14 @@ is valid.
   releases an action waits five seconds, with Undo, and what it did is listed under the queue.
   A decision's record shows each text where it stands (held, released or withheld) and, for a
   decision that automated or was blocked, that its text was returned to nobody.
+- **The pilot check** (`mendari sandbox pilot-check`). Its reviewer is shown each text the
+  decision holds and gives it a verdict, and it checks that a viewer cannot read one.
+- **Upgrading from 0.1.2.** Nothing to migrate: the database's schema is the same. A decision
+  that was waiting for review when you upgrade was recorded under 0.1.2's rules: no text was
+  kept for it, so its review takes no `texts`, and its held actions carry no `free_text` mark,
+  so confirming its label releases them as it did, unless the review refuses one by name
+  (`deny_actions`). Decisions made from 0.2.0 on are held to the rules above. To have none
+  reviewed under the old rules, work the queue down before you upgrade.
 - **A fix: the count beside "Review queue" read the queue.** The console read the queue itself
   for that count, on every view. Under PHI mode `encrypt` the chain therefore recorded a read
   (`input.read`) of every waiting input, up to 500, each time a reviewer changed view, in the

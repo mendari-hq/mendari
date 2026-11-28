@@ -1354,19 +1354,25 @@ once:
 - A reviewer MAY refuse any held action and still confirm the label (`denied`,
   `reviewer_denied`): the review is then no override.
 - Confirming the label releases the others (`released`, `confirmed`), **but free text only by
-  name.** A runtime MUST release a held action whose arguments can hold free text (§13.3) only
-  when the review names that action, and MUST do the same for every held action of a decision
-  one of whose texts the review withholds (§15.8): a manifest does not say which action uses
-  which text. A held action the review had to name and did not is `denied` (`not_named`), and
-  the review is still no override.
+  name, and what a reviewer may not have been shown.** A runtime MUST release a held action
+  only when the review names that action, where:
+    - its arguments can hold free text (§13.3);
+    - a caller asked for it after the decision was made ("Asking again", below): its reviewer
+      may have read the decision before then, so the label alone does not speak for it;
+    - or the review withholds one of the decision's texts (§15.8), which holds every held
+      action of that decision: a manifest does not say which action uses which text.
 
-So a held action of enumerated arguments, on a decision none of whose texts is withheld, is
-released when the reviewer confirms the label, unless the review refuses it. The reference
-server takes the ids to refuse as `deny_actions` and the ids to release by name as
-`release_actions`; an id that is no held action of the decision, or one in both lists, refuses
-the whole review (`409`) and nothing is recorded. Its review queue and a decision's record mark
-each action whose arguments can hold free text (`free_text: true`), so whatever shows a review
-knows which actions to ask about. A resolved action does not change again: a release is final.
+  A held action the review had to name and did not is `denied` (`not_named`), and the review
+  is still no override.
+
+So a held action of enumerated arguments that came with the agent's answer, on a decision none
+of whose texts is withheld, is released when the reviewer confirms the label, unless the
+review refuses it. The reference server takes the ids to refuse as `deny_actions` and the ids
+to release by name as `release_actions`; an id that is no held action of the decision, or one
+in both lists, refuses the whole review (`409`) and nothing is recorded. Its review queue and a
+decision's record mark each action whose arguments can hold free text (`free_text: true`) and
+say how each was proposed (`source`: `answer` or `request`), so whatever shows a review knows
+which actions to name. A resolved action does not change again: a release is final.
 
 **Asking again.** A caller MAY ask, for a decision already recorded, whether one action with
 these arguments may run. The reference server exposes it as
@@ -1384,7 +1390,7 @@ these arguments may run. The reference server exposes it as
   force, a recall) or after an earlier proposal on that decision was refused
   (`earlier_refusal`); on a decision that awaits review, an `auto` or a `person` action is
   held with the rest (blocked where the decision has no recommendation), and the same review
-  resolves it, by name where the rules above say so; on a decision already reviewed, `auto` and
+  resolves it, releasing it only by name; on a decision already reviewed, `auto` and
   `person` actions are blocked (`review_closed`); on a decision made by another version of the
   agent, everything is (`agent_changed`).
 - There is no authorization without a decision. An agent behind the contract proposes with its
@@ -1397,8 +1403,9 @@ Each proposal is one event on its decision, `action.proposed`, chained after
 name and effect when the manifest declares it (else null), the disposition, the reason, the
 arguments' hash, whether it came with the answer or was asked for, and who asked. A declared
 action whose arguments can hold free text (§13.3) also has `free_text: true`, whatever its
-gate; no other proposal has the key. A review reads it there to know which held actions it
-releases only by name (§13.8). Each held action's resolution is one `action.resolved`: its id,
+gate; no other proposal has the key. A review reads that key and how the action was proposed
+(`source`) to know which held actions it releases only by name (§13.8). Each held action's
+resolution is one `action.resolved`: its id,
 name, effect, disposition, reason and the reviewer.
 
 ```json

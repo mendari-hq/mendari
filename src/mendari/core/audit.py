@@ -1389,12 +1389,14 @@ class AuditStore(RateBuckets):
         each. A label that is not the recommendation denies them all. `deny_actions` names held
         actions (by id) the reviewer refuses while confirming the label, so refusing an action
         never takes a false override: each is denied (`reviewer_denied`) and `human_override`
-        says what it always said. Confirming the label releases the others, but free text only
-        by name: a held action whose arguments can hold free text (its proposal's `free_text`),
-        and every held action once a text is withheld (a manifest does not say which action
-        uses which text), is released only when `release_actions` names it, and denied
-        otherwise (`not_named`). An id in `deny_actions` or `release_actions` that is no held
-        action of this decision, or one in both, refuses the whole review.
+        says what it always said. Confirming the label releases the others, but some only by
+        name: a held action whose arguments can hold free text (its proposal's `free_text`),
+        one a caller asked for after the decision was made (`source: request`: the reviewer
+        may never have been shown it), and every held action once a text is withheld (a
+        manifest does not say which action uses which text), is released only when
+        `release_actions` names it, and denied otherwise (`not_named`). An id in
+        `deny_actions` or `release_actions` that is no held action of this decision, or one in
+        both, refuses the whole review.
 
         Every refusal comes before anything is written. The answer has `outputs` only when
         texts were held, and `actions` only when actions were."""
@@ -1473,7 +1475,7 @@ class AuditStore(RateBuckets):
                         override,
                         denied=action["id"] in denied,
                         named=action["id"] in named,
-                        by_name=withheld or action.get("free_text") is True,
+                        by_name=withheld or actions.by_name(action),
                     ),
                     "reviewer": reviewer,
                 }
@@ -5948,8 +5950,9 @@ def _resolution(
     recommendation releases nothing (`overridden`; `override` None: there was none to
     confirm), and a reviewer may refuse an action while confirming it (`denied`:
     `reviewer_denied`). Otherwise the action is released (`confirmed`), unless it is one a
-    review releases only by name (`by_name`: its arguments can hold free text, or a text of
-    the decision is withheld) and this review did not name it (`not_named`)."""
+    review releases only by name (`by_name`: its arguments can hold free text, it was asked for
+    after the decision was made, or a text of the decision is withheld) and this review did
+    not name it (`not_named`)."""
     if override is not False:
         return {"disposition": "denied", "reason": "overridden"}
     if denied:

@@ -254,7 +254,7 @@ gated by the decision as it stands, and recorded with who asked:
 |---|---|
 | automated | `read`, `draft`, and a `write` or a `contact` with enumerated arguments: released. `order`, any action with `allow_auto: false`, and a `write` or a `contact` that can hold free text: blocked, since nobody is waiting to confirm it |
 | automated, and automation is now on hold or its approval is gone | `write`, `contact`: blocked |
-| waits for review | held with the rest, and resolved by the same review |
+| waits for review | held with the rest, and resolved by the same review, which releases it only by name ([section 6](#6-review-releases-or-denies)) |
 | already reviewed | `write`, `contact`, `order`: blocked, since the reviewer never saw it |
 
 After an action is refused for what it is (undeclared, or arguments that fail its schema), no
@@ -267,11 +267,15 @@ be done with it, and the texts the agent wrote for it. When the reviewer resolve
 decision, its held actions are resolved with it:
 
 - **choosing another label denies them all**, whatever else the review says;
-- **confirming the recommendation releases them**, but **free text only by name**. Two kinds
-  of held action are released only when the review names them, and are denied otherwise
-  (`not_named`):
+- **confirming the recommendation releases them**, but **free text only by name, and what
+  the reviewer may not have been shown**. Three kinds of held action are released only when
+  the review names them, and are denied otherwise (`not_named`):
     - an action whose arguments can hold free text (the queue marks it `free_text`), whatever
       made it wait: the reviewer has to have read what it says;
+    - an action your caller asked for after the decision was made (the queue marks it
+      `source: request`), whatever its arguments: the reviewer may have read the decision
+      before then, so their label alone does not speak for it. Name what your review screen
+      showed them;
     - every held action, once the reviewer withholds a text the agent wrote: your manifest
       does not say which action uses which text;
 - a reviewer who agrees with the label and not with an action **refuses that action**: it is
@@ -315,10 +319,12 @@ relied on the release has to say more now:
 - For a decision that holds a text (`outputs` on its item in `GET /api/review`), send `texts`
   with a verdict for each. Without them the review is refused (`409`), and the refusal names
   the outputs.
-- For a held action marked `free_text` in the queue, send its id in `release_actions`.
-  Without it the review succeeds and the action is denied: read `actions` in the answer.
+- For a held action marked `free_text` in the queue, or one your caller asked for after the
+  decision (`source: request`), send its id in `release_actions`. Without it the review
+  succeeds and the action is denied: read `actions` in the answer.
 - Once you withhold a text, name every action you still want released.
-- A decision with no text and no free-text action is reviewed as before.
+- A decision with no text, whose actions all came with the agent's answer and take no free
+  text, is reviewed as before.
 
 An id in `deny_actions` or `release_actions` that is no held action of the decision, or one
 in both, refuses the whole review (`409`), and nothing is recorded. Whatever sends the review,
@@ -329,7 +335,9 @@ text or a free-text action that its reviewer did not choose to release.
 output's name with two choices, *Release as written* and *Withhold*, neither chosen: the
 labels wait until every text has its verdict. Each held action has a tick. One whose arguments
 can hold free text starts unticked, and withholding a text unticks every action, the
-reviewer's own ticks too: what is released after that is what they ticked after that. Because
+reviewer's own ticks too: what is released after that is what they ticked after that. An
+action asked for after the decision says so, and its tick names it; one asked for after the
+card was read is not on the card, and no review from that card releases it. Because
 a verdict and a release cannot be taken back, the console waits five seconds, with Undo, before
 it sends a review that gives either. A release is final: a hold set afterwards stops new
 releases, not one already given.

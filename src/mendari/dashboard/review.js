@@ -4,8 +4,9 @@
 // A decision that carries what its agent wrote holds each text for the reviewer (ADR-0027): the
 // card shows it, and takes a verdict on each, "Release as written" or "Withhold", before any
 // label resolves the review. Its held actions are released by their ticks: one whose arguments
-// can hold free text starts unticked, and withholding a text unticks them all. What the review
-// did is listed under the queue afterwards, as the server answered it.
+// can hold free text starts unticked, and withholding a text unticks them all. An action asked
+// for after the card was read is not on it, and no review from here releases it. What the
+// review did is listed under the queue afterwards, as the server answered it.
 
 import { actionsList, inputView, labelName, NOT_RELEASED, statusNotice, textsList } from "./manifest.js";
 import { refreshReviewCount, views } from "./router.js";
@@ -229,14 +230,15 @@ function verdictChanged(card, radio) {
 // What a label would send for a card, as the reviewer left it. Each held text's verdict. Then,
 // when the label confirms the recommendation (any other denies every held action, so it names
 // none): a tick releases, and names the action where confirming alone does not release it,
-// because its arguments can hold free text or a text is withheld; a missing tick refuses by
-// name what confirming alone would release, and leaves the rest unnamed, which is not released.
-// So no action is ever both named and refused.
+// because its arguments can hold free text, it was asked for after the decision, or a text is
+// withheld; a missing tick refuses by name what confirming alone would release, and leaves the
+// rest unnamed, which is not released. So no action is ever both named and refused, and one
+// that is not on this card, asked for since it was read, is never named: it is not released.
 function choices(card, label) {
   const texts = verdicts(card);
   const byName = Object.values(texts).includes("withhold");
   const held = label === card.dataset.recommendation ? ticks(card) : [];
-  const needsName = (box) => byName || "freeText" in box.dataset;
+  const needsName = (box) => byName || "freeText" in box.dataset || "asked" in box.dataset;
   const ids = (boxes) => boxes.map((box) => box.dataset.release);
   return {
     texts,

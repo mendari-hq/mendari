@@ -137,6 +137,16 @@ def decide(base: str, agent: str, body: str, **extra: Any) -> dict[str, Any]:
     return decided
 
 
+def ask(base: str, agent: str, decision_id: str, name: str, **arguments: Any) -> dict[str, Any]:
+    """Ask, as a caller does once a decision is made, whether one more action may be run for
+    it: how the action stands."""
+    body = {"decision_id": decision_id, "name": name, "arguments": arguments}
+    answer = httpx.post(f"{base}/api/agents/{agent}/actions", json=body, timeout=30)
+    assert answer.status_code == 200, answer.text
+    asked: dict[str, Any] = answer.json()
+    return asked
+
+
 def record(base: str, decision_id: str) -> dict[str, Any]:
     """The decision as the audit trail shows it."""
     found: dict[str, Any] = httpx.get(f"{base}/api/audit/{decision_id}", timeout=30).json()

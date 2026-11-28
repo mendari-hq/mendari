@@ -283,11 +283,13 @@ class ReviewRequest(BaseModel):
         max_length=actions.MAX_PROPOSED * 4,
         description="ids of this decision's held actions to release by name while confirming "
         "its recommendation. Confirming the label releases a held action by itself only when "
-        "its arguments hold no free text and no text of the decision is withheld. A held "
-        "action whose arguments can hold free text (`free_text` in the review queue), and "
-        "every held action once a text is withheld, is released only when named here, and is "
-        "denied otherwise (`not_named`). An id that is no held action of this decision, or one "
-        "also in `deny_actions`, refuses the review (409)",
+        "it came with the agent's answer, its arguments hold no free text and no text of the "
+        "decision is withheld. A held action whose arguments can hold free text (`free_text` "
+        "in the review queue), one a caller asked for after the decision was made (`source: "
+        "request` there: its reviewer may never have been shown it), and every held action "
+        "once a text is withheld, is released only when named here, and is denied otherwise "
+        "(`not_named`). An id that is no held action of this decision, or one also in "
+        "`deny_actions`, refuses the review (409)",
     )
 
     @field_validator("texts", mode="before")
@@ -1736,7 +1738,9 @@ def create_app(
         this is the check to make right before running a tool, and how a caller holding a held
         action learns that a reviewer released it. A new action is recorded in the audit trail
         (`action.proposed`) with who asked; the trail keeps the arguments' hash, never the
-        arguments, which are kept as the decision's input is.
+        arguments, which are kept as the decision's input is. One asked for while the decision
+        waits for review is held, and its review releases it only by naming it
+        (`release_actions`): the reviewer may have read the decision before you asked.
 
         A decision that is unknown, another organization's or another agent's is a `404`."""
         agent_id = f"{namespace}/{name}"
@@ -2217,7 +2221,8 @@ def create_app(
         and, for whoever may read inputs, its `text` (`text_status` says why there is none:
         `sealed`, `erased`, or `not_kept` where the input is not kept). One with proposed
         actions has `actions`, each as it stands, with `free_text` when its arguments can hold
-        free text."""
+        free text and `source`: `answer` when it came with the agent's answer, `request` when
+        a caller asked for it afterwards. A review releases those two kinds only by name."""
         limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
         queue = store.pending_reviews(agent_id, limit=limit, reader=input_reader(request))
         logged_reads(request, queue)
@@ -2238,11 +2243,12 @@ def create_app(
 
         The decision's held actions are resolved with it: **confirming the recommendation
         releases them, overriding it denies them**, and `deny_actions` refuses some of them
-        while confirming the label. **Free text is released by name**: a held action whose
-        arguments can hold free text (`free_text` in the queue), and every held action once a
-        text is withheld, is released only when `release_actions` names it, and is denied
-        otherwise (`not_named`). The answer lists each under `actions`, when there were any.
-        A release is final."""
+        while confirming the label. **Free text is released by name**, and so is what a
+        reviewer may not have been shown: a held action whose arguments can hold free text
+        (`free_text` in the queue), one a caller asked for after the decision was made
+        (`source: request` in the queue), and every held action once a text is withheld, is
+        released only when `release_actions` names it, and is denied otherwise (`not_named`).
+        The answer lists each under `actions`, when there were any. A release is final."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,

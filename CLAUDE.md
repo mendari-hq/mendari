@@ -80,8 +80,9 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
   with a decision that awaits one (`DecisionResult.drafts` and `written`, `core/decision.py`):
   an automated or a blocked decision returns none and keeps none, and no outcome changes. A
   held text is the note of `output.held`, kept only where the input is; a review gives each a
-  verdict and releases free text only by name (`AuditStore.resolve_review`: `texts`,
-  `release_actions`, `not_named`). `tests/test_agent_outputs.py`, `tests/test_held_texts.py`,
+  verdict and releases only by name free text and an action asked for after the decision
+  (`AuditStore.resolve_review`: `texts`, `release_actions`, `not_named`; `actions.by_name`).
+  `tests/test_agent_outputs.py`, `tests/test_held_texts.py`,
   `tests/test_held_text_routes.py`.
 - **A calibration is tied to the service version it was fitted for** (ADR-0024): when the
   agent's service reports another version, or none, nothing is rescaled and the decision is

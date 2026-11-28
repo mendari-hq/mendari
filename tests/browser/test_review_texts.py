@@ -48,6 +48,7 @@ from tests.browser.held_site import (
     WRITTEN,
     acted,
     action_of,
+    ask,
     card,
     decide,
     held_ids,
@@ -71,6 +72,7 @@ WITHHELD = "A text is withheld: no held action is released unless you tick it."
 OFF = "Will not be released."
 ELSEWHERE = "Read the draft where your own system shows it, then give your verdict."
 NOT_NAMED = "not released: the review did not name it"
+ASKED = "asked for after the decision"
 READ = ("look_up_medications", "released", "with_decision")  # released with the decision
 
 
@@ -338,6 +340,40 @@ def test_a_review_with_verdicts_resolves_and_the_queue_lists_what_it_did(
     shown = held_console.locator(".drawer")
     for name in ("chart_note", "reply_draft"):
         expect(text_of(shown, name).locator(".badge")).to_have_text("Released")
+
+
+def test_an_action_asked_for_after_the_decision_is_released_by_its_tick_and_never_unseen(
+    held_console: Page, held_server: str
+) -> None:
+    """A caller asks for one more action once the decision is made. Where the card shows it,
+    the card says so and its tick names it in the review: ticked, it is released. One asked
+    for after the card was read is not on the screen: confirming releases nothing the reviewer
+    was not shown, and the list under the queue says the review did not name it."""
+    shown, unseen = decide(held_server, WRITER, PLAIN), decide(held_server, WRITER, PLAIN)
+    first = ask(held_server, WRITER, shown["id"], "assign_queue", queue="front_desk")
+    assert (first["disposition"], first["reason"]) == ("held", "awaiting_review")
+    sent, blind = reviews(held_console, shown["id"]), reviews(held_console, unseen["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, shown["id"])
+    expect(release_box(held, "Assign queue")).to_be_checked()  # enumerated: ticked as any other
+    expect(action_of(held, "Assign queue")).to_contain_text(ASKED)
+    confirm(held, "Other").click()
+    expect(held.locator(".undo-bar")).to_contain_text("Confirm Other and release 1 action in 5 s")
+    leave(held_console, shown["id"])
+    assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
+        ([first["id"]], None)
+    ]
+    assert acted(record(held_server, shown["id"])) == [("assign_queue", "released", "confirmed")]
+    # The other decision's card is on the screen before anything is asked for it.
+    show(held_console, "review")
+    other = card(held_console, unseen["id"])
+    expect(other.get_by_role("checkbox")).to_have_count(0)
+    ask(held_server, WRITER, unseen["id"], "assign_queue", queue="front_desk")
+    confirm(other, "Other").click()  # one tap: the card holds nothing to release
+    done = held_console.locator(f'.resolved-item[data-id="{unseen["id"]}"]')
+    expect(action_of(done, "Assign queue")).to_contain_text(NOT_NAMED)
+    assert blind == [{"final_label": "other", "reviewer": "sandbox-nurse"}]
+    assert acted(record(held_server, unseen["id"])) == [("assign_queue", "denied", "not_named")]
 
 
 def test_a_free_text_action_is_released_only_when_ticked(

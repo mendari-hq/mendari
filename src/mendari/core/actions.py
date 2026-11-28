@@ -418,3 +418,12 @@ def _kept(note: Any) -> dict[str, Any] | None:
 def held(actions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The actions that still wait for their decision's reviewer."""
     return [action for action in actions if action.get("disposition") == "held"]
+
+
+def by_name(action: Mapping[str, Any]) -> bool:
+    """Whether a review releases this held action only when it names it (ADR-0027), whatever
+    else the review says. Its arguments can hold free text (`free_text`): someone has to have
+    read them. Or a caller asked for it after the decision was made (`source: request`): a
+    reviewer who read the queue before that was never shown it, so their label alone does
+    not speak for it."""
+    return action.get("free_text") is True or action.get("source") == "request"
