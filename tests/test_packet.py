@@ -61,6 +61,8 @@ SECTIONS = [
 ]
 # Text no agent, manifest or framework holds: if it is in a packet, a case leaked into it.
 SENTINEL = "zebraquartz7731"
+# The actions fixture: it declares actions whose arguments can hold free text (ADR-0027).
+ACTIONS_MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 REFILL = {"message": {"body": "Please send a refill of my metformin to the pharmacy."}}
 URGENT = {"message": {"body": "I have chest pain and trouble breathing since last night."}}
 FRONT_DESK = {"message": {"body": "Where do I park when I come in?"}}
@@ -1062,6 +1064,36 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
         "by a second model.",
     ):
         assert words in said, words
+
+
+def test_the_packet_shows_the_tightened_gate_of_an_action_that_can_hold_free_text() -> None:
+    """ADR-0027, for a committee: a contact or a write whose arguments can hold free text is
+    never released without a person, though the agent's own files did not tighten it, and the
+    page says why. The actions fixture declares both kinds, and the same effects with
+    enumerated arguments, which keep the gate of their effect."""
+    alone = packet.build_alone(load_agent(ACTIONS_MINI))
+    assert packet.problems(alone) == []
+    by_name = {a["name"]: a for a in section(alone, "oversight")["actions"]}
+    free_text = "Never without a person: its arguments can hold free text."
+    confirmed = "Never without a person: when a reviewer confirms the decision."
+    for name in ("send_reply", "file_note"):
+        assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("person", False), name
+        assert by_name[name]["released"] == free_text
+    for name in ("send_template", "assign_queue"):
+        assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("auto", False), name
+    # A read and a draft can hold free text and are released with the decision; what the agent
+    # tightened itself, and an order, keep the words they had.
+    assert by_name["look_up_medications"]["gate"] == by_name["draft_reply"]["gate"] == "decision"
+    assert (by_name["queue_refill"]["released"], by_name["queue_refill"]["tightened"]) == (
+        confirmed,
+        True,
+    )
+    assert by_name["renew_prescription"]["released"] == confirmed
+    said = reads(packet.render_html(alone))
+    assert said.count(free_text) == 2
+    # The runtime's rule, not the agent's own tightening: the label is on `queue_refill` alone.
+    assert said.count("tightened by the agent") == 1
+    assert f"{confirmed} tightened by the agent" in said
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:

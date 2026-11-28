@@ -346,6 +346,9 @@ GATE_TEXT: Mapping[Gate, str] = {
     Gate.AUTO: "Only with an automated decision; otherwise when a reviewer confirms it.",
     Gate.PERSON: "Never without a person: when a reviewer confirms the decision.",
 }
+# The gate `person` in words where only the free text an action's arguments can hold made it so
+# (ADR-0027): what `gate_words` gives in place of `GATE_TEXT`'s, so that the reader sees why.
+FREE_TEXT_GATE = "Never without a person: its arguments can hold free text."
 # Where a decision's review stands: none is needed, one is awaited, or a reviewer confirmed or
 # overrode the recommendation.
 Review = Literal["none", "pending", "confirmed", "overridden"]
@@ -389,6 +392,19 @@ def gate_of(
     if not allow_auto or not agreed:
         gate = Gate.PERSON
     return gate
+
+
+def gate_words(
+    effect: Effect, *, allow_auto: bool = True, vouched: bool = True, free_text: bool = False
+) -> str:
+    """A declared action's gate in words, as the Decision Card, the console and the committee
+    packet show it: `GATE_TEXT`'s for its gate (`gate_of`, with its free text), and
+    `FREE_TEXT_GATE` where that gate is `person` only because the action's arguments can hold
+    free text. An `order`, and an action the manifest tightens, keep `GATE_TEXT`'s words."""
+    gate = gate_of(effect, allow_auto=allow_auto, vouched=vouched, free_text=free_text)
+    if gate is not gate_of(effect, allow_auto=allow_auto, vouched=vouched):
+        return FREE_TEXT_GATE
+    return GATE_TEXT[gate]
 
 
 def risk_permits_auto(level: RiskLevel, governance: GovernanceOverride | None) -> bool:

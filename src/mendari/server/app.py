@@ -65,7 +65,7 @@ from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.https_only import is_local_host
 from mendari.core.phi import phi_policy, require_protection
-from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
+from mendari.core.policy import GovernanceOverride, gate_of, gate_words
 from mendari.core.registry import SearchPath, discover, newest
 from mendari.core.site_codes import site_codes
 from mendari.core.written import WrittenStore
@@ -4312,15 +4312,16 @@ def _digest(path: Path) -> str:
 
 def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
     """An agent's declared actions as its detail shows them (`actions`): each with its effect,
-    its gate (`policy.gate_of`, for an agent the organization does or does not vouch for) and
-    the gate in words, and the names of its arguments (None: not checked). Nothing for an agent
-    that declares none, so its detail is what it was."""
+    its gate (`policy.gate_of`, for an agent the organization does or does not vouch for, and
+    tightened where its arguments can hold free text) and the gate in words
+    (`policy.gate_words`), and the names of its arguments (None: not checked). Nothing for an
+    agent that declares none, so its detail is what it was."""
     declared = agent.manifest.actions
     if not declared:
         return {}
     listed = []
     for name, spec in declared.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched)
+        gated = {"allow_auto": spec.allow_auto, "vouched": vouched, "free_text": spec.free_text}
         schema = spec.json_schema
         listed.append(
             {
@@ -4328,8 +4329,8 @@ def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
                 "description": spec.description,
                 "effect": spec.effect.value,
                 "allow_auto": spec.allow_auto,
-                "gate": gate.value,
-                "released": GATE_TEXT[gate],
+                "gate": gate_of(spec.effect, **gated).value,
+                "released": gate_words(spec.effect, **gated),
                 "arguments": None if schema is None else list(schema.get("properties") or {}),
             }
         )
