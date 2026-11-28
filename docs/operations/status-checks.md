@@ -48,7 +48,9 @@ browser there, and that move is not the identity provider answering (the script 
 
 The decide check needs a key of its own, and nothing more. Its decisions are real: they are
 recorded and chained, and each waits in its organization's review queue (the demo agent sends a
-message that asks for no refill or appointment to the front desk). So give the key:
+message that asks for no refill or appointment to the front desk). Where inputs are kept, each
+also keeps the acknowledgement the demo agent drafted for it, as a text held for review, until
+retention removes it with the input. So give the key:
 
 - **its own organization**, so its decisions never reach anyone else's review queue, quotas or
   monitoring view. Something like `status`, and nothing else in it. Two things still count it

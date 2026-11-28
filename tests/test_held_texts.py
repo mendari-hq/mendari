@@ -253,7 +253,8 @@ def test_an_automated_or_a_blocked_decision_chains_and_keeps_nothing_of_its_text
     store: AuditStore, writer: Path
 ) -> None:
     """Nobody reads a text of a decision that waits for nobody: no event, no note, and no
-    `outputs` in what the trail shows of it. The caller's own answer still carries the text."""
+    `outputs` in what the trail shows of it. The result still holds the text in memory, for an
+    evaluation to grade; no answer carries it (tests/test_agent_outputs.py)."""
     decision = held(store, writer)
     blocked = decision(message(RUDE))
     assert blocked.outcome is Outcome.BLOCK and BLOCKED in blocked.outputs["reply_draft"]
