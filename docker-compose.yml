@@ -39,7 +39,7 @@ services:
 
   engine:
     build: .
-    image: mendari-engine:0.1.1
+    image: mendari-engine:0.1.2
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -81,7 +81,7 @@ services:
     # (without the claim everyone is in `default`, and `mendari smart check` fails).
     #   docker compose --profile signin up -d --build --wait engine launcher engine-signin
     profiles: [signin]
-    image: mendari-engine:0.1.1
+    image: mendari-engine:0.1.2
     depends_on:
       engine:
         condition: service_healthy
@@ -120,7 +120,7 @@ services:
     #   docker compose exec registry python /seed/hub_seed.py \
     #     --registry http://127.0.0.1:8100 --db /data/registry.db
     # Its other writes are `mendari registry ...` there too (claim, approve, token, review).
-    image: mendari-engine:0.1.1
+    image: mendari-engine:0.1.2
     depends_on:
       engine:
         condition: service_healthy
@@ -136,7 +136,7 @@ services:
   workflow:
     # The demo agent's synthetic portal messages into HAPI, then a worker that routes each new
     # one through the engine and writes the decision's Task back.
-    image: mendari-engine:0.1.1
+    image: mendari-engine:0.1.2
     depends_on:
       engine:
         condition: service_healthy
@@ -167,7 +167,7 @@ services:
     # Run it again a minute later, not sooner: each run makes a new key, and an engine fetches a
     # client's keys again at most once a minute.
     profiles: [signin]
-    image: mendari-engine:0.1.1
+    image: mendari-engine:0.1.2
     depends_on:
       engine:
         condition: service_healthy

@@ -1,6 +1,6 @@
 [project]
 name = "mendari"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open-source governance and evaluation for healthcare AI agents: policy, human review, audit and published evaluations."
 readme = "README.md"
 requires-python = ">=3.11"
