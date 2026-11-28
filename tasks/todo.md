@@ -247,7 +247,19 @@ README or the front ends, outside an explicit list of those names.
     again independently, then fixed test first in seven parallel worktrees and combined. About
     thirty bugs, none high (none raised automation, released an action or crossed an
     organization), and about forty pieces of dead code removed. What was fixed, removed, kept
-    and left for the owner: `notes/bug-audit-2026-11-27.md`; the CHANGELOG's Unreleased section.
+    and left for the owner: `notes/bug-audit-2026-11-27.md`; for users, the CHANGELOG's 0.1.2.
+    The two calls first left open were then fixed at the owner's word (every write a token
+    allows checks it as it writes; an input refused for NaN is kept as JSON), and the owner
+    accepted the other trade-offs once one of them (cryptography reached only through
+    pyjwt[crypto]) was fixed instead, as standard practice asks.
+  - [x] **0.1.2, the audit's fixes** (2026-11-27; #380, #381, `v0.1.2` on `e6fec09e`), the owner
+    approving `pypi` and `ghcr`. `cryptography` is declared directly at 50.0.0 (the first release
+    with no known advisory). Checked after: PyPI's wheel and sdist are the run's tested files
+    byte for byte, each with its provenance attestation, and its metadata declares
+    `cryptography>=50.0.0`; a clean `pip install mendari==0.1.2` runs `mendari test` on the demo
+    agent; `ghcr.io/mendari-hq/mendari-engine:v0.1.2` (amd64 and arm64 in its index) pulls
+    without credentials and runs 0.1.2; the docs site, deployed again from `main`, names v0.1.2
+    and `calibrate --limit all`. The engine and the Agent Hub run `main` (status checks ok).
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
