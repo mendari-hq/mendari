@@ -149,7 +149,9 @@ A review that leaves a held text out is refused. Withholding a text also holds b
 decision's actions: none is released unless the review names it
 ([Governing actions](governing-actions.md#6-review-releases-or-denies)). Afterwards the
 decision's record (`GET /api/audit/{id}`) says where each text stands: `released` or
-`withheld`.
+`withheld`. In the console, the decision's card in the review queue shows each held text with
+its two verdicts, and no label resolves the review until each text has one; the record of a
+decision that automated names its texts and says they were returned to nobody.
 
 **What is kept.** A held text is kept for its reviewer exactly as the decision's input is, and
 apart from the audit chain, which holds the output's name and a commitment, never the text:

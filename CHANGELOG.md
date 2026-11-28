@@ -55,6 +55,19 @@ spec version stays `"0.4"`: no manifest key is added, and a manifest that was va
   it is released "when a reviewer confirms the decision". They now say what is so: when a
   reviewer confirms the decision and names the action. The Card and the packet no longer say
   that a text is returned with the decision and not kept.
+- **The console.** A decision's card in the review queue shows each held text with its two
+  verdicts, *Release as written* and *Withhold*, and no label resolves the review until each
+  text has one. Each held action has a tick: one whose arguments can hold free text starts
+  unticked, and withholding a text unticks every action. A review that gives a verdict or
+  releases an action waits five seconds, with Undo, and what it did is listed under the queue.
+  A decision's record shows each text where it stands (held, released or withheld) and, for a
+  decision that automated or was blocked, that its text was returned to nobody.
+- **A fix: the count beside "Review queue" read the queue.** The console read the queue itself
+  for that count, on every view. Under PHI mode `encrypt` the chain therefore recorded a read
+  (`input.read`) of every waiting input, up to 500, each time a reviewer changed view, in the
+  name of someone who had opened none of them. The count now comes from the summary, which
+  holds counts and nothing else: the chain records a read when someone opens the queue or a
+  decision.
 
 ## 0.1.2
 

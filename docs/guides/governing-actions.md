@@ -322,9 +322,14 @@ in both, refuses the whole review (`409`), and nothing is recorded. Whatever sen
 the console's review screen included, the server holds it to these rules: nothing releases a
 text or a free-text action that its reviewer did not choose to release.
 
-Because a release cannot be taken back, the console waits five seconds, with Undo, before it
-sends a confirmation that releases anything. A release is final: a hold set afterwards stops
-new releases, not one already given.
+**In the console.** A decision's card in the review queue shows each held text under its
+output's name with two choices, *Release as written* and *Withhold*, neither chosen: the
+labels wait until every text has its verdict. Each held action has a tick. One whose arguments
+can hold free text starts unticked, and withholding a text unticks every action, the
+reviewer's own ticks too: what is released after that is what they ticked after that. Because
+a verdict and a release cannot be taken back, the console waits five seconds, with Undo, before
+it sends a review that gives either. A release is final: a hold set afterwards stops new
+releases, not one already given.
 
 ## 7. What the audit trail shows
 
