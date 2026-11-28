@@ -132,7 +132,9 @@ After a restore, **before serving from it**:
    - holds set: set them again;
    - inputs and notes erased on request (`input.erased`, `note.erased`): erase them again
      (`mendari phi erase --decision <id>`, `mendari notes erase --id <id>`, with the same
-     reason), then `mendari phi purge --db "$RESTORE_URL"` for those past retention.
+     reason), then `mendari phi purge --db "$RESTORE_URL"` for those past retention. A note is
+     a reviewer's or a rater's, an action's arguments, or a text an agent wrote that was held
+     for review: erasing a decision's input erases all of its own.
 4. Record a checkpoint on it, **without** `MENDARI_CHECKPOINT_KEY` in that command's
    environment: `mendari audit checkpoint --db "$RESTORE_URL"`. A statement for today may
    already be published, and the next day's scheduled job signs the next one.
@@ -145,7 +147,8 @@ the restored chain (`reason: statement`): record the restore point (the backup's
 restored head) and those statements' dates in the incident, and tell whoever keeps copies. Tell
 the organizations affected.
 
-Backups of a deployment in PHI mode `encrypt` hold its sealed inputs and notes: keep them as
+Backups of a deployment in PHI mode `encrypt` hold its sealed inputs and notes (reviewers'
+notes, actions' arguments and the texts agents wrote that were held for review): keep them as
 protected as the database, delete them with its retention, and keep the PHI keys they were
 sealed with until the last backup that needs them has expired
 ([Deploying with real patient data](../deploying-with-phi.md)).
