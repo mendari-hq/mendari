@@ -265,9 +265,56 @@ the commands to run it, point Mendari at it and deploy it:
 | [`examples/langgraph-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/langgraph-agent) | Your agent is a workflow of steps: a LangGraph `StateGraph` whose nodes are marked where a model call goes. |
 | [`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent) | You want a model-backed agent now: Claude with structured output, its cost and usage reported. |
 
-An agent that also writes (a draft reply, a summary) declares the text as an output and a
-rubric to grade it by, and returns it with its answers:
-[Evaluating written output](written-output.md).
+### What the agent writes, and what it asks to do
+
+The contract has two more keys. Each is present only when your manifest declares what it
+carries.
+
+**`outputs`: what the agent writes.** An agent that also writes (a draft reply, a summary)
+declares each text as an output, and a rubric to grade it by
+([Evaluating written output](written-output.md)). The request then names the outputs of the
+slot, and the response may carry each text by its name:
+
+```json
+"outputs": [{"name": "acknowledgement", "description": "The short acknowledgement ...", "max_chars": 600}]
+```
+
+```json
+{"answers": {"...": "..."}, "outputs": {"acknowledgement": "Thank you for your message. ..."}}
+```
+
+A name the manifest does not declare for that slot, a value that is not text, or a text longer
+than its `max_chars` is a provider failure. With the kit:
+`respond(case, answers, outputs={"acknowledgement": text})`.
+
+**A text is handed only to a person.** Mendari returns what your agent wrote only with a
+decision that waits for a person, as that person's draft, and keeps it for the reviewer. With
+an automated or a blocked decision it returns none of it and keeps none. Declaring an output
+lowers no decision: the label automates as it would without one, and comes back without its
+text. A judge that clears a text when the decision is made, so that some could go without a
+person, is not built
+([who gets the text](written-output.md#2-who-gets-the-text)).
+
+**`actions`: what the agent asks to have done.** An agent that acts declares each action with
+its effect ([Governing actions](governing-actions.md)). The request then carries the declared
+actions, and the response may propose some:
+
+```json
+{"answers": {"...": "..."}, "actions": [{"name": "assign_queue", "arguments": {"queue": "refill"}}]}
+```
+
+**A free string in an action's arguments needs a person.** An action's arguments can hold free
+text when its schema takes a string that is not an `enum` or a `const`, or a list with no
+`items`, or when it has no schema. An action that writes or contacts with such arguments is
+never released without a person, whatever else your manifest says, and a reviewer releases it
+only by naming it. So:
+
+- an action meant to go without a person takes enumerated arguments only, an identifier too:
+  the schema has no pattern keyword, and a string that is not enumerated is free text;
+- **to send a text, declare an action a person releases**, as the demo agent's
+  `send_acknowledgement` is: `allow_auto: false`, one enumerated argument (the template's
+  name), and the words as a written output. The reviewer reads the draft, releases it or
+  withholds it, and your caller sends it once the action is released.
 
 ## 7. Run it offline
 
@@ -680,6 +727,9 @@ stronger evidence.
 - [ ] Whatever the agent does besides answer is declared as an action with the effect that
       fits, and your caller runs only what was released
       ([Governing actions](governing-actions.md)).
+- [ ] An action meant to go without a person takes enumerated arguments only, and your caller
+      sends a patient no text the agent wrote until a person released it
+      ([who gets the text](written-output.md#2-who-gets-the-text)).
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 

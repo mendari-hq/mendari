@@ -504,7 +504,9 @@ What the decision record (whose digest is chained for good) keeps of an input, i
 Under `encrypt`:
 - only signed-in **reviewers** and **admins** get an input back: in a decision's record, the
   review queue and the feedback list. Every input shown is written to the hash chain
-  (`input.read`, with who);
+  (`input.read`, with who). What an agent wrote for a decision that waits for review, and the
+  arguments of the actions it proposed, are shown with the input, to the same people (see
+  **What an agent wrote, and what it asked to do**, below);
 - viewers, services and governance see that an input exists, not what it says;
 - the audit trail's list never carries inputs;
 - a decision recorded under `off`, before the switch, kept its input (and its evidence) inside
@@ -519,7 +521,8 @@ Under `encrypt`:
 
 **Retention.** Schedule `mendari phi purge --db "$DATABASE_URL"` (daily, for example). It
 deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS` (30 unless set;
-1 to 36500), in batches of 500, and records each deletion in the chain, then a summary
+1 to 36500), the texts held for review and the actions' arguments among them (both are
+notes), in batches of 500, and records each deletion in the chain, then a summary
 (`retention.purged`: how many, after how many days, and whether the schedule or the command ran
 it). Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 `--days 0 --yes` deletes and erases everything kept; no setting can ask for that, so a typo in a
@@ -570,7 +573,8 @@ mendari phi erase --db "$DATABASE_URL" --decision <id> --reason request --by dpo
 ```
 
 or, as an admin, `POST /api/audit/{id}/erase` with `{"reason": "request"}` (or `"error"`). It
-deletes the decision's sealed input and evidence and erases its notes, and chains, with the
+deletes the decision's sealed input and evidence and erases its notes (a reviewer's, the
+texts it holds for review, its actions' arguments), and chains, with the
 reason and who, `input.erased` when it held a sealed input and one `note.erased` per note. The
 record and the chain stay, and `mendari audit verify --notes` still passes. What the chain itself holds (see
 above) stays: the answer's `still_in_chain` says so, and a decision that keeps nothing else is
@@ -683,6 +687,33 @@ Erasing keeps the note's row (id, decision, when) and drops its text and salt. I
 commitment. **Erasure is not instant everywhere:** database backups, your database's
 point-in-time history (Neon keeps deleted rows for its history window) and exports made earlier
 still hold the note until they expire or you delete them.
+
+**What an agent wrote, and what it asked to do.** Two more things are the agent's own text,
+can hold patient data, and are kept as notes: in the `notes` table, with only a salted
+commitment in the chain.
+
+- **A held text.** What an agent wrote (a draft reply, a note for the chart) is handed only to
+  a person ([ADR-0027](decisions/ADR-0027-no-free-text-is-released-unread.md)). When a
+  decision waits for review, each text is kept for its reviewer as the note of an
+  `output.held` event, which names the output and never holds the text. The text of a decision
+  that was automated or blocked is kept nowhere.
+- **An action's arguments**, for each action the agent proposed or a caller asked about
+  (`action.proposed`).
+
+Unlike a reviewer's note, both follow the decision's input:
+
+| | A held text, an action's arguments |
+|---|---|
+| `encrypt` | Sealed under `MENDARI_PHI_KEY`, bound to the note and its decision. Opened only for reviewers and admins, in the review queue and the decision's record, and each read is chained (`input.read` names the notes read) |
+| `hash`, or an agent whose `audit.store_input` is `hash` | Not kept at all. Nothing is refused: the event says the output's name, or the arguments' hash, and no more. A reviewer still gives each held text a verdict, on a draft Mendari does not show |
+| `off` | Kept in the clear, apart from the chain, for whoever may read the decision |
+
+Retention erases them with the other notes, and erasing a decision's input erases them with
+it, each with its `note.erased`. A key rotation re-seals them, and
+`mendari audit verify --notes` checks each against its commitment. A held text stays kept
+after its review, released or withheld, until retention or erasure removes it. What becomes of
+a text is in the chain for good, without the text: `output.held`, then the reviewer's verdict,
+`output.resolved` (`released` or `withheld`, and who).
 
 ## 4. Limits and quotas
 
@@ -1153,6 +1184,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       the log.
 - [ ] A viewer sees a review note only as sealed; a reviewer reads it, and
       `mendari audit verify --notes` passes.
+- [ ] For an agent that writes: a decision that waits for review shows its held text to a
+      reviewer and only as sealed to a viewer, a review that gives no verdict on it is refused,
+      and an automated decision returns no text.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the agent's primary question.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as

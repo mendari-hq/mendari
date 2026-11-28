@@ -31,6 +31,7 @@ from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import packet
 from mendari.core.agent import Agent
+from mendari.core.policy import FREE_TEXT_GATE, GATE_TEXT, Gate
 from mendari.server.app import create_app
 from mendari.server.scopes import DECIDE
 from tests.conftest import (
@@ -1075,31 +1076,31 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
 def test_the_packet_shows_the_tightened_gate_of_an_action_that_can_hold_free_text() -> None:
     """ADR-0027, for a committee: a contact or a write whose arguments can hold free text is
     never released without a person, though the agent's own files did not tighten it, and the
-    page says why. The actions fixture declares both kinds, and the same effects with
-    enumerated arguments, which keep the gate of their effect."""
+    page says why, and that a reviewer has to name it. The actions fixture declares both kinds,
+    and the same effects with enumerated arguments, which keep the gate of their effect."""
     alone = packet.build_alone(load_agent(ACTIONS_MINI))
     assert packet.problems(alone) == []
     by_name = {a["name"]: a for a in section(alone, "oversight")["actions"]}
-    free_text = "Never without a person: its arguments can hold free text."
-    confirmed = "Never without a person: when a reviewer confirms the decision."
     for name in ("send_reply", "file_note"):
         assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("person", False), name
-        assert by_name[name]["released"] == free_text
+        assert by_name[name]["released"] == FREE_TEXT_GATE
     for name in ("send_template", "assign_queue"):
         assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("auto", False), name
-    # A read and a draft can hold free text and are released with the decision; what the agent
-    # tightened itself, and an order, keep the words they had.
+    # A read and a draft can hold free text and are released with the decision. What the agent
+    # tightened itself, and an order, can hold free text here too (a free string, no schema):
+    # a review releases each by name, and the page never says a confirmation does.
     assert by_name["look_up_medications"]["gate"] == by_name["draft_reply"]["gate"] == "decision"
     assert (by_name["queue_refill"]["released"], by_name["queue_refill"]["tightened"]) == (
-        confirmed,
+        FREE_TEXT_GATE,
         True,
     )
-    assert by_name["renew_prescription"]["released"] == confirmed
+    assert by_name["renew_prescription"]["released"] == FREE_TEXT_GATE
     said = reads(packet.render_html(alone))
-    assert said.count(free_text) == 2
+    assert said.count(FREE_TEXT_GATE) == 4
+    assert GATE_TEXT[Gate.PERSON] not in said
     # The runtime's rule, not the agent's own tightening: the label is on `queue_refill` alone.
     assert said.count("tightened by the agent") == 1
-    assert f"{confirmed} tightened by the agent" in said
+    assert f"{FREE_TEXT_GATE} tightened by the agent" in said
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:

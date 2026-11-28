@@ -72,8 +72,13 @@
 4. Policy: rules, then thresholds, then caps (the site code cap among them, `core/policy.py`).
 5. The `DecisionResult` is returned. With a store attached, the record is written and
    `decision.created` is chained (with sign-in on, naming who asked: `requested_by`).
-   `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.
-6. A reviewer resolves the item (`review.resolved`, with the override flag), and a downstream
+   `HUMAN_REVIEW` and `ABSTAIN` enter the review queue. Each action the agent proposed is
+   chained with it (`action.proposed`). A text the agent wrote is handed only to a person: it
+   is returned, and kept for the reviewer (`output.held`), only when the decision waits for
+   one; an automated or a blocked decision returns none of it and keeps none.
+6. A reviewer resolves the item (`review.resolved`, with the override flag), gives each held
+   text a verdict (`output.resolved`) and releases or denies the held actions
+   (`action.resolved`), free text only by name. A downstream
    system may report what really happened (`outcome.recorded`), before or after a review:
    the decision keeps both (`final_label`, `observed_label`). Reviews feed the override rate;
    the observed accuracy measures the recommendation against the outcome when there is one,

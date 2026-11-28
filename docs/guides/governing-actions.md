@@ -12,7 +12,8 @@ was released.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
 rules are in [the agent manifest spec](../spec/agent-manifest.md#13-actions), section 13, and
-the reasons in [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
+the reasons in [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md) and, for free
+text, [ADR-0027](../decisions/ADR-0027-no-free-text-is-released-unread.md).
 
 ## See it in a minute
 
@@ -70,7 +71,8 @@ Each action has:
 - optionally a **schema** for its arguments: JSON Schema, from a small closed set of keywords
   (types, `properties`, `required`, `enum`, `const` and bounds; every object sets
   `additionalProperties: false`). Give one to anything that writes, contacts or orders, and
-  prefer an `enum` to free text wherever the choices are known;
+  make every string an `enum` or a `const` wherever the choices are known: an action that
+  takes free text is never released without a person ([section 3](#3-the-gate));
 - optionally **`allow_auto: false`**: the action is then never released without a person.
 
 `mendari validate` checks the section. `mendari new` writes a commented example of it into a
@@ -96,14 +98,14 @@ What each effect needs before an action is released is the runtime's rule. It li
 risk caps, not in your manifest: a manifest can tighten it, and nothing in a manifest or in
 what an agent proposes loosens it.
 
-| The decision is | `read`, `draft` | `write`, `contact` | `order`, or any action with `allow_auto: false` |
+| The decision is | `read`, `draft` | `write`, `contact` with enumerated arguments | `order`; any action with `allow_auto: false`; `write`, `contact` that can hold free text |
 |---|---|---|---|
 | `AUTO` | released | released | the decision becomes `HUMAN_REVIEW`: held |
 | `HUMAN_REVIEW`, with a recommendation | released | held for the reviewer | held for the reviewer |
 | `ABSTAIN` (no recommendation) | released | blocked | blocked |
 | `BLOCK` | blocked | blocked | blocked |
 
-Three things follow from the table:
+Four things follow from the table:
 
 - **`write` and `contact` are released without a person only where the agent may automate at
   all.** That is risk levels 0 and 1; levels 2 and 3 once your organization has recorded a
@@ -113,8 +115,32 @@ Three things follow from the table:
 - **An `order` never goes without a person.** Proposing one, or any action with
   `allow_auto: false`, sends an otherwise automated decision to a reviewer. That is the only
   way the action gets a person, and it only lowers automation.
+- **Free text never goes without a person.** A `write` or a `contact` whose arguments can
+  hold free text is treated as an `order` is, whatever your manifest says: nobody has read
+  the words, so no automated decision sends them to a chart or to a patient. Proposing one
+  sends the decision to a reviewer, with the reason:
+
+  ```text
+  action 'send_reply' can carry free text and is never released without a person; a person decides
+  ```
+
 - **An abstention blocks side effects at once.** With no recommendation there is nothing for a
   reviewer to confirm.
+
+**What counts as free text.** An action's arguments can hold free text when its schema takes a
+string that is not limited to an `enum` or a `const`, or a list with no `items`, or when the
+action has no schema at all. A length limit does not help: a dose fits in a few characters.
+The schema has no pattern keyword, so an identifier that is not enumerated counts too. A `read`
+or a `draft` with such arguments is still released with the decision: a read changes nothing,
+and a person sees a draft before it takes effect.
+
+**How to send a text, then.** Through an action a person releases. The demo agent's
+`send_acknowledgement` is the model: `allow_auto: false`, and one enumerated argument, the
+name of a template. The words themselves are a written output
+([Evaluating written output](written-output.md#2-who-gets-the-text)): the reviewer reads the
+draft, releases it or withholds it, and your caller sends it only once the action is
+released. An action that should go without a person takes enumerated arguments only, as the
+demo agent's `assign_queue` does.
 
 Two more rules:
 
@@ -223,7 +249,7 @@ gated by the decision as it stands, and recorded with who asked:
 
 | The decision | Asked for afterwards |
 |---|---|
-| automated | `read`, `draft`, `write`, `contact`: released. `order`, and any action with `allow_auto: false`: blocked, since nobody is waiting to confirm it |
+| automated | `read`, `draft`, and a `write` or a `contact` with enumerated arguments: released. `order`, any action with `allow_auto: false`, and a `write` or a `contact` that can hold free text: blocked, since nobody is waiting to confirm it |
 | automated, and automation is now on hold or its approval is gone | `write`, `contact`: blocked |
 | waits for review | held with the rest, and resolved by the same review |
 | already reviewed | `write`, `contact`, `order`: blocked, since the reviewer never saw it |
@@ -234,29 +260,67 @@ further `write` or `contact` is released on that decision.
 ## 6. Review releases or denies
 
 A decision in the review queue shows its proposed actions, each with its effect and what may
-be done with it. When the reviewer resolves the decision, its held actions are resolved with
-it:
+be done with it, and the texts the agent wrote for it. When the reviewer resolves the
+decision, its held actions are resolved with it:
 
-- **confirming the recommendation releases them**;
-- **choosing another label denies them**;
-- a reviewer who agrees with the label and not with an action **unticks that action**: it is
-  denied, the others are released, and the review is still recorded as a confirmation, never
-  as a false override.
+- **choosing another label denies them all**, whatever else the review says;
+- **confirming the recommendation releases them**, but **free text only by name**. Two kinds
+  of held action are released only when the review names them, and are denied otherwise
+  (`not_named`):
+    - an action whose arguments can hold free text (the queue marks it `free_text`), whatever
+      made it wait: the reviewer has to have read what it says;
+    - every held action, once the reviewer withholds a text the agent wrote: your manifest
+      does not say which action uses which text;
+- a reviewer who agrees with the label and not with an action **refuses that action**: it is
+  denied (`reviewer_denied`), and the review is still recorded as a confirmation, never as a
+  false override. Leaving an action unnamed is no override either.
 
-Over the API, `POST /api/review/{id}` takes the ids of the actions to refuse as `deny_actions`,
-and answers with each action's resolution:
+Over the API, `POST /api/review/{id}` takes, beside `final_label` and `reviewer`:
+
+| Field | What it says |
+|---|---|
+| `texts` | The reviewer's verdict on each text the decision holds, by the output's name: `release` or `withhold`. Every held text needs one |
+| `release_actions` | The ids of the held actions to release by name |
+| `deny_actions` | The ids of the held actions to refuse while confirming the label |
+
+The demo agent's decision on "Did my lab results come back yet?" waits for a person. It holds
+the acknowledgement the agent drafted and two actions, `assign_queue` and
+`send_acknowledgement`, both with enumerated arguments. A reviewer who agrees with the label
+but not with the draft withholds the text, and names the queue assignment so that it still
+goes:
 
 ```json
-{"final_label": "other", "reviewer": "rn-1", "deny_actions": ["b2…"]}
+{"final_label": "other", "reviewer": "rn-1",
+ "texts": {"acknowledgement": "withhold"}, "release_actions": ["a1…"]}
 ```
 
 ```json
 {"id": "7d0b…", "final_label": "other", "human_override": false,
+ "outputs": [{"name": "acknowledgement", "verdict": "withheld"}],
  "actions": [{"id": "a1…", "name": "assign_queue", "effect": "write",
               "disposition": "released", "reason": "confirmed"},
              {"id": "b2…", "name": "send_acknowledgement", "effect": "contact",
-              "disposition": "denied", "reason": "reviewer_denied"}]}
+              "disposition": "denied", "reason": "not_named"}]}
 ```
+
+Had the reviewer released the text (`"texts": {"acknowledgement": "release"}`) and named
+nothing, both actions would have been released: neither takes free text.
+
+**If your caller only confirmed labels.** A review that sent `final_label` and `reviewer` and
+relied on the release has to say more now:
+
+- For a decision that holds a text (`outputs` on its item in `GET /api/review`), send `texts`
+  with a verdict for each. Without them the review is refused (`409`), and the refusal names
+  the outputs.
+- For a held action marked `free_text` in the queue, send its id in `release_actions`.
+  Without it the review succeeds and the action is denied: read `actions` in the answer.
+- Once you withhold a text, name every action you still want released.
+- A decision with no text and no free-text action is reviewed as before.
+
+An id in `deny_actions` or `release_actions` that is no held action of the decision, or one
+in both, refuses the whole review (`409`), and nothing is recorded. Whatever sends the review,
+the console's review screen included, the server holds it to these rules: nothing releases a
+text or a free-text action that its reviewer did not choose to release.
 
 Because a release cannot be taken back, the console waits five seconds, with Undo, before it
 sends a confirmation that releases anything. A release is final: a hold set afterwards stops
@@ -267,7 +331,8 @@ new releases, not one already given.
 Every proposal is an event on its decision, `action.proposed`, chained with the decision
 itself; every held action's resolution is an `action.resolved`. Each holds ids, the declared
 name, the effect, the disposition, a reason code, a hash of the arguments, and who asked or
-who reviewed.
+who reviewed. A proposal whose arguments can hold free text also says so (`free_text`), which
+is how a review knows it must name the action.
 
 The chain never holds the arguments, and never a name the manifest does not declare: both are
 the agent's text and can hold patient data. They are kept apart from the chain, exactly as the
@@ -288,9 +353,11 @@ FHIR export carries both event kinds, as codes only.
 
 An agent that declares actions has an **Actions** section on its Decision Card: each action,
 what it does, its effect, how it is released for an agent your deployment vouches for, and the
-arguments that are checked. Read it before you approve an agent: an approval names the digest
-that card describes, and at risk levels 2 and 3 the approval that lets the agent automate also
-lets its `write` and `contact` actions go without a person.
+arguments that are checked. An action whose arguments can hold free text says so there, and
+that a reviewer has to name it. Read the section before you approve an agent: an approval
+names the digest that card describes, and at risk levels 2 and 3 the approval that lets the
+agent automate also lets its `write` and `contact` actions of enumerated arguments go without
+a person.
 
 ## What comes next
 

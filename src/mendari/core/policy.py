@@ -346,9 +346,14 @@ GATE_TEXT: Mapping[Gate, str] = {
     Gate.AUTO: "Only with an automated decision; otherwise when a reviewer confirms it.",
     Gate.PERSON: "Never without a person: when a reviewer confirms the decision.",
 }
-# The gate `person` in words where only the free text an action's arguments can hold made it so
-# (ADR-0027): what `gate_words` gives in place of `GATE_TEXT`'s, so that the reader sees why.
-FREE_TEXT_GATE = "Never without a person: its arguments can hold free text."
+# The gate `person` in words for an action whose arguments can hold free text (ADR-0027): what
+# `gate_words` gives in place of `GATE_TEXT`'s, whatever made the gate `person`. Confirming the
+# decision does not release such an action: the review has to name it (`release_actions`,
+# `AuditStore.resolve_review`), and the reader is told so, and why.
+FREE_TEXT_GATE = (
+    "Never without a person: when a reviewer confirms the decision and names this action, "
+    "since its arguments can hold free text."
+)
 # Where a decision's review stands: none is needed, one is awaited, or a reviewer confirmed or
 # overrode the recommendation.
 Review = Literal["none", "pending", "confirmed", "overridden"]
@@ -399,10 +404,15 @@ def gate_words(
 ) -> str:
     """A declared action's gate in words, as the Decision Card, the console and the committee
     packet show it: `GATE_TEXT`'s for its gate (`gate_of`, with its free text), and
-    `FREE_TEXT_GATE` where that gate is `person` only because the action's arguments can hold
-    free text. An `order`, and an action the manifest tightens, keep `GATE_TEXT`'s words."""
+    `FREE_TEXT_GATE` wherever that gate is `person` and the action's arguments can hold free
+    text. That is a `write` or a `contact` the free text made a person's, and also an `order`
+    and an action the manifest tightens (`allow_auto: false`): a review releases a held action
+    with free text only by name, whatever made its gate `person`, so none of them is said to be
+    released "when a reviewer confirms the decision". A `read` or a `draft` of an agent the
+    deployment vouches for keeps `GATE_TEXT`'s words: its gate is `decision`, and it waits for
+    no review."""
     gate = gate_of(effect, allow_auto=allow_auto, vouched=vouched, free_text=free_text)
-    if gate is not gate_of(effect, allow_auto=allow_auto, vouched=vouched):
+    if free_text and gate is Gate.PERSON:
         return FREE_TEXT_GATE
     return GATE_TEXT[gate]
 

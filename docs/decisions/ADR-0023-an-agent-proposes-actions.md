@@ -7,6 +7,11 @@ Accepted (2026-11-24), for wave 4 of the plan in `tasks/todo.md`. Specified in
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period
 ran; open to revision when it is.
 
+Tightened on 2026-11-27 by [ADR-0027](ADR-0027-no-free-text-is-released-unread.md): arguments
+that can hold free text are a fourth way the action gate tightens (beside point 2's), and a
+review releases a held action with them only by name, where point 5 says confirming the
+recommendation releases the held actions.
+
 ## Context
 Mendari governs one thing: an agent's answers to the closed questions its manifest declares. A
 deterministic policy turns them into AUTO, HUMAN_REVIEW, ABSTAIN or BLOCK, and the audit chain

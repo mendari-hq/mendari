@@ -2,8 +2,59 @@
 
 Notable changes to Mendari, newest first. Each release has a section named by its version
 (`## 0.1.0`), written before the release: the release workflow refuses a tag whose version has
-no section, or whose section is not the newest. Changes to an agent are in the agent's own
-`CHANGELOG.md`.
+no section, or whose section is not the newest. What is merged and not yet released is under
+`## Unreleased`, which the workflow does not read: it takes its version's name at the release.
+Changes to an agent are in the agent's own `CHANGELOG.md`.
+
+## Unreleased
+
+No free text is released unread
+([ADR-0027](docs/decisions/ADR-0027-no-free-text-is-released-unread.md)). Until now what an
+agent wrote came back with every decision, an action whose argument is free text was released
+with an automated one, and confirming a label released every held action. This changes what a
+decision returns and what a review takes, so it ships under a new version, never as 0.1.2. The
+spec version stays `"0.4"`: no manifest key is added, and a manifest that was valid is valid.
+
+- **A decision's answer.** What an agent wrote (`outputs`) comes back only with a decision
+  that waits for a person (`HUMAN_REVIEW`, `ABSTAIN`), as that person's draft. An automated or
+  a blocked decision no longer returns it, and keeps none of it (`POST …/decide`,
+  `mendari decide`). A decision whose agent wrote a text says where each stands, in its answer
+  and its record: `written`, `held` or `not_released`, never the text. The outcome does not
+  change: a text stops no label, and no action of enumerated arguments, from automating. **If
+  your caller sent the text of an automated decision, it has nothing to send for those now.**
+  Send a text through an action a person releases, as the demo agent's `send_acknowledgement`
+  is. A judge that clears a text when the decision is made is not built.
+- **Actions.** An action whose arguments can hold free text (a string that is not an `enum` or
+  a `const`, an array with no `items`, or no schema) is never released without a person where
+  its gate would be `auto`: a `write` or a `contact`, and a `read` or a `draft` of an agent
+  nobody vouched for. Proposing one sends an automated decision to a person, with the reason
+  `action '<name>' can carry free text and is never released without a person`. **For an
+  author:** an action meant to go without a person takes enumerated arguments only, and an
+  identifier that is not enumerated counts as free text. The bundled demo agent's two actions
+  take enumerated arguments, so both are gated as before.
+- **Reviews: a breaking change for a caller that only confirmed labels.**
+  `POST /api/review/{id}` takes two more fields. `texts` gives each text the decision holds a
+  verdict, `release` or `withhold`: a review of a decision that holds a text, without a verdict
+  on each, is refused (`409`). `release_actions` names the held actions to release: one whose
+  arguments can hold free text, and every held action once a text is withheld, is released
+  only when named. One left out is denied (`not_named`), and the review still succeeds: read
+  `actions` in its answer. A decision with no text and no free-text action is reviewed as
+  before. The review queue and a decision's record list the held texts under `outputs`, and
+  mark an action whose arguments can hold free text (`free_text`).
+- **What is kept.** A text held for review is kept for its reviewer as the decision's input
+  is, apart from the audit chain: sealed under PHI mode `encrypt` and read by whoever may read
+  inputs, each read chained; in the clear under `off`; not at all under `hash`, or for an
+  agent whose `audit.store_input` is `hash`. Retention removes it, and erasing a decision's
+  input erases it. No table is added: a held text is a note.
+- **The audit trail.** Two new event kinds on a decision, `output.held` and `output.resolved`:
+  the output's name, a commitment to the text, then the reviewer's verdict; never the text. The
+  FHIR export carries both, as codes. An `action.proposed` event says when its arguments can
+  hold free text (`free_text`).
+- **The words a person reads.** For an `order`, or an action with `allow_auto: false`, whose
+  arguments can hold free text, the Decision Card, the console and the committee packet said
+  it is released "when a reviewer confirms the decision". They now say what is so: when a
+  reviewer confirms the decision and names the action. The Card and the packet no longer say
+  that a text is returned with the decision and not kept.
 
 ## 0.1.2
 

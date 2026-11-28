@@ -144,12 +144,17 @@ def test_free_text_only_tightens_a_gate_whatever_else_is_so() -> None:
         assert stricter(held, without) is held
 
 
-def test_the_gate_in_words_says_when_free_text_made_it_a_persons() -> None:
+def test_the_gate_in_words_says_when_a_review_releases_an_action_only_by_name() -> None:
     """What the Decision Card, the console and the committee packet show for a declared action
-    (`gate_words`): the words of its gate, the tightened one. Where the gate is `person` only
-    because the action's arguments can hold free text, the words say that; an order and an
-    action the manifest tightens keep the words they had."""
-    assert FREE_TEXT_GATE == "Never without a person: its arguments can hold free text."
+    (`gate_words`): the words of its gate, the tightened one. An action never released without
+    a person whose arguments can hold free text is released only when the review names it
+    (ADR-0027), whatever made it a person's: the free text itself, the manifest or its effect.
+    Its words say that, and none of them says a confirmation alone releases it."""
+    assert FREE_TEXT_GATE == (
+        "Never without a person: when a reviewer confirms the decision and names this action, "
+        "since its arguments can hold free text."
+    )
+    assert GATE_TEXT[PERSON] == "Never without a person: when a reviewer confirms the decision."
     assert gate_words(Effect.CONTACT) == GATE_TEXT[AUTO]
     assert gate_words(Effect.CONTACT, free_text=True) == FREE_TEXT_GATE
     assert gate_words(Effect.WRITE, free_text=True) == FREE_TEXT_GATE
@@ -158,21 +163,28 @@ def test_the_gate_in_words_says_when_free_text_made_it_a_persons() -> None:
     assert gate_words(Effect.DRAFT, free_text=True) == GATE_TEXT[DECISION]
     assert gate_words(Effect.READ, vouched=False, free_text=True) == FREE_TEXT_GATE
     assert gate_words(Effect.READ, vouched=False) == GATE_TEXT[AUTO]
-    assert gate_words(Effect.ORDER, free_text=True) == GATE_TEXT[PERSON]
-    assert gate_words(Effect.WRITE, allow_auto=False, free_text=True) == GATE_TEXT[PERSON]
-    # Over every action there is: the words are the gate's own, or say why it is stricter, and
-    # they say "never without a person" exactly where the gate is `person`.
+    # An order, and an action the manifest tightens: a confirmation releases one of enumerated
+    # arguments, and one that can hold free text is released by name, as any other is.
+    assert gate_words(Effect.ORDER) == GATE_TEXT[PERSON]
+    assert gate_words(Effect.WRITE, allow_auto=False) == GATE_TEXT[PERSON]
+    assert gate_words(Effect.ORDER, free_text=True) == FREE_TEXT_GATE
+    assert gate_words(Effect.WRITE, allow_auto=False, free_text=True) == FREE_TEXT_GATE
+    # Over every action there is: the words are the gate's own, but for the gate `person` with
+    # free text, which says how a review releases it; and they say "never without a person"
+    # exactly where the gate is `person`.
     for effect, allow_auto, vouched, free_text in itertools.product(
         Effect, (True, False), (True, False), (True, False)
     ):
         said = {"allow_auto": allow_auto, "vouched": vouched}
         gate = gate_of(effect, **said, free_text=free_text)
         words = gate_words(effect, **said, free_text=free_text)
-        if gate is gate_of(effect, **said):
-            assert words == GATE_TEXT[gate], (effect, said, free_text)
+        if free_text and gate is PERSON:
+            assert words == FREE_TEXT_GATE, (effect, said)
         else:
-            assert free_text and gate is PERSON and words == FREE_TEXT_GATE, (effect, said)
+            assert words == GATE_TEXT[gate], (effect, said, free_text)
         assert words.startswith("Never without a person") is (gate is PERSON)
+        # "Confirms the decision" alone is said only of an action a confirmation releases.
+        assert ("names this action" in words) is (free_text and gate is PERSON)
 
 
 # -- the disposition (Table B), every cell --------------------------------------------------------
