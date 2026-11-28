@@ -1730,8 +1730,9 @@ def create_app(
         not `BLOCK`; one that writes or contacts a patient only with an `AUTO` decision, or
         once the decision's reviewer confirms it; an order never without a person, nor an
         action that writes or contacts a patient with arguments that can hold free text
-        (anything but a menu of listed values: a string or a number that is not enumerated, a
-        list, or no schema). An action the agent's manifest does not
+        (anything but a menu of listed values: a string that is not enumerated, a number that
+        is neither listed nor an integer in a short range, a list, or no schema). An action
+        the agent's manifest does not
         declare, or whose arguments do not match its schema, is blocked.
 
         **Asking again is safe.** The same action with the same arguments for the same

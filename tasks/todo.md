@@ -74,6 +74,13 @@ in production.
     - leaving the page sent a release; a text kept characters that are not seen; a name
       ending in a line break; tests that held nothing for the FHIR answers, the escaping of
       arguments and the log records.
+  - [x] A second engineer re-checked the fixes (2026-11-28): no blocker, and the main fixes
+    held against the real 0.1.2 source, a fuzz of 103,554 schemas and 84 mutations. It found
+    one major bug older than this wave (half a character in an answer, or in a message, made
+    the queue and the audit list answer 500: read as U+FFFD now) and tightened four things:
+    the set of unseen characters is Unicode's own list, a range of integers is a menu only up
+    to a hundred values, the console's Card says what holds free text, ten surviving mutations
+    have tests.
   - [ ] The whole suite on SQLite and Postgres and the browser suite on the final code; the
     pull request, which is also the release's: two event kinds join the FHIR audit code
     system, which is pinned to the released version, so the wave ships as 0.2.0.

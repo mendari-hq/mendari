@@ -159,17 +159,44 @@ a map); the Card and the packet say for each action whether its arguments can ho
 the answer's schema describes `written` and `outputs`; the ADR's sentence on what leaves, and
 E25's "names only".
 
+### What the re-check of the fixes found (2026-11-28)
+
+A second engineer who wrote none of the fixes read the fourteen commits after `3fc9c95e`. No
+blocker: no way for a text or a free-text argument to leave unread, and the chain verified in
+every run. The fixes for a 0.1.2 decision, the menu rule, an action asked for later, names
+matched whole and the console held as described: checked with the real v0.1.2 source on one
+database, a fuzz of 103,554 accepted schemas against the real validator (none judged a menu
+admitted a value nothing lists), 150 rounds of seven concurrent asks against one confirmation
+on SQLite and Postgres, and 84 single mutations of which 70 failed a test. What it found:
+
+| # | Finding | Done |
+|---|---|---|
+| 1 | **Major, and older than this wave.** One lone surrogate (half an emoji) in a rationale or a tool's name took the review queue and the audit list down for that agent; in a text it failed the decision. Looking further: the same in a decision's *input*, from any caller that may decide | Read as U+FFFD where an input and a provider's answer enter (`core/text.py` `well_formed`), as an agent's patterns already read one. A message is decided, not refused; threat model D19 |
+| 2 | "Every character that is not seen" was not true: fillers and the 256 variation selectors stayed, and selectors can carry a byte each | The set is Unicode's `Default_Ignorable_Code_Point` list, but the two joiners and the two emoji selectors; the documents say which set, not "every"; a test holds the console's copy equal to the engine's |
+| 3 | The console's Card view did not say whether arguments can hold free text | An agent's detail carries `free_text` per action, and the Card view prints the Decision Card's words |
+| 4 | One integer between 1 and a million was "listed values only" | A range is a menu only when an `enum` could have held it: at most a hundred values |
+| 5 | Ten mutations survived every test | Tests for each: the count of a range for every way a bound is given (13 mutations now caught), a question's key, markup beside an unseen character, the console's set, the text an evaluation grades, the pilot's viewer check |
+
+Nits done: the count no longer depends on the order of the properties; `mendari new` matches an
+id whole; a release is dropped when its page is hidden; a schema that names no field and takes
+a text says so on the Card; the words ("enumerated arguments", "a number that is not
+enumerated", what a blocked decision returns of its proposals); the ADR names what a menu
+still carries (the order of keys, the spelling of a number).
+
 Left, each older than this wave and none a way out for a text:
 
 - **The same `$` slip elsewhere.** These patterns end in `$` and are matched with `match`, so
-  each takes a final line break: `SYSTEM_ID` (`core/audit.py`), `NAME_RE`
-  (`core/agent_store.py`), `ID_PATTERN` (`agent_kit.py`), `_LOCAL_MODEL`
-  (`evals/monitoring.py`), `_TOKEN_ID` (`hub/registry.py`), `_DATASET_NAME` (`server/app.py`),
-  `_SEGMENT` (`server/hub_routes.py`), `REQUEST_ID` (`server/security_log.py`), `_ID` and
-  `_OAUTH_ERROR` (`server/smart_routes.py`), `NAME` (`server/store_routes.py`). One sweep, with
-  a test per name.
+  each takes a final line break: `_LOCAL_MODEL` (`evals/monitoring.py`), `_DATASET_NAME`
+  (`server/app.py`), `_SEGMENT` (`server/hub_routes.py`), `_ID` and `_OAUTH_ERROR`
+  (`server/smart_routes.py`), `NAME` (`server/store_routes.py`), `_LINK` (`core/card.py`).
+  And a slot's, a variant's, a rule's and a dataset's name in a manifest have no pattern at
+  all. One sweep, with a test per name. (`SYSTEM_ID`, `NAME_RE`, `ID_PATTERN`, `_TOKEN_ID` and
+  `REQUEST_ID` end in `$` too, and are already matched whole.)
 - `POST /api/review/<unknown id>` answers 409, where an unknown decision is a 404 elsewhere.
 - From the console's build: `text_status: "sealed"` means two things (this reader may not
   read it; no key opens it), and the 409 for a missing verdict is prose only.
+- **A row an older engine wrote with half a character in it** is still not served: the fix is
+  where text enters, not where it is read. None is known.
 - **What an author and a caller do together** is not closable by a gate that never runs an
-  action: a menu still carries a few bits, and so does the order of an object's keys.
+  action: a menu still carries a few bits, and so do the order of an object's keys and the
+  spelling of a number.

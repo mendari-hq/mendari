@@ -100,8 +100,11 @@ rubrics:
   another system drafted. No agent is called for it.
 - What your agent writes is read as plain characters. A control character becomes a space, and
   so does a character that is not seen and changes what is: a right-to-left override, a
-  zero-width space, a tag character. With one, a reviewer would read one text and release
-  another. Line breaks and tabs stay, and so do the joiners a script or an emoji needs.
+  zero-width space, a soft hyphen, a variation selector, a tag character (every code point
+  Unicode says is not shown by default). With one, a reviewer would read one text and release
+  another. Line breaks and tabs stay, and so do the joiners and the emoji selectors a script
+  or an emoji needs. A character cut in half (a text truncated at a length counted in UTF-16
+  units) becomes the replacement character, U+FFFD: cut your texts by characters.
 
 The agent returns the text with its answers. With the
 [agent kit](authoring-an-agent.md#starters):
@@ -121,7 +124,7 @@ a decision gives it to someone only when a person decides:
 | is `AUTO` or `BLOCK` | `not_released` | is returned to nobody and kept nowhere |
 
 The decision itself does not change. A text does not stop a label from automating, nor an
-action of enumerated arguments from being released: the demo agent drafts an acknowledgement
+action whose arguments are a menu from being released: the demo agent drafts an acknowledgement
 with every message, and still automates its routing. What changes is that the acknowledgement
 comes back only with the decisions a person reviews.
 
@@ -186,9 +189,9 @@ text when the decision is made, so that some texts could go without a person, is
 
 **A rationale is not a text.** An answer's `rationale` (at most 500 characters) and the names
 of the tools the agent called still come back with every decision, as evidence for a
-reviewer. Do not send them to a patient or file them in a chart. A `draft` action's arguments
-come back too, with any decision that is not blocked: a draft is for staff to read and send
-themselves.
+reviewer. Do not send them to a patient or file them in a chart. Every proposed action's
+arguments come back too, with what may be done with it, whatever the decision: a `draft` is
+released for staff to read and send themselves, and a blocked action is not to be run.
 
 ## 3. Choose the judge
 

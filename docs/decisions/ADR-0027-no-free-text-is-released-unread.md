@@ -56,9 +56,9 @@ record), on the review this one builds.
    hold free text is never released without a person when its gate would be `auto`: a `write`
    or a `contact` action, and a `read` or `draft` one of an agent nobody vouched for. Its gate
    is `person`. Arguments can hold free text unless they are a menu, a fixed set of values the
-   manifest lists: every string an `enum` or a `const`, every number listed or an integer
-   between two bounds, no list, and at most a million different arguments in all. An action
-   with no schema at all is free text. The closed set of keywords an arguments schema may use
+   manifest lists: every string an `enum` or a `const`, every number listed or an integer in a
+   range no longer than a list may be (a hundred values), no list, and at most a million
+   different arguments in all. An action with no schema at all is free text. The closed set of keywords an arguments schema may use
    (section 13.3) makes that decidable from the manifest alone. Proposing such an action turns
    AUTO into HUMAN_REVIEW, as any action never released without a person does. This is a
    fourth way the action gate tightens, beside `allow_auto: false`, an agent nobody vouched for
@@ -67,7 +67,9 @@ record), on the review this one builds.
    The first rule asked only that every string be enumerated, and the review of this change
    showed what that lets through: a list of one-letter values, or a property for each
    character, spells any text out of enumerated pieces, and a number nothing lists is a dose.
-   A menu is judged by the values it admits, not piece by piece.
+   A menu is judged by the values it admits, not piece by piece. A second review found that
+   one integer between 1 and a million was still "listed values": a range is a list only when
+   an `enum` could have held it.
 
 4. **A held text is kept for the person who reads it.** When a decision that carries texts is
    recorded and awaits review, each text is kept as an action's arguments are: apart from the
@@ -77,9 +79,11 @@ record), on the review this one builds.
    Retention and erasure remove it with the input. The review queue shows it to whoever may
    read inputs, and that reading is chained as reading the input is. A held text stays a
    note after its verdict, released or withheld, until retention or erasure removes it. What
-   is kept, and returned, is the text with every character that is not seen made a space, as
-   a control character is: with a right-to-left override in it, a reviewer would read one
-   thing and release another. This
+   is kept, and returned, is the text with each character Unicode says is not shown by
+   default made a space, as a control character is (but the two joiners and the two emoji
+   selectors a script or an emoji needs; the set is in the spec, section 15.2): with a
+   right-to-left override in it, a reviewer would read one thing and release another, and
+   variation selectors can carry words no eye sees. This
    replaces ADR-0025's "a decision returns what the agent wrote and does not store it" for a
    held text only: the text of an automated or a blocked decision is still kept nowhere.
 
@@ -136,8 +140,10 @@ record), on the review this one builds.
   keyword, so a `write` action that takes an id as a string is a person's. A spec revision may
   add an identifier type; none can loosen the rule.
 - **So is a number nothing lists, and any list.** A `write` that takes a dose as a number is a
-  person's; one that takes a number of days between 1 and 90 is a menu of ninety values. An
-  author who wants several of a set of options declares a yes or no for each, not a list.
+  person's; one that takes a number of days between 1 and 90 is a menu of ninety values, and
+  one between 1 and 365 is not: a range counts when a list could have held it, a hundred
+  values. An author who wants several of a set of options declares a yes or no for each, not
+  a list.
 - **More is kept.** Held texts are kept until retention or erasure removes them, sealed as
   inputs are. A deployment in PHI mode `hash` keeps none, and its reviewers give their verdict
   on a draft Mendari does not show.
@@ -175,8 +181,12 @@ record), on the review this one builds.
 - **An identifier type** for arguments, and whether a judge may also clear an action's
   free-text argument.
 - **What an author and a caller do together.** A menu still carries a few bits, and a caller
-  that joins the arguments of many released actions into a text sends what nobody read.
-  Mendari authorizes and never runs: what a caller does with an answer is the caller's.
+  that joins the arguments of many released actions into a text sends what nobody read. So do
+  the order of an object's keys and the spelling of a number (`5`, `5.0`), which are kept as
+  the agent sent them. Mendari authorizes and never runs: what a caller does with an answer is
+  the caller's.
+- **Characters that look alike.** What is taken out of a text is a list, Unicode's of what is
+  not shown. A letter of another script that looks like a Latin one is a letter, and stays.
 
 ## Alternatives considered
 

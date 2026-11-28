@@ -28,24 +28,34 @@ is valid.
   what became of the acknowledgement its agent drafted: returned to nobody with the automated
   decision, read and released by the reviewer of the one that waited. The schema an agent's
   detail serves for its answers describes `written` and `outputs`.
-- **What a text may hold.** A text an agent writes, a rationale and a tool's name lose every
-  character that is not seen and changes what is: each becomes a space, as a control character
-  does. `Take` + a right-to-left override + `01` is drawn "Take 10" and sent as "01", so a
-  reviewer released something other than what they read. The bidirectional marks, embeddings,
-  overrides and isolates, zero-width and invisible characters, line separators, tag characters
-  and the C1 controls go; the joiners a script or an emoji needs stay.
+- **What a text may hold.** A text an agent writes, a rationale and a tool's name lose the
+  characters that are not seen and change what is: each becomes a space, as a control
+  character does. `Take` + a right-to-left override + `01` is drawn "Take 10" and sent as
+  "01", so a reviewer released something other than what they read, and variation selectors
+  can carry words no eye sees. Every code point Unicode says is not shown by default goes (the
+  soft hyphen, zero-width characters, fillers, the bidirectional controls, variation
+  selectors, tag characters), with the line separators and the C1 controls; the joiners and
+  the emoji selectors a script or an emoji needs stay.
+- **A fix: one cut character made the audit trail unreadable.** A JSON string can hold half a
+  character (a lone surrogate, as a system that cuts a text at a length counted in UTF-16
+  units sends it). A message with one was decided and recorded, and the audit trail's list
+  then answered 500 for every reader; in an answer's rationale or a tool's name it took the
+  review queue down too. The same in 0.1.2. It is now read as U+FFFD, the replacement
+  character, where a decision's input and a provider's answer enter: the message is decided,
+  not refused, and its record is served.
 - **Actions.** An action whose arguments can hold free text is never released without a person
   where its gate would be `auto`: a `write` or a `contact`, and a `read` or a `draft` of an
   agent nobody vouched for. Proposing one sends an automated decision to a person, with the
   reason `action '<name>' can carry free text and is never released without a person`.
   Arguments can hold free text unless they are a menu, a fixed set of values the manifest
-  lists: every string an `enum` or a `const`, every number listed or an integer between two
-  bounds, no array, and at most 1,000,000 different arguments in all. An action with no schema
-  is free text. **For an author:** an action meant to go without a person takes a menu. An
-  identifier that is not enumerated counts as free text, and so do a dose given as a number
-  and any list; for several of a set of options, declare a yes or no for each. `mendari card`
-  says which of your actions can hold free text. The bundled demo agent's two actions take a
-  menu, so both are gated as before.
+  lists: every string an `enum` or a `const`, every number listed or an integer in a range of
+  at most 100 values (as many as an `enum` may list), no array, and at most 1,000,000
+  different arguments in all. An action with no schema is free text. **For an author:** an
+  action meant to go without a person takes a menu. An identifier that is not enumerated
+  counts as free text, and so do a dose given as a number, a number of days between 1 and 365
+  (list the choices you mean) and any list; for several of a set of options, declare a yes or
+  no for each. `mendari card` and the console's Card say which of your actions can hold free
+  text. The bundled demo agent's two actions take a menu, so both are gated as before.
 - **Reviews: a breaking change for a caller that only confirmed labels.**
   `POST /api/review/{id}` takes two more fields. `texts` gives each text the decision holds a
   verdict, `release` or `withhold`: a review of a decision that holds a text, without a verdict
@@ -82,10 +92,10 @@ is valid.
   text has one. Each held action has a tick: one whose arguments can hold free text starts
   unticked, and withholding a text unticks every action. A review that gives a verdict or
   releases an action waits five seconds, with Undo, and what it did is listed under the queue.
-  **Only those five seconds passing send it:** leaving the queue or closing the page before
-  then sends nothing, and the decision still waits (a label that lets nothing out is sent on
-  leaving, as before). A character that is not seen in an action's arguments is shown by its
-  code point. A decision's record shows each text where it stands (held, released or withheld)
+  **Only those five seconds passing send it, with the page in front of the reviewer:**
+  leaving the queue, closing the page or hiding it before then sends nothing, and the decision
+  still waits (a label that lets nothing out is sent on leaving, as before). A character that
+  is not seen in an action's arguments is shown by its code point. A decision's record shows each text where it stands (held, released or withheld)
   and, for a decision that automated or was blocked, that its text was returned to nobody.
 - **The pilot check** (`mendari sandbox pilot-check`). Its reviewer is shown each text the
   decision holds and gives it a verdict, and it checks that a viewer cannot read one.
@@ -100,8 +110,8 @@ is valid.
     arguments can hold free text, so each is read as one whose can: the queue marks it
     `free_text`, and a review releases it only by name (`release_actions`).
 - **A fix: a name in a manifest is matched whole.** An output, an action, a label or a
-  question whose name ended in a line break was accepted, and so was such an id or version.
-  The review of a decision that held such an output could not be sent.
+  question whose name ended in a line break was accepted, and so was such an id or version
+  (by `mendari new` too). The review of a decision that held such an output could not be sent.
 - **A fix: the count beside "Review queue" read the queue.** The console read the queue itself
   for that count, on every view. Under PHI mode `encrypt` the chain therefore recorded a read
   (`input.read`) of every waiting input, up to 500, each time a reviewer changed view, in the

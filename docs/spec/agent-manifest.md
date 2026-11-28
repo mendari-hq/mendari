@@ -1146,8 +1146,10 @@ fixed set of values the manifest lists. They are a menu when all of these hold:
 - every string is limited to an `enum` or a `const`. Nothing else limits a string: a schema
   has no `pattern` and no `format`, and a length does not count, since a dose fits in a few
   characters. So an identifier that is not enumerated is free text;
-- every number is limited to an `enum` or a `const`, or is an `integer` with both a lower and
-  an upper bound: a number nothing lists can be any dose;
+- every number is limited to an `enum` or a `const`, or is an `integer` between a lower and
+  an upper bound that admit at most 100 values, as many as an `enum` may list: a list the
+  manifest could have written out. A number nothing lists can be any dose, and one of a
+  million is not a choice from a list;
 - there is no array: a list puts a text together out of its items, however each is limited;
 - the schema admits at most 1,000,000 different arguments in all: the values of each property
   multiplied together, a property that is not `required` counting once more for its absence.
@@ -1157,7 +1159,7 @@ A runtime MUST decide this from the manifest alone, by these rules, wherever in 
 string, a number or an array is. What an action whose arguments can hold free text needs before
 it is released is in §13.4, and how a review releases it in §13.8. An action meant to be
 released without a person takes a menu: every string and every number an `enum` or a `const`
-(or an integer between two bounds), and no array.
+(or an integer in a range of at most a hundred), and no array.
 
 For example:
 
@@ -1214,7 +1216,8 @@ actions:
 Of these six, only `assign_queue` takes a menu: its one string is an `enum`. `draft_reply`,
 `send_reply` and `queue_refill` each take a string that is not enumerated, and
 `look_up_medications` and `renew_prescription` have no schema. In `queue_refill`,
-`days_supply` alone would be a menu of ninety values: an integer between two bounds.
+`days_supply` alone would be a menu of ninety values: an integer between two bounds, no more
+of them than a list may hold.
 
 ### 13.4 What an effect needs
 
@@ -1801,12 +1804,19 @@ The response MAY carry what it wrote, by name:
   slot, a value that is not text, or a text longer than its `max_chars` makes the response
   invalid: the slot fails closed, as for a malformed answer.
 - Control characters other than the newline and the tab become a space, and so do the
-  characters that are not seen and change what is: those that reorder a line (bidirectional
-  marks, embeddings, overrides and isolates), zero-width and invisible characters, the line
-  and paragraph separators, and tag characters. A reviewer releases the text they read, and
-  with one of these a screen shows one thing while a channel that drops it says another. The
-  joiners a script or an emoji needs (U+200C, U+200D) and the variation selectors stay. A
-  text that is then blank is no output.
+  characters that are not seen and change what is: every code point Unicode says is not shown
+  by default (its `Default_Ignorable_Code_Point` property: the soft hyphen, zero-width and
+  invisible characters, fillers, the bidirectional marks, embeddings, overrides and isolates,
+  the variation selectors, tag characters), the line and paragraph separators (U+2028,
+  U+2029), the interlinear annotation characters (U+FFF9 to U+FFFB) and the blank braille cell
+  (U+2800). A reviewer releases the text they read, and with one of these a screen shows one
+  thing while a channel that drops it says another, or the text carries words no eye sees.
+  Four of the first group stay, which a script or an emoji needs: the joiners (U+200C, U+200D)
+  and the selectors that say how an emoji is drawn (U+FE0E, U+FE0F). A text that is then
+  blank is no output.
+- Half a character (a lone surrogate, as a service that cuts a text at a length counted in
+  UTF-16 units sends it) is read as U+FFFD, the replacement character, wherever it is in the
+  response: no UTF-8 text holds one. The same is done to a decision's input.
 - A slot with no declared output does not read the key at all.
 - What a decision does with the texts a response carried is in §15.8: each is handed only to a
   person, and none is ever part of a decision's record.

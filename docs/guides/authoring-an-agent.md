@@ -305,8 +305,9 @@ actions, and the response may propose some:
 
 **Free text in an action's arguments needs a person.** An action's arguments can hold free
 text unless they are a menu, a fixed set of values your manifest lists: every string an `enum`
-or a `const`, every number listed or an integer between two bounds, no list, and at most a
-million different arguments in all ([what counts](governing-actions.md#3-the-gate)). An action
+or a `const`, every number listed or an integer in a range of at most 100 values, no list, and
+at most a million different arguments in all
+([what counts](governing-actions.md#3-the-gate)). An action
 with no schema is free text. An action that writes or contacts with such arguments is never
 released without a person, whatever else your manifest says, and a reviewer releases it only
 by naming it. So:

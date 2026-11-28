@@ -74,8 +74,9 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
   `gate_of`, `disposition`. A manifest (`allow_auto: false`), an agent nobody vouched for, a
   second signal that did not agree on a proposal and arguments that can hold free text
   (ADR-0027: `ActionSpec.free_text`, `holds_free_text` in `core/spec.py`; anything but a menu:
-  every string an `enum` or a `const`, every number listed or an integer between two bounds,
-  no array, at most `MAX_ACTION_MENU` arguments in all) each make a gate stricter; nothing
+  every string an `enum` or a `const`, every number listed or an integer in a range of at most
+  `MAX_ACTION_ENUM` values, no array, at most `MAX_ACTION_MENU` arguments in all) each make a
+  gate stricter; nothing
   loosens one. A proposal chains `free_text` either way, and one that says nothing is read as
   free text. Mendari authorizes an action and records it, and runs none.
 - **A text is handed only to a person** (ADR-0027). An answer carries what an agent wrote only

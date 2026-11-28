@@ -101,7 +101,7 @@ What each effect needs before an action is released is the runtime's rule. It li
 risk caps, not in your manifest: a manifest can tighten it, and nothing in a manifest or in
 what an agent proposes loosens it.
 
-| The decision is | `read`, `draft` | `write`, `contact` with enumerated arguments | `order`; any action with `allow_auto: false`; `write`, `contact` that can hold free text |
+| The decision is | `read`, `draft` | `write`, `contact` whose arguments are a menu | `order`; any action with `allow_auto: false`; `write`, `contact` that can hold free text |
 |---|---|---|---|
 | `AUTO` | released | released | the decision becomes `HUMAN_REVIEW`: held |
 | `HUMAN_REVIEW`, with a recommendation | released | held for the reviewer | held for the reviewer |
@@ -137,9 +137,10 @@ lists. An action's arguments are a menu when:
 - every string is an `enum` or a `const`. A length limit does not help: a dose fits in a few
   characters. The schema has no pattern keyword, so an identifier that is not enumerated
   counts as free text;
-- every number is an `enum` or a `const`, or an `integer` with a `minimum` and a `maximum`:
-  a number nothing lists can be any dose, and a number of days between 1 and 90 is a menu of
-  ninety;
+- every number is an `enum` or a `const`, or an `integer` with a `minimum` and a `maximum`
+  that admit at most 100 values, as many as an `enum` may list: a number nothing lists can be
+  any dose. A number of days between 1 and 90 is a menu of ninety; between 1 and 365 it is
+  not, so list the choices you mean (`enum: [30, 60, 90, 180, 365]`);
 - it takes no list. A list puts a text together out of its items, however each is limited. For
   several of a set of options, declare a yes or no for each;
 - it admits at most 1,000,000 different arguments in all (each property's values multiplied
@@ -265,7 +266,7 @@ gated by the decision as it stands, and recorded with who asked:
 
 | The decision | Asked for afterwards |
 |---|---|
-| automated | `read`, `draft`, and a `write` or a `contact` with enumerated arguments: released. `order`, any action with `allow_auto: false`, and a `write` or a `contact` that can hold free text: blocked, since nobody is waiting to confirm it |
+| automated | `read`, `draft`, and a `write` or a `contact` whose arguments are a menu: released. `order`, any action with `allow_auto: false`, and a `write` or a `contact` that can hold free text: blocked, since nobody is waiting to confirm it |
 | automated, and automation is now on hold or its approval is gone | `write`, `contact`: blocked |
 | waits for review | held with the rest, and resolved by the same review, which releases it only by name ([section 6](#6-review-releases-or-denies)) |
 | already reviewed | `write`, `contact`, `order`: blocked, since the reviewer never saw it |
@@ -305,7 +306,7 @@ Over the API, `POST /api/review/{id}` takes, beside `final_label` and `reviewer`
 
 The demo agent's decision on "Did my lab results come back yet?" waits for a person. It holds
 the acknowledgement the agent drafted and two actions, `assign_queue` and
-`send_acknowledgement`, both with enumerated arguments. A reviewer who agrees with the label
+`send_acknowledgement`, both taking a menu. A reviewer who agrees with the label
 but not with the draft withholds the text, and names the queue assignment so that it still
 goes:
 
@@ -354,9 +355,10 @@ card was read is not on the card, and no review from that card releases it. A ch
 is not seen in an argument (a right-to-left override, a zero-width space) is shown by its code
 point, so the reviewer reads what would be sent. Because a verdict and a release cannot be
 taken back, the console waits five seconds, with Undo, before it sends a review that gives
-either, and only those five seconds passing send it: leaving the queue or closing the page
-before then sends nothing, and the decision still waits. A release is final: a hold set
-afterwards stops new releases, not one already given.
+either, and only those five seconds passing send it, with the page in front of the reviewer:
+leaving the queue, closing the page or hiding it (another tab, a locked screen) before then
+sends nothing, and the decision still waits. A release is final: a hold set afterwards stops
+new releases, not one already given.
 
 If you show reviews on a screen of your own, do the same two things: show such characters, and
 send no release the reviewer did not see through.
