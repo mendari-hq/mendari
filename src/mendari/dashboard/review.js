@@ -159,9 +159,10 @@ const READY = "Every text has a verdict: you can resolve this review.";
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const waitsFor = (n) => `${n === 1 ? "1 text needs" : `${n} texts need`} a verdict before you can resolve this review.`;
 
-// The verdict given to each held text of a card, by its output's name (null: none yet).
+// The verdict given to each held text of a card, by its output's name (null: none yet). No
+// prototype: an output may be named like an object's built-in (`constructor`).
 function verdicts(card) {
-  const given = {};
+  const given = Object.create(null);
   card.querySelectorAll("input[data-verdict]").forEach((radio) => {
     given[radio.dataset.verdict] ??= null;
     if (radio.checked) given[radio.dataset.verdict] = radio.value;
@@ -258,9 +259,11 @@ function doing({ texts, released }) {
 
 // Confirming the recommendation is one tap. Any other label is held for UNDO_SECONDS with an Undo
 // button (focused), since the audit chain is append-only and a mis-tap on a phone would otherwise be
-// a permanent override. Leaving the view or the page sends what is held, as if the time ran out.
+// a permanent override. Leaving the view or the page sends a held label, as if the time ran out,
+// unless it gives a verdict or releases an action (`final`): what that lets out cannot be taken
+// back, so leaving drops it instead, and the decision still waits (`views.review.leave`).
 const UNDO_SECONDS = 5;
-const held = new Map(); // decision id -> send()
+const held = new Map(); // decision id -> { send(), drop(), final }
 
 function resolveCard(button, onResolved) {
   const card = button.closest(".review-card");
@@ -282,7 +285,7 @@ function resolveCard(button, onResolved) {
   // Confirming with no text to judge and nothing to release is one tap, as before.
   const final = Object.keys(chosen.texts).length > 0 || chosen.released > 0;
   if (label === card.dataset.recommendation && !final) return sendResolution(card, label, reviewer, chosen, { onResolved });
-  holdResolution(card, button, label, reviewer, chosen, onResolved);
+  holdResolution(card, button, label, reviewer, chosen, { final, onResolved });
 }
 
 // While a review waits for Undo or for the server's answer, its card's verdicts and ticks cannot
@@ -291,7 +294,7 @@ function freeze(card, frozen) {
   card.querySelectorAll("input[data-verdict], input[data-release]").forEach((input) => (input.disabled = frozen));
 }
 
-function holdResolution(card, button, label, reviewer, chosen, onResolved) {
+function holdResolution(card, button, label, reviewer, chosen, { final, onResolved }) {
   const labelButtons = card.querySelectorAll(".labels button");
   labelButtons.forEach((b) => (b.disabled = true));
   freeze(card, true);
@@ -317,13 +320,17 @@ function holdResolution(card, button, label, reviewer, chosen, onResolved) {
     release();
     return sendResolution(card, label, reviewer, chosen, { ...options, onResolved });
   };
-  const timer = setTimeout(send, UNDO_SECONDS * 1000);
-  held.set(card.dataset.id, send);
-  bar.querySelector(".undo").addEventListener("click", () => {
+  // Not sent after all: the card is as it was before the label was chosen.
+  const drop = () => {
     release();
     button.classList.remove("held");
     labelButtons.forEach((b) => (b.disabled = false));
     freeze(card, false);
+  };
+  const timer = setTimeout(send, UNDO_SECONDS * 1000);
+  held.set(card.dataset.id, { send, drop, final });
+  bar.querySelector(".undo").addEventListener("click", () => {
+    drop();
     button.focus();
     announce(`Cancelled: ${name} was not sent`);
   });
@@ -332,12 +339,21 @@ function holdResolution(card, button, label, reviewer, chosen, onResolved) {
 }
 
 // Leaving the queue (another view, another agent, another organization: that one waits for them)
-// sends what is held; so does closing the page, with keepalive so the request outlives it.
+// sends a held label that lets nothing out; so does closing the page, with keepalive so the
+// request outlives it. A held review that gives a verdict or releases an action is never sent by
+// leaving: a reviewer who chose it by mistake and went away, or closed the page, released
+// nothing. It is dropped, its decision still waits in the queue, and the reviewer is told.
 views.review.leave = () => {
   stopKeys();
-  return Promise.all([...held.values()].map((send) => send()));
+  const waiting = [...held.values()];
+  const dropped = waiting.filter((review) => review.final);
+  dropped.forEach((review) => review.drop());
+  if (dropped.length) {
+    toastError(`${plural(dropped.length, "review")} not sent: you left before the ${UNDO_SECONDS} seconds were up. ${dropped.length === 1 ? "Its decision still waits" : "Their decisions still wait"} in the queue.`);
+  }
+  return Promise.all(waiting.filter((review) => !review.final).map((review) => review.send()));
 };
-window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
+window.addEventListener("pagehide", () => held.forEach((review) => (review.final ? review.drop() : review.send({ keepalive: true }))));
 
 // What a resolved review did, as the server answered it, in words for a toast:
 // ["2 texts released", "1 action released, 1 action denied"].

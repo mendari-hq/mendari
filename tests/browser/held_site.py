@@ -6,8 +6,9 @@ what is kept. It serves four agents:
 
 - `WRITER`: the copy of the actions fixture that also writes (`tests.test_held_texts.writing`:
   two texts, a `read` released with the decision, a `write` of enumerated arguments and a
-  free-text `contact`), with three more canned answers: a text that holds markup, one of the
-  longest a text may be, and a decision with a text and nothing else;
+  free-text `contact`), with four more canned answers: a text that holds markup, one of the
+  longest a text may be, a decision with a text and nothing else, and one whose actions hold
+  markup in their arguments;
 - `UNKEPT`: the same agent keeping only its input's hash (`audit.store_input: hash`), so
   none of its texts is kept;
 - `WRITTEN`: the written fixture, which writes a reply and proposes no action;
@@ -52,6 +53,7 @@ PLAIN = "Hello there."  # no text and no action
 MARKUP = "Please check the markup in what you write."  # a text that holds markup
 LONG = "Please write me the longest text."  # a text of the most characters one may have
 ALONE = "Just the one text, please."  # one text, and no action
+ODD = "Please ask to do something odd."  # actions whose arguments, and a key of them, hold markup
 PARKING = "Where do I park on Tuesday?"  # the demo agent: the front desk, an acknowledgement
 
 SCRIPT = "<script>window.pwned = 1</script>"
@@ -61,6 +63,8 @@ PARAGRAPH = " ".join(["The pharmacy reads each request in the order it came."] *
 # As long as a text may be, less than a paragraph: one paragraph to a line.
 LONG_TEXT = "\n".join([PARAGRAPH] * (MAX_OUTPUT_CHARS // (len(PARAGRAPH) + 1)))
 ALONE_TEXT = "Thank you. The pharmacy will reply within two business days."
+# An action with no schema takes any JSON object: a key of it is the agent's text too.
+HOSTILE_KEY = '<img src="y" onerror="window.pwned = 2">'
 
 
 def _answer(outputs: dict[str, str]) -> dict[str, Any]:
@@ -74,6 +78,16 @@ def _answer(outputs: dict[str, str]) -> dict[str, Any]:
 
 
 CASES = [
+    {
+        "match": "something odd",
+        "response": {
+            **_answer({"reply_draft": ALONE_TEXT}),
+            "actions": [
+                {"name": "look_up_medications", "arguments": {HOSTILE_KEY: SCRIPT}},
+                {"name": "send_reply", "arguments": {"message": MARKUP_TEXT}},
+            ],
+        },
+    },
     {"match": "markup", "response": _answer({"reply_draft": MARKUP_TEXT})},
     {"match": "longest text", "response": _answer({"reply_draft": LONG_TEXT})},
     {"match": "one text", "response": _answer({"reply_draft": ALONE_TEXT})},

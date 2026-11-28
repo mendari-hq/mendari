@@ -20,10 +20,12 @@ from playwright.sync_api import Page, Route, expect
 
 from tests.browser.held_site import (
     DEMO,
+    HOSTILE_KEY,
     IMAGE,
     LETTER,
     MARKUP,
     MARKUP_TEXT,
+    ODD,
     SCRIPT,
     UNKEPT,
     WRITER,
@@ -90,6 +92,42 @@ def test_the_record_shows_a_text_as_text_with_its_line_breaks_never_as_markup(
     assert SCRIPT in body.inner_text() and IMAGE in body.inner_text()
     assert body.locator("*").count() == 0  # characters only: no element came of it
     assert shown.locator(".texts-list img, .texts-list script").count() == 0
+    assert held_console.evaluate("window.pwned") is None
+
+
+def test_the_record_shows_what_an_action_would_say_as_text_never_as_markup(
+    held_console: Page, held_server: str
+) -> None:
+    """The record shows an action's arguments twice, under the action and as the note of its
+    event, and for an action the agent did not declare, the name it gave. Markup in any of them
+    is characters: no element is made and nothing runs. The undeclared name is put into the
+    record's answer on its way to the page (Playwright routing): a real one is only letters."""
+    decided = decide(held_server, WRITER, ODD)
+    hostile = '<img src="z" onerror="window.pwned = 3">'
+
+    def undeclared(route: Route) -> None:
+        found = route.fetch().json()
+        found["actions"][0].update(name=None, effect=None, proposed_name=hostile)
+        route.fulfill(json=found)
+
+    held_console.route(f"**/api/audit/{decided['id']}", undeclared)
+    open_agent(held_console, WRITER, "audit")
+    shown = drawer(held_console, decided["id"])
+    said = action_of(shown, "Send reply").locator("dl.facts dd")
+    assert said.evaluate("(el) => el.textContent") == MARKUP_TEXT
+    assert said.locator("*").count() == 0
+    named = shown.locator(".actions-list > li").first
+    expect(named).to_contain_text("An action the agent did not declare")
+    assert named.locator("code").evaluate("(el) => el.textContent") == hostile
+    assert named.locator("dl.facts dt").evaluate("(el) => el.textContent") == HOSTILE_KEY
+    assert named.locator("dl.facts dd").evaluate("(el) => el.textContent") == SCRIPT
+    # The same arguments as the note of each proposal's event, as JSON, still characters.
+    notes = shown.locator(".timeline > li", has_text="Action proposed").locator(".event-note")
+    kept = notes.filter(has_text="Arguments:")
+    expect(kept).to_have_count(2)
+    assert SCRIPT in kept.first.inner_text() and "onerror" in kept.first.inner_text()
+    assert "<script>" in kept.last.inner_text()
+    assert shown.locator("img, script").count() == 0
     assert held_console.evaluate("window.pwned") is None
 
 

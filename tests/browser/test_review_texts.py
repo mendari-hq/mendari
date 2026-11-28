@@ -33,12 +33,14 @@ from tests.browser.held_site import (
     ALONE,
     ALONE_TEXT,
     DEMO,
+    HOSTILE_KEY,
     IMAGE,
     LETTER,
     LONG,
     LONG_TEXT,
     MARKUP,
     MARKUP_TEXT,
+    ODD,
     PARKING,
     PLAIN,
     SCRIPT,
@@ -88,15 +90,14 @@ def reviews(page: Page, decision_id: str) -> list[dict[str, Any]]:
     return sent
 
 
-def leave(page: Page, decision_id: str) -> None:
-    """Leave the queue by the section list, which sends the review that waits for Undo, and
-    wait for the server's answer to it."""
-    audit = page.locator('.nav a[data-view="audit"]')
+def elapse(page: Page, decision_id: str) -> None:
+    """Let the five seconds of a review that waits for Undo pass, and wait for the server's
+    answer to it. The page's clock is the test's (`page.clock.install()`, before the queue is
+    opened): nothing else sends such a review, least of all leaving the page."""
     with page.expect_response(
         lambda r: r.request.method == "POST" and r.url.endswith(f"/api/review/{decision_id}")
     ):
-        audit.click()
-    expect(audit).to_have_class(re.compile("active"))
+        page.clock.run_for(5000)
 
 
 def reviewed(base: str, decision_id: str) -> dict[str, Any]:
@@ -136,6 +137,25 @@ def test_a_held_text_is_shown_as_text_with_its_line_breaks_never_as_markup(
     assert SCRIPT in body.inner_text() and IMAGE in body.inner_text()
     assert body.locator("*").count() == 0  # characters only: no element came of it
     assert held.locator("img, script").count() == 0
+    assert held_console.evaluate("window.pwned") is None
+
+
+def test_what_an_action_would_say_is_shown_as_text_never_as_markup(
+    held_console: Page, held_server: str
+) -> None:
+    """A reviewer reads an action's arguments before naming it, so they are on the card as
+    characters: a `<script>` and an `<img onerror>` in a free-text argument, or in a key of an
+    action that has no schema, make no element and run nothing."""
+    decided = decide(held_server, WRITER, ODD)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    said = action_of(held, "Send reply").locator("dl.facts dd")
+    assert said.evaluate("(el) => el.textContent") == MARKUP_TEXT
+    assert said.locator("*").count() == 0  # characters only
+    read = action_of(held, "Look up medications").locator("dl.facts")
+    assert read.locator("dt").evaluate("(el) => el.textContent") == HOSTILE_KEY
+    assert read.locator("dd").evaluate("(el) => el.textContent") == SCRIPT
+    assert held.locator(".actions-list").locator("img, script").count() == 0
     assert held_console.evaluate("window.pwned") is None
 
 
@@ -353,13 +373,14 @@ def test_an_action_asked_for_after_the_decision_is_released_by_its_tick_and_neve
     first = ask(held_server, WRITER, shown["id"], "assign_queue", queue="front_desk")
     assert (first["disposition"], first["reason"]) == ("held", "awaiting_review")
     sent, blind = reviews(held_console, shown["id"]), reviews(held_console, unseen["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, shown["id"])
     expect(release_box(held, "Assign queue")).to_be_checked()  # enumerated: ticked as any other
     expect(action_of(held, "Assign queue")).to_contain_text(ASKED)
     confirm(held, "Other").click()
     expect(held.locator(".undo-bar")).to_contain_text("Confirm Other and release 1 action in 5 s")
-    leave(held_console, shown["id"])
+    elapse(held_console, shown["id"])
     assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
         ([first["id"]], None)
     ]
@@ -385,6 +406,7 @@ def test_a_free_text_action_is_released_only_when_ticked(
     decided = decide(held_server, WRITER, LETTER)
     ids = held_ids(record(held_server, decided["id"]))
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     queue, reply = release_box(held, "Assign queue"), release_box(held, "Send reply")
@@ -409,7 +431,7 @@ def test_a_free_text_action_is_released_only_when_ticked(
     expect(held.locator(".undo-bar")).to_contain_text(
         "Confirm Refill and release 2 texts and 2 actions in 5 s"
     )
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
         ([ids["send_reply"]], None)
     ]
@@ -430,6 +452,7 @@ def test_withholding_a_text_unticks_every_action_and_only_a_named_one_is_release
     decided = decide(held_server, DEMO, PARKING)
     ids = held_ids(record(held_server, decided["id"]))
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, DEMO, "review")
     held = card(held_console, decided["id"])
     queue = release_box(held, "Assign queue")
@@ -453,7 +476,7 @@ def test_withholding_a_text_unticks_every_action_and_only_a_named_one_is_release
     expect(held.locator(".undo-bar")).to_contain_text(
         "Confirm Other and release 1 action, withhold 1 text in 5 s"
     )
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert sent == [
         {
             "final_label": "other",
@@ -481,6 +504,7 @@ def test_each_text_withheld_unticks_every_action_and_nothing_is_ticked_again_for
     decided = decide(held_server, WRITER, LETTER)
     ids = held_ids(record(held_server, decided["id"]))
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     queue, reply = release_box(held, "Assign queue"), release_box(held, "Send reply")
@@ -502,7 +526,7 @@ def test_each_text_withheld_unticks_every_action_and_nothing_is_ticked_again_for
     expect(action_of(held, "Assign queue").locator(".release-off")).to_have_text(OFF)
     confirm(held, "Refill").click()
     expect(held.locator(".undo-bar")).to_contain_text("Confirm Refill and release 2 texts in 5 s")
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
         (None, [ids["assign_queue"]])
     ]
@@ -520,6 +544,7 @@ def test_another_label_takes_each_verdict_and_releases_no_action(
     Undo, and names no action: each is denied, whatever is ticked."""
     decided = decide(held_server, WRITER, LETTER)
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     release_box(held, "Send reply").check()
@@ -530,7 +555,7 @@ def test_another_label_takes_each_verdict_and_releases_no_action(
     expect(held.locator(".undo-bar")).to_contain_text(
         "Override to Appointment and release 1 text, withhold 1 text in 5 s"
     )
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert sent == [
         {
             "final_label": "appointment",
@@ -556,6 +581,7 @@ def test_an_abstention_with_a_text_takes_its_verdict_with_the_label(
     decided = decide(held_server, WRITER, VAGUE)
     assert decided["outcome"] == "ABSTAIN"
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     expect(held.get_by_role("heading", name="No recommendation")).to_be_visible()
@@ -566,7 +592,7 @@ def test_an_abstention_with_a_text_takes_its_verdict_with_the_label(
     verdict(held, "reply_draft", RELEASE)
     other.click()
     expect(held.locator(".undo-bar")).to_contain_text("Label Other and release 1 text in 5 s")
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert sent == [
         {"final_label": "other", "reviewer": "sandbox-nurse", "texts": {"reply_draft": "release"}}
     ]
@@ -582,6 +608,7 @@ def test_an_agent_that_only_writes_is_reviewed_with_its_verdict_and_undo_still_c
     verdict is still there to change."""
     decided = decide(held_server, WRITTEN, "Could you refill my lisinopril?")
     sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITTEN, "review")
     held = card(held_console, decided["id"])
     expect(held.get_by_role("heading", name="Proposed actions")).to_have_count(0)
@@ -600,18 +627,21 @@ def test_an_agent_that_only_writes_is_reviewed_with_its_verdict_and_undo_still_c
     verdict(held, "reply_draft", WITHHOLD)  # changed their mind
     confirm(held, "Refill").click()
     expect(bar).to_contain_text("Confirm Refill and withhold 1 text in 5 s")
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert [s["texts"] for s in sent] == [{"reply_draft": "withhold"}]
     assert texts(record(held_server, decided["id"])) == [("reply_draft", "withheld")]
 
 
-def test_a_page_that_is_closed_sends_the_review_with_its_verdicts_and_ticks(
+def test_leaving_or_closing_the_page_sends_no_review_that_lets_anything_out(
     held_console: Page, held_server: str
 ) -> None:
-    """A review that waits for Undo is sent when its page goes away (here it is loaded anew),
-    as an override always was: with each verdict and tick as they stood when the label was
-    chosen."""
+    """A review that gives a verdict or releases an action cannot be taken back, so only its
+    five seconds passing sends it. Leaving the queue while it waits drops it and says so: the
+    decision still waits, with no verdict given. A page that goes away (closed, or gone to
+    another address) sends nothing either: whoever chose by mistake and left released nothing."""
     decided = decide(held_server, WRITER, LETTER)
+    sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     verdict(held, "chart_note", WITHHOLD)
@@ -621,14 +651,60 @@ def test_a_page_that_is_closed_sends_the_review_with_its_verdicts_and_ticks(
     expect(held.locator(".undo-bar")).to_contain_text(
         "Confirm Refill and release 1 text and 1 action, withhold 1 text in 5 s"
     )
-    show(held_console, "audit")  # another address: the page is loaded anew
-    found = reviewed(held_server, decided["id"])
-    assert texts(found) == [("chart_note", "withheld"), ("reply_draft", "released")]
-    assert acted(found) == [
+    # Leaving by the section list: dropped, and said.
+    audit = held_console.locator('.nav a[data-view="audit"]')
+    audit.click()
+    expect(audit).to_have_class(re.compile("active"))
+    said = "1 review not sent: you left before the 5 seconds were up. Its decision still waits"
+    expect(held_console.locator("#toast")).to_have_text(f"{said} in the queue.")
+    expect(held_console.locator("#toast")).to_have_class(re.compile("error"))
+    expect(held_console.locator("#announce-alert")).to_have_text(f"{said} in the queue.")
+    held_console.clock.run_for(10_000)  # long past its five seconds
+    assert sent == []
+    waiting = record(held_server, decided["id"])
+    assert waiting["review_status"] == "pending"
+    assert texts(waiting) == [("chart_note", "held"), ("reply_draft", "held")]
+    # Back in the queue its card is as any other: no verdict is given, nothing was sent.
+    show(held_console, "review")
+    held = card(held_console, decided["id"])
+    expect(held.get_by_role("radio", checked=True)).to_have_count(0)
+    expect(held.locator(".undo-bar")).to_have_count(0)
+    # The page itself goes away while a review waits, as when its tab is closed.
+    verdict(held, "chart_note", RELEASE)
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text("release 2 texts and 1 action in 5 s")
+    held_console.reload()  # the page goes, and comes back new
+    expect(card(held_console, decided["id"])).to_be_visible()
+    assert sent == []
+    waiting = record(held_server, decided["id"])
+    assert waiting["review_status"] == "pending"
+    assert acted(waiting) == [
         READ,
-        ("assign_queue", "released", "confirmed"),
-        ("send_reply", "denied", "not_named"),
+        ("assign_queue", "held", "awaiting_review"),
+        ("send_reply", "held", "awaiting_review"),
     ]
+
+
+def test_leaving_still_sends_a_held_label_that_lets_nothing_out(
+    held_console: Page, held_server: str
+) -> None:
+    """Another label than the recommendation, on a decision that holds no text: it denies
+    every held action and releases nothing, and leaving the queue sends it as it always did."""
+    decided = decide(held_server, WRITER, PLAIN)
+    ask(held_server, WRITER, decided["id"], "assign_queue", queue="front_desk")
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    held.get_by_role("button", name="Refill", exact=True).click()
+    expect(held.locator(".undo-bar")).to_contain_text("Override to Refill in 5 s")
+    audit = held_console.locator('.nav a[data-view="audit"]')
+    with held_console.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith(f"/api/review/{decided['id']}")
+    ):
+        audit.click()
+    assert sent == [{"final_label": "refill", "reviewer": "sandbox-nurse"}]
+    assert acted(record(held_server, decided["id"])) == [("assign_queue", "denied", "overridden")]
 
 
 # -- a text that is not on the screen: why, and the verdict is still owed -------------------------
@@ -642,6 +718,7 @@ def test_a_text_that_is_not_kept_says_why_and_still_takes_its_verdict(
     still wait for it, and the review resolves."""
     decided = decide(held_server, UNKEPT, LETTER)
     assert decided["outputs"]["reply_draft"]  # the caller has the draft: Mendari kept none
+    held_console.clock.install()
     open_agent(held_console, UNKEPT, "review")
     held = card(held_console, decided["id"])
     for name in ("chart_note", "reply_draft"):
@@ -657,7 +734,7 @@ def test_a_text_that_is_not_kept_says_why_and_still_takes_its_verdict(
     verdict(held, "reply_draft", WITHHOLD)
     expect(confirm(held, "Refill")).not_to_have_attribute("aria-disabled", "true")
     confirm(held, "Refill").click()
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     found = record(held_server, decided["id"])
     assert texts(found) == [("chart_note", "released"), ("reply_draft", "withheld")]
 
@@ -699,6 +776,7 @@ def test_a_text_that_cannot_be_shown_says_why_in_words(
 
     held_console.route("**/api/review?*", unshown)
     held_console.route("**/api/health", mode)
+    held_console.clock.install()
     open_agent(held_console, WRITER, "review")
     held = card(held_console, decided["id"])
     text = text_of(held, "reply_draft")
@@ -707,8 +785,46 @@ def test_a_text_that_cannot_be_shown_says_why_in_words(
     expect(held).not_to_contain_text(ALONE_TEXT)
     verdict(held, "reply_draft", RELEASE)
     confirm(held, "Refill").click()
-    leave(held_console, decided["id"])
+    elapse(held_console, decided["id"])
     assert texts(record(held_server, decided["id"])) == [("reply_draft", "released")]
+
+
+def test_a_text_named_as_a_built_in_still_waits_for_its_verdict(
+    held_console: Page, held_server: str
+) -> None:
+    """An output may be named `constructor`: a manifest's key is any lowercase word. Its card
+    waits for the verdict as for any text, and sends it. The queue's answer and the review are
+    renamed on their way (Playwright routing): no agent of this server has such an output."""
+    decided = decide(held_server, WRITER, ALONE)
+
+    def renamed(route: Route) -> None:
+        queue = route.fetch().json()
+        for item in queue:
+            for text in item.get("outputs", []):
+                text["name"] = "constructor"
+        route.fulfill(json=queue)
+
+    def sent_back(route: Route) -> None:
+        body = route.request.post_data_json
+        asked.append(body)
+        route.continue_(post_data={**body, "texts": {"reply_draft": body["texts"]["constructor"]}})
+
+    asked: list[dict[str, Any]] = []
+    held_console.route("**/api/review?*", renamed)
+    held_console.route(f"**/api/review/{decided['id']}", sent_back)
+    held_console.clock.install()
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(held.locator(".review-gate")).to_have_text(WAITS.format("1 text needs"))
+    expect(confirm(held, "Refill")).to_have_attribute("aria-disabled", "true")
+    confirm(held, "Refill").click(force=True)
+    expect(held.locator(".undo-bar")).to_have_count(0)  # nothing is sent without the verdict
+    verdict(held, "constructor", WITHHOLD)
+    expect(confirm(held, "Refill")).not_to_have_attribute("aria-disabled", "true")
+    confirm(held, "Refill").click()
+    elapse(held_console, decided["id"])
+    assert [body["texts"] for body in asked] == [{"constructor": "withhold"}]
+    assert texts(record(held_server, decided["id"])) == [("reply_draft", "withheld")]
 
 
 def test_a_reader_who_may_not_review_reads_the_text_and_gives_no_verdict(
