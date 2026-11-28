@@ -23,6 +23,7 @@ from mendari import AuditStore
 from mendari.core import actions
 from mendari.core.agent import load_agent
 from mendari.core.card import render_card
+from mendari.core.policy import FREE_TEXT_GATE, GATE_TEXT, Gate
 from mendari.server.app import create_app, declared_actions
 from mendari.server.auth import permission_for
 from mendari.server.limits import DailyCap, Limiter, limit_settings
@@ -174,13 +175,15 @@ def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestC
     ]
     by_name = {a["name"]: a for a in detail["actions"]}
     assert by_name["look_up_medications"]["released"] == "With any decision that is not blocked."
-    free_text = "Never without a person: its arguments can hold free text."
-    assert by_name["send_reply"]["released"] == by_name["file_note"]["released"] == free_text
+    assert by_name["send_reply"]["released"] == by_name["file_note"]["released"] == FREE_TEXT_GATE
     assert by_name["send_template"]["released"].startswith("Only with an automated decision")
     assert by_name["assign_queue"]["released"].startswith("Only with an automated decision")
-    confirmed = "Never without a person: when a reviewer confirms the decision."
-    assert by_name["renew_prescription"]["released"] == confirmed  # an order: its own words
-    assert by_name["queue_refill"]["released"] == confirmed  # tightened by the manifest: likewise
+    # An order with no schema, and a write the manifest tightens whose argument is a free
+    # string: each can hold free text, so a review releases it only by name, and its words say
+    # that too, never that a confirmation releases it.
+    assert by_name["renew_prescription"]["released"] == FREE_TEXT_GATE
+    assert by_name["queue_refill"]["released"] == FREE_TEXT_GATE
+    assert "names this action" in FREE_TEXT_GATE
     assert by_name["queue_refill"]["arguments"] == ["medication", "days_supply"]
     assert by_name["renew_prescription"]["arguments"] is None  # no schema: not checked
     assert "## Actions" in detail["card_markdown"]
@@ -198,9 +201,9 @@ def test_an_unvouched_agents_free_text_reads_and_drafts_are_shown_as_a_persons()
     and the write of enumerated arguments keep the gate `auto`."""
     agent = load_agent(MINI)
     unvouched = {a["name"]: a for a in declared_actions(agent, vouched=False)["actions"]}
-    free_text = "Never without a person: its arguments can hold free text."
     for name in ("look_up_medications", "draft_reply", "send_reply", "file_note"):
-        assert (unvouched[name]["gate"], unvouched[name]["released"]) == ("person", free_text), name
+        said = (unvouched[name]["gate"], unvouched[name]["released"])
+        assert said == ("person", FREE_TEXT_GATE), name
     for name in ("send_template", "assign_queue"):
         assert unvouched[name]["gate"] == "auto", name
         assert unvouched[name]["released"].startswith("Only with an automated decision")
@@ -589,21 +592,21 @@ def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() ->
     )
     # A contact and a write whose argument is a free string: the tightened gate, saying why
     # (ADR-0027). The same effects with enumerated arguments are released with AUTO.
-    free_text = "Never without a person: its arguments can hold free text."
-    assert f"| `contact` | {free_text} | checked: `message` |" in by_name["send_reply"]
-    assert f"| `write` | {free_text} | checked: `note` |" in by_name["file_note"]
+    assert f"| `contact` | {FREE_TEXT_GATE} | checked: `message` |" in by_name["send_reply"]
+    assert f"| `write` | {FREE_TEXT_GATE} | checked: `note` |" in by_name["file_note"]
     assert "`contact` | Only with an automated decision" in by_name["send_template"]
     assert "checked: `template`" in by_name["send_template"]
     assert "`write` | Only with an automated decision" in by_name["assign_queue"]
     # A draft can hold free text and is released with the decision: a person sees it first.
     assert "`draft` | With any decision that is not blocked." in by_name["draft_reply"]
-    assert (
-        "`write` | Never without a person: when a reviewer" in by_name["queue_refill"]
-    )  # tightened
+    # What the manifest tightened, and an order, can hold free text here too: released by name.
+    assert f"| `write` | {FREE_TEXT_GATE} |" in by_name["queue_refill"]
     assert "checked: `medication`, `days_supply`" in by_name["queue_refill"]
-    assert "`order` | Never without a person" in by_name["renew_prescription"]
+    assert f"| `order` | {FREE_TEXT_GATE} | not checked |" in by_name["renew_prescription"]
+    assert "when a reviewer confirms the decision. |" not in section
     # The bundled agent's card lists its two; an agent that declares none has no such section.
+    # Its contact takes one enumerated template: a confirmation releases it.
     demo = render_card(load_agent(DEMO_AGENT_DIR))
     assert "| `assign_queue` |" in demo and "| `send_acknowledgement` |" in demo
-    assert "`contact` | Never without a person" in demo
+    assert f"`contact` | {GATE_TEXT[Gate.PERSON]} | checked: `template` |" in demo
     assert "## Actions" not in render_card(load_agent(TRIAGE_DIR))

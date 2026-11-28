@@ -487,9 +487,9 @@ def _risk(agent: Agent, deployment: Deployment | None) -> dict[str, Any]:
 def _actions(agent: Agent) -> list[dict[str, Any]]:
     """The actions the agent declares (spec §13), each with its effect and how the runtime
     gates it (`policy.gate_of`, in `policy.gate_words`' words): the tightened gate of an action
-    whose arguments can hold free text, saying why. `tightened` says the agent's own files did
-    it (`allow_auto: false`); free text is the runtime's rule, and is not marked so. Empty: it
-    declares none."""
+    whose arguments can hold free text, saying why, and that a reviewer releases it only by
+    naming it. `tightened` says the agent's own files did it (`allow_auto: false`); free text
+    is the runtime's rule, and is not marked so. Empty: it declares none."""
     declared = []
     for name, spec in agent.manifest.actions.items():
         gated = {"allow_auto": spec.allow_auto, "free_text": spec.free_text}
@@ -2041,7 +2041,10 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
     out += (
         "<p>Decisions that go to a person wait in the review queue. A reviewer confirms the "
         "recommendation or chooses another answer, and that choice is recorded with the "
-        "decision.</p>"
+        "decision. The reviewer also says what becomes of each text the agent wrote for the "
+        "decision: released or withheld. Confirming the recommendation releases the actions "
+        "the decision holds, but two kinds only when the reviewer names the action: one whose "
+        "arguments can hold free text, and every one once a text is withheld.</p>"
     )
     if queue is not None:
         out += _facts(
@@ -2087,12 +2090,16 @@ def _html_written(outputs: Sequence[Mapping[str, Any]]) -> str:
             "nothing it writes is graded."
         )
     out += (
-        "<p>Besides answering, the agent writes these texts. A text is returned with the "
-        "decision and is not kept with it. Each is graded against a rubric in the agent's "
-        "files: clinicians grade a sample blind, a model judge grades every text in the same "
-        "words, and the judge's grades are reported for the texts no clinician graded only "
-        "where its agreement with clinicians clears the floors stated here. Otherwise they are "
-        "withheld. This packet shows no figure of a judge: a grading round's report does.</p>"
+        "<p>Besides answering, the agent writes these texts. A text the agent wrote is handed "
+        "only to a person. With a decision that waits for a reviewer it is that reviewer's "
+        "draft: it is kept for them where the decision's input is kept, and they release it or "
+        "withhold it. An automated or a blocked decision hands it to nobody and keeps none of "
+        "it.</p>"
+        "<p>Each text is graded against a rubric in the agent's files: clinicians grade a "
+        "sample blind, a model judge grades every text in the same words, and the judge's "
+        "grades are reported for the texts no clinician graded only where its agreement with "
+        "clinicians clears the floors stated here. Otherwise they are withheld. This packet "
+        "shows no figure of a judge: a grading round's report does.</p>"
     )
     rows = []
     for output in outputs:
@@ -2154,7 +2161,10 @@ def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
         "each one and runs none: whoever calls it runs an action only when it was released, "
         "and every proposal and its release or denial is in the audit trail. What an action "
         "needs before it is released is the runtime's rule for its effect, which the agent's "
-        "files can only tighten. An action that is not listed here is blocked.</p>"
+        "files can only tighten. An action that is not listed here is blocked. Arguments can "
+        "hold free text when they take a text that is not one of a list of values, or when "
+        "nothing checks them: an action that writes or contacts with such arguments is never "
+        "released without a person.</p>"
     )
     return out + _table(
         ["Action", "What it does, in the publisher's words", "Effect", "Released", "Arguments"],

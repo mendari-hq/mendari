@@ -312,10 +312,10 @@ _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
 
 def _written(agent: Agent) -> list[str]:
     """The card's Written outputs section (spec sections 15.1 to 15.6): each text the agent
-    writes, each rubric it is graded against (every criterion's instructions and every level's
-    anchor, as a clinician and the judge read them) and the floors a judge is held to. Text
-    only: the card shows no figure of a judge. Nothing for an agent that declares none, so its
-    card is what it always was."""
+    writes, whom a text is handed to (ADR-0027: a person only), each rubric it is graded against
+    (every criterion's instructions and every level's anchor, as a clinician and the judge read
+    them) and the floors a judge is held to. Text only: the card shows no figure of a judge.
+    Nothing for an agent that declares none, so its card is what it always was."""
     from mendari.evals import written
 
     manifest = agent.manifest
@@ -324,11 +324,17 @@ def _written(agent: Agent) -> list[str]:
     out = [
         "## Written outputs",
         "",
-        "What the agent writes besides its answers. A text is returned with the decision and "
-        "is not kept with it. Each is graded against a rubric: clinicians grade a sample "
-        "blind, a model judge grades every text in the same words, and the judge's grades are "
-        "reported for the texts no clinician graded only where its agreement with clinicians "
-        "clears the floors below. Otherwise they are withheld.",
+        "What the agent writes besides its answers. A text the agent wrote is handed only to "
+        "a person. With a decision that waits for a reviewer it is that reviewer's draft: it "
+        "is kept for them where the decision's input is kept, and they release it or withhold "
+        "it. An automated or a blocked decision hands it to nobody and keeps none of it. Once "
+        "a reviewer withholds a text, no action the decision holds is released unless the "
+        "reviewer names it.",
+        "",
+        "Each text is graded against a rubric: clinicians grade a sample blind, a model judge "
+        "grades every text in the same words, and the judge's grades are reported for the "
+        "texts no clinician graded only where its agreement with clinicians clears the floors "
+        "below. Otherwise they are withheld.",
         "",
     ]
     for name, output in manifest.outputs.items():
@@ -383,8 +389,9 @@ def _written(agent: Agent) -> list[str]:
 def _actions(agent: Agent) -> list[str]:
     """The card's Actions section (spec §13): each action the agent may propose, what it does,
     its effect and how the runtime gates it (`policy.gate_of`, in `policy.gate_words`' words:
-    the tightened gate of an action whose arguments can hold free text, saying why).
-    Nothing for an agent that declares none, so its card is what it always was."""
+    the tightened gate of an action whose arguments can hold free text, saying why, and that a
+    reviewer releases it only by naming it). Nothing for an agent that declares none, so its
+    card is what it always was."""
     declared = agent.manifest.actions
     if not declared:
         return []
@@ -396,7 +403,10 @@ def _actions(agent: Agent) -> list[str]:
         "proposal and its release or denial is in the audit trail. An action the agent "
         "proposes that is not listed here is blocked, and its decision goes to a person. "
         "Where the deployment has not vouched for the agent (one from a registry before its "
-        "organization approves its digest), nothing it proposes is released without a person.",
+        "organization approves its digest), nothing it proposes is released without a person. "
+        "Arguments can hold free text when they take a text that is not one of a list of "
+        "values, or when nothing checks them: an action that writes or contacts with such "
+        "arguments is never released without a person.",
         "",
         "| Action | Does | Effect | Released | Arguments |",
         "|---|---|---|---|---|",
