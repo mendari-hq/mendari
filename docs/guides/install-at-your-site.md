@@ -51,7 +51,7 @@ first time). Name a release's image by digest instead, so that what runs is exac
 published:
 
 ```bash
-./mendari-site install --image ghcr.io/mendari-hq/mendari-engine:v0.1.2@sha256:<digest>
+./mendari-site install --image ghcr.io/mendari-hq/mendari-engine:v0.2.0@sha256:<digest>
 ```
 
 For a trial on a private network without a certificate, add `--self-signed`. Browsers will warn
@@ -72,7 +72,7 @@ is left running. Correct what the line says and run it again.
 | Its client secret | Typed hidden, written to `.env` and nowhere else. |
 | The first administrator's sign-in address | Who may set everything else up. See [First sign-in](#first-sign-in). |
 | What your organization is called | Shown in the console and in invitations. |
-| Whether each case's input is kept, encrypted | **Yes**: inputs are sealed with a key made for this deployment, read only by reviewers and administrators, each read recorded, and deleted after 30 days. **No**: no input is ever stored, only a keyed fingerprint, and reviewers cannot read a case in the console. This is chosen once: installing again does not change it. |
+| Whether each case's input is kept, encrypted | **Yes**: inputs are sealed with a key made for this deployment, read only by reviewers and administrators, each read recorded, and deleted after 30 days. What an agent wrote for a decision that waits for review is kept the same way, for its reviewer. **No**: no input is ever stored, only a keyed fingerprint, and reviewers cannot read a case, or a text an agent wrote, in the console. This is chosen once: installing again does not change it. |
 
 Then one question you may leave for later, by pressing Enter:
 

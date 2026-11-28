@@ -39,7 +39,7 @@ from fastapi.responses import (
 )
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -65,9 +65,10 @@ from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.https_only import is_local_host
 from mendari.core.phi import phi_policy, require_protection
-from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
+from mendari.core.policy import GovernanceOverride, gate_of, gate_words
 from mendari.core.registry import SearchPath, discover, newest
 from mendari.core.site_codes import site_codes
+from mendari.core.spec import MAX_OUTPUTS
 from mendari.core.written import WrittenStore
 from mendari.errors import (
     AgentNotFoundError,
@@ -262,10 +263,51 @@ class ReviewRequest(BaseModel):
         default=[],
         max_length=actions.MAX_PROPOSED * 4,
         description="ids of this decision's held actions to refuse while confirming its "
-        "recommendation: each is denied (`reviewer_denied`), the others are released, and "
-        "`human_override` stays what the label makes it. An id that is no held action of this "
-        "decision refuses the review (409)",
+        "recommendation: each is denied (`reviewer_denied`), and `human_override` stays what "
+        "the label makes it. An id that is no held action of this decision refuses the review "
+        "(409)",
     )
+    texts: dict[str, Literal["release", "withhold"]] = Field(
+        default={},
+        max_length=MAX_OUTPUTS,
+        description="your verdict on each text the agent wrote that this decision holds for a "
+        "person (its `outputs` in the review queue), by the output's name: `release` (it may "
+        "be sent or filed as written) or `withhold` (it may not). Every held text needs one, "
+        "also where the text is not kept here and you read the draft where your own system "
+        "shows it; one left out, or a name the decision does not hold, refuses the review "
+        "(409). Leave it out for a decision that holds no text",
+        examples=[{"acknowledgement": "release"}],
+    )
+    release_actions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        default=[],
+        max_length=actions.MAX_PROPOSED * 4,
+        description="ids of this decision's held actions to release by name while confirming "
+        "its recommendation. Confirming the label releases a held action by itself only when "
+        "it came with the agent's answer, its arguments hold no free text and no text of the "
+        "decision is withheld. A held action whose arguments can hold free text (`free_text` "
+        "in the review queue), one a caller asked for after the decision was made (`source: "
+        "request` there: its reviewer may never have been shown it), and every held action "
+        "once a text is withheld, is released only when named here, and is denied otherwise "
+        "(`not_named`). An id that is no held action of this decision, or one also in "
+        "`deny_actions`, refuses the review (409)",
+    )
+
+    @field_validator("texts", mode="before")
+    @classmethod
+    def _verdicts_by_name(cls, value: Any) -> Any:
+        """Anything but a verdict by an output's name is refused whole, in fixed words. A
+        caller may send a text where a name or a verdict belongs, and the answer to what a
+        field's own type refuses says where in the body it is: for an object, the key sent."""
+        if (
+            not isinstance(value, dict)
+            or len(value) > MAX_OUTPUTS
+            or not all(isinstance(name, str) and actions.NAME.match(name) for name in value)
+            or not all(verdict in ("release", "withhold") for verdict in value.values())
+        ):
+            raise ValueError(
+                "texts gives each held text a verdict by its output's name: release or withhold"
+            )
+        return value
 
 
 class ActionRequest(BaseModel):
@@ -1625,13 +1667,16 @@ def create_app(
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`.
 
-        An agent whose manifest declares written outputs (spec §15) answers with `outputs` too:
-        what it wrote, by name. They are returned here and are not kept with the decision."""
+        A text is handed only to a person (ADR-0027). Where an agent whose manifest declares
+        written outputs (spec §15) wrote one, `written` says where each stands, by name: `held`
+        when the decision waits for a person, and then `outputs` carries the text as that
+        person's draft (the review queue keeps it for them); `not_released` with an automated
+        or a blocked decision, which returns none of what the agent wrote and keeps none."""
         decided = decision_for(f"{namespace}/{name}").decide(
             payload, shadow=_is_shadow(request, shadow)
         )
-        written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
-        return {**decided.to_dict(), **written, **NOTICE}
+        drafts = decided.drafts()
+        return {**decided.to_dict(), **({"outputs": drafts} if drafts else {}), **NOTICE}
 
     @app.post(
         "/api/agents/{namespace}/{name}/fhir/decide",
@@ -1683,16 +1728,21 @@ def create_app(
         only the status code. The gate is the one that judged the actions the agent proposed
         with its answer: an effect that reads or drafts is released with any decision that is
         not `BLOCK`; one that writes or contacts a patient only with an `AUTO` decision, or
-        once the decision's reviewer confirms it; an order never without a person. An action
-        the agent's manifest does not declare, or whose arguments do not match its schema, is
-        blocked.
+        once the decision's reviewer confirms it; an order never without a person, nor an
+        action that writes or contacts a patient with arguments that can hold free text
+        (anything but a menu of listed values: a string that is not enumerated, a number that
+        is neither listed nor an integer in a short range, a list, or no schema). An action
+        the agent's manifest does not
+        declare, or whose arguments do not match its schema, is blocked.
 
         **Asking again is safe.** The same action with the same arguments for the same
         decision answers how it stands now, with `repeated: true`, and records nothing new: so
         this is the check to make right before running a tool, and how a caller holding a held
         action learns that a reviewer released it. A new action is recorded in the audit trail
         (`action.proposed`) with who asked; the trail keeps the arguments' hash, never the
-        arguments, which are kept as the decision's input is.
+        arguments, which are kept as the decision's input is. One asked for while the decision
+        waits for review is held, and its review releases it only by naming it
+        (`release_actions`): the reviewer may have read the decision before you asked.
 
         A decision that is unknown, another organization's or another agent's is a `404`."""
         agent_id = f"{namespace}/{name}"
@@ -2168,7 +2218,13 @@ def create_app(
     def review_queue(
         request: Request, agent_id: AgentFilter = None, limit: int = 100
     ) -> list[dict[str, Any]]:
-        """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
+        """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first. One
+        that holds text the agent wrote has `outputs`: each text's `name`, its `state` (`held`)
+        and, for whoever may read inputs, its `text` (`text_status` says why there is none:
+        `sealed`, `erased`, or `not_kept` where the input is not kept). One with proposed
+        actions has `actions`, each as it stands, with `free_text` when its arguments can hold
+        free text and `source`: `answer` when it came with the agent's answer, `request` when
+        a caller asked for it afterwards. A review releases those two kinds only by name."""
         limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
         queue = store.pending_reviews(agent_id, limit=limit, reader=input_reader(request))
         logged_reads(request, queue)
@@ -2183,10 +2239,18 @@ def create_app(
         """Record a reviewer's final label for a decision in the queue: one of the labels of the
         decision's question. A note is kept apart from the audit chain; the answer repeats it.
 
+        A decision that holds text the agent wrote (its `outputs` in the queue) needs your
+        verdict on each, in `texts`: **`release` or `withhold`**. A review that leaves one out
+        is refused. The answer lists each under `outputs`, when there were any.
+
         The decision's held actions are resolved with it: **confirming the recommendation
         releases them, overriding it denies them**, and `deny_actions` refuses some of them
-        while confirming the label. The answer lists each under `actions`, when there were
-        any. A release is final."""
+        while confirming the label. **Free text is released by name**, and so is what a
+        reviewer may not have been shown: a held action whose arguments can hold free text
+        (`free_text` in the queue), one a caller asked for after the decision was made
+        (`source: request` in the queue), and every held action once a text is withheld, is
+        released only when `release_actions` names it, and is denied otherwise (`not_named`).
+        The answer lists each under `actions`, when there were any. A release is final."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
@@ -2194,6 +2258,8 @@ def create_app(
             note=request.note,
             labels=question_labels,
             deny_actions=request.deny_actions,
+            texts=request.texts,
+            release_actions=request.release_actions,
         )
 
     @app.get(
@@ -2428,7 +2494,9 @@ def create_app(
         """One decision with every event recorded on it. An event with a note has `note_status`
         (`open`, `sealed` or `erased`) and `note`, its text when open: notes are read as inputs
         are, so under PHI mode `encrypt` only by reviewers and admins, and each read is chained
-        (`input.read`).
+        (`input.read`). A decision that held text the agent wrote for a person has `outputs`:
+        each text's `name`, its `state` (`held`, then `released` or `withheld` once reviewed)
+        and its `text`, read as a note is.
 
         The record keeps no value of the input outside PHI mode `off`: under `hash` (or for a
         agent that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
@@ -4312,15 +4380,16 @@ def _digest(path: Path) -> str:
 
 def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
     """An agent's declared actions as its detail shows them (`actions`): each with its effect,
-    its gate (`policy.gate_of`, for an agent the organization does or does not vouch for) and
-    the gate in words, and the names of its arguments (None: not checked). Nothing for an agent
-    that declares none, so its detail is what it was."""
+    its gate (`policy.gate_of`, for an agent the organization does or does not vouch for, and
+    tightened where its arguments can hold free text) and the gate in words
+    (`policy.gate_words`), the names of its arguments (None: not checked) and whether they can
+    hold free text. Nothing for an agent that declares none, so its detail is what it was."""
     declared = agent.manifest.actions
     if not declared:
         return {}
     listed = []
     for name, spec in declared.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched)
+        gated = {"allow_auto": spec.allow_auto, "vouched": vouched, "free_text": spec.free_text}
         schema = spec.json_schema
         listed.append(
             {
@@ -4328,9 +4397,12 @@ def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
                 "description": spec.description,
                 "effect": spec.effect.value,
                 "allow_auto": spec.allow_auto,
-                "gate": gate.value,
-                "released": GATE_TEXT[gate],
+                "gate": gate_of(spec.effect, **gated).value,
+                "released": gate_words(spec.effect, **gated),
                 "arguments": None if schema is None else list(schema.get("properties") or {}),
+                # Whether they can hold free text (ADR-0027): anything but a menu, whatever
+                # the gate. A read's or a draft's too, which are released with the decision.
+                "free_text": spec.free_text,
             }
         )
     return {"actions": listed}

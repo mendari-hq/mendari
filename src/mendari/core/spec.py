@@ -15,6 +15,7 @@ effect needs before it is released is the runtime's (`core/policy.py`). Written 
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterator, Mapping
 from enum import IntEnum, StrEnum
@@ -42,6 +43,9 @@ MAX_ACTION_SCHEMA_DEPTH = 4  # objects inside objects
 MAX_ACTION_PROPERTIES = 32
 MAX_ACTION_ENUM = 100
 MAX_ACTION_ENUM_CHARS = 200
+# The most different arguments a schema may admit and still be a menu (ADR-0027,
+# `holds_free_text`): three full lists of options. Past it, enumerated pieces spell a text.
+MAX_ACTION_MENU = 1_000_000
 MAX_ACTIONS_CHARS = 32_000  # the declared actions as one request sends them, as JSON
 
 # Written output (spec sections 15.1 to 15.6): the texts an agent writes and the rubrics they
@@ -66,6 +70,8 @@ MUST_PASS_RECALL_FLOOR = 0.80
 MAX_JUDGE_ERRORS = 0.05
 
 
+# An id, a version and a key of the manifest, each held with `fullmatch`: `$` alone also
+# matches before a final line break, and a manifest is another party's file.
 _AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -195,12 +201,14 @@ def readable(key: str) -> str:
 
 def is_agent_id(text: object) -> TypeGuard[str]:
     """`namespace/name`, lowercase letters, digits and dashes (the manifest's `id`)."""
-    return isinstance(text, str) and bool(_AGENT_ID.match(text))
+    return isinstance(text, str) and bool(_AGENT_ID.fullmatch(text))
 
 
 def is_version(text: object) -> TypeGuard[str]:
     """A semantic version (the manifest's `version`) of at most `MAX_VERSION_CHARS`."""
-    return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
+    return (
+        isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.fullmatch(text))
+    )
 
 
 def version_key(version: str) -> tuple[tuple[int, str], ...]:
@@ -376,7 +384,7 @@ class Question(_Strict):
         if not 2 <= len(criteria) <= 255:
             raise ValueError("a question needs between 2 and 255 labels")
         for label, description in criteria.items():
-            if not _KEY.match(label):
+            if not _KEY.fullmatch(label):
                 raise ValueError(f"label {label!r} must match {_KEY.pattern}")
             if not description.strip():
                 raise ValueError(f"label {label!r} needs a non-empty criterion")
@@ -576,6 +584,91 @@ def _scalar(value: Any) -> bool:
     return value is None or isinstance(value, bool | int | float)
 
 
+def holds_free_text(schema: Mapping[str, Any] | None) -> bool:
+    """Whether the arguments `schema` allows can hold free text (ADR-0027): anything but a
+    menu, a fixed set of values the manifest lists (`_menu`). No schema at all is free text:
+    nothing checks the arguments. The closed keyword set (`ACTION_SCHEMA_KEYWORDS`) makes this
+    decidable from the manifest alone. `schema` is one `action_schema_problems` accepts."""
+    return schema is None or _menu(schema) is None
+
+
+def _menu(schema: Any) -> int | None:
+    """How many different arguments `schema` admits when they are a menu, else None. A menu:
+
+    - every string is limited to an `enum` or a `const`: no pattern or format narrows one, and
+      a length does not, since a dose fits in a few characters;
+    - every number is limited to an `enum` or a `const`, or is an integer between two bounds
+      that admit no more values than an `enum` may list (`MAX_ACTION_ENUM`): a list the
+      manifest could have written out. A number nothing lists can be any dose;
+    - there is no array: a list puts a text together out of its items, however each is limited;
+    - it admits at most `MAX_ACTION_MENU` arguments in all (each property's values multiplied
+      together, one that is not required counting once more for its absence): past that, the
+      properties spell a text a character at a time.
+
+    Walked with a stack, never by recursion: each schema after the one that holds it, so that
+    going back over them meets every property before its object."""
+    found: list[tuple[int | None, int, bool]] = []  # values it lists, its object, optional
+    stack: list[tuple[Any, int, bool]] = [(schema, -1, False)]
+    while stack:
+        node, parent, optional = stack.pop()
+        if not isinstance(node, Mapping):
+            return None  # not a schema this engine checks arguments by
+        listed = _listed(node)
+        if listed is None:
+            kind = node.get("type")
+            properties = node.get("properties", {})
+            if kind != "object" or not isinstance(properties, Mapping):
+                return None  # a string or a number nothing lists, a list, a type not known
+            if node.get("additionalProperties") is not False:
+                return None  # an object that takes properties nothing names
+            required = node.get("required")
+            required = required if isinstance(required, list) else []
+            stack.extend(
+                (child, len(found), key not in required) for key, child in properties.items()
+            )
+        found.append((listed, parent, optional))
+    # Every product is taken whole before any is held to the bound, so that the answer does
+    # not depend on the order of the properties (one that admits nothing makes the whole admit
+    # nothing). A schema is at most `MAX_ACTION_SCHEMA_CHARS` long: the numbers stay small.
+    admitted = [1 if listed is None else listed for listed, _, _ in found]
+    for index in range(len(found) - 1, 0, -1):
+        _, parent, optional = found[index]
+        admitted[parent] *= admitted[index] + optional
+    return admitted[0] if admitted[0] <= MAX_ACTION_MENU else None
+
+
+def _listed(node: Mapping[str, Any]) -> int | None:
+    """How many values one schema lists by itself, or None when it lists none: an `enum`'s, a
+    `const`'s one, a boolean's two, or the integers between a lower and an upper bound, when
+    they are no more than an `enum` may list. A longer range is a number nothing lists: one
+    of a million doses is not a choice from a list."""
+    if "const" in node:
+        return 1
+    if "enum" in node:
+        return len(node["enum"]) if isinstance(node["enum"], list) else None
+    kind = node.get("type")
+    if kind == "boolean":
+        return 2
+    if kind != "integer":
+        return None
+    bounds = {key: node[key] for key in _ACTION_BOUNDS if key in node}
+    if any(
+        isinstance(bound, bool) or not isinstance(bound, int | float) for bound in bounds.values()
+    ):
+        return None
+    try:
+        low = [math.ceil(bounds["minimum"])] if "minimum" in bounds else []
+        low += [math.floor(bounds["exclusiveMinimum"]) + 1] if "exclusiveMinimum" in bounds else []
+        high = [math.floor(bounds["maximum"])] if "maximum" in bounds else []
+        high += [math.ceil(bounds["exclusiveMaximum"]) - 1] if "exclusiveMaximum" in bounds else []
+    except (OverflowError, ValueError):  # a bound that is no finite number
+        return None
+    if not low or not high:
+        return None  # open at one end: any number
+    between = max(0, min(high) - max(low) + 1)
+    return between if between <= MAX_ACTION_ENUM else None
+
+
 def action_schema_problems(schema: Any) -> list[str]:
     """Why `schema` is not an arguments schema spec section 13.3 allows, or nothing: the
     closed keyword set, each keyword's own shape, and the bounds. Walked with a stack, never by
@@ -696,6 +789,12 @@ class ActionSpec(_Strict):
         if problems:
             raise ValueError("schema: " + "; ".join(problems))
         return value
+
+    @property
+    def free_text(self) -> bool:
+        """Whether its arguments can hold free text (`holds_free_text`, ADR-0027): then it is
+        never released without a person where its gate would be `auto` (`core/policy.py`)."""
+        return holds_free_text(self.json_schema)
 
     def request(self, name: str) -> dict[str, Any]:
         """The action as a request to the agent declares it (spec section 13.5)."""
@@ -1024,7 +1123,7 @@ def cross_reference_problems(m: AgentManifest) -> list[str]:
     """Consistency rules that a JSON-shape check cannot express."""
     problems: list[str] = []
     for key in m.questions:
-        if not _KEY.match(key):
+        if not _KEY.fullmatch(key):
             problems.append(f"question key {key!r} must match {_KEY.pattern}")
         elif key in BUILT_IN:
             # A template could not tell the question from the decision's own value: a card
@@ -1133,7 +1232,7 @@ def cross_reference_problems(m: AgentManifest) -> list[str]:
 
 def _named(kind: str, name: str) -> str | None:
     """Why `name` is no key of an output, a rubric or a criterion, or None."""
-    if _KEY.match(name) and len(name) <= MAX_ACTION_NAME_CHARS:
+    if _KEY.fullmatch(name) and len(name) <= MAX_ACTION_NAME_CHARS:
         return None
     return (
         f"{kind} {name[:40]!r} must match {_KEY.pattern}, at most {MAX_ACTION_NAME_CHARS} "
@@ -1207,7 +1306,7 @@ def action_problems(m: AgentManifest) -> list[str]:
         return []
     problems = []
     for name in m.actions:
-        if not _KEY.match(name) or len(name) > MAX_ACTION_NAME_CHARS:
+        if not _KEY.fullmatch(name) or len(name) > MAX_ACTION_NAME_CHARS:
             shown = name if len(name) <= MAX_ACTION_NAME_CHARS else name[:40] + "..."
             problems.append(
                 f"action name {shown!r} must match {_KEY.pattern}, at most "

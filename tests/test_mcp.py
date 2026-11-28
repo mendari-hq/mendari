@@ -24,6 +24,7 @@ from mendari.hub.client import agents_cache
 from mendari.mcp import PROTOCOL_VERSIONS, QUEUE_FIELDS, McpServer, serve
 from mendari.server import recalls
 from mendari.server.recalls import RecallWatch
+from tests.conftest import releasing
 from tests.support.registry import BILL, OUTSIDE_ID
 from tests.test_registry_engine import outside_sorter
 
@@ -319,8 +320,14 @@ def test_decide_then_authorize_is_the_same_gate_and_asking_again_records_nothing
     events = len(server.store.get(waiting["id"])["events"])  # type: ignore[index]
     authorize(waiting["id"], "send_acknowledgement", template="received")
     assert len(server.store.get(waiting["id"])["events"]) == events  # type: ignore[index]
-    # A reviewer confirms; asking again says it was released.
-    server.store.resolve_review(waiting["id"], final_label="other", reviewer="rn-1")
+    # A reviewer confirms, and releases the acknowledgement they read; asking again says the
+    # action was released.
+    server.store.resolve_review(
+        waiting["id"],
+        final_label="other",
+        reviewer="rn-1",
+        texts=releasing(server.store.get(waiting["id"])),
+    )
     released = authorize(waiting["id"], "send_acknowledgement", template="received")
     assert (released["disposition"], released["reason"]) == ("released", "confirmed")
     # Undeclared, and arguments its schema refuses: blocked, as tool results, never errors.
@@ -365,10 +372,20 @@ REGISTRY = "https://hub.example.org"
 def pulled_and_approved(base: Path, store: AuditStore) -> Agent:
     """An outside publisher's agent pulled from a registry, with an action that writes to a
     record, approved for its digest in the trail: what a running server automates once its
-    registry has been read and recalls nothing (`server/recalls.py`)."""
+    registry has been read and recalls nothing (`server/recalls.py`). The action takes one
+    flag and no text: a write whose arguments can hold free text, as one with no schema can, is
+    never released without a person (ADR-0027), and these tests are about one an AUTO decision
+    releases."""
 
     def writes(manifest: dict[str, Any]) -> None:
-        manifest["actions"] = {"file_bill": {"description": "File it.", "effect": "write"}}
+        takes = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"again": {"type": "boolean"}},
+        }
+        manifest["actions"] = {
+            "file_bill": {"description": "File it.", "effect": "write", "schema": takes}
+        }
 
     source = outside_sorter(base / "source", manifest=writes)
     target = agents_cache() / OUTSIDE_ID / source.version

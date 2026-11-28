@@ -4,9 +4,11 @@
 The fixture agent `tests/fixtures/mini-agents/actions-mini` declares one action of each effect,
 and its canned agent proposes them. Here each proposal is followed to its disposition, under
 every outcome; a proposal that cannot be released lowers the decision and never raises it; a
-response that is not of the contract's shape fails closed; an agent the deployment does not
-vouch for gets nothing released without a person; and an agent that declares no action
-decides as an answer alone, until its agent proposes one."""
+`write` or a `contact` whose arguments can hold free text is never released without a person
+(ADR-0027), and one of enumerated arguments still is, with an AUTO decision; a response that is
+not of the contract's shape fails closed; an agent the deployment does not vouch for gets
+nothing released without a person; and an agent that declares no action decides as an answer
+alone, until its agent proposes one."""
 
 from __future__ import annotations
 
@@ -32,6 +34,10 @@ from tests.conftest import DEMO_AGENT_DIR, ROOT, message
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 URL = "https://actions-agent.test/decide"
 SENTINELS = ("SENTINEL-ARGUMENT-TEXT", "delete_chart_sentinel", "SENTINEL-EXTRA-KEY")
+CONFIDENT = "confidence 0.95 >= auto threshold 0.90"
+# Why a `write` or a `contact` whose arguments can hold free text stops automation (ADR-0027).
+FREE_NOTE = "action 'file_note' can carry free text and is never released without a person"
+FREE_REPLY = "action 'send_reply' can carry free text and is never released without a person"
 Edit = Callable[[dict[str, Any]], None]
 
 
@@ -96,11 +102,13 @@ def answers(request: str = "refill", confidence: float = 0.95, **more: Any) -> d
 def test_an_automated_decision_releases_what_reads_drafts_writes_and_contacts(
     agent: Decision,
 ) -> None:
+    """The contact it releases takes an enumerated argument (`send_template`): one whose
+    argument is the message itself is never released without a person (ADR-0027, below)."""
     result = agent(message("Could you refill my lisinopril?"))
     assert (result.outcome, result.recommendation) == (Outcome.AUTO, "refill")
     assert shown(result) == [  # two proposals with the same name and arguments are one
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "released", "automated"),
+        ("send_template", "contact", "released", "automated"),
     ]
     assert result.reasons == ("confidence 0.95 >= auto threshold 0.90",)  # nothing stopped it
     first, second = result.actions or ()
@@ -140,6 +148,82 @@ def test_an_action_the_manifest_tightens_is_never_released_without_a_person(
 
 
 def test_a_decision_that_awaits_review_holds_what_writes_and_contacts(agent: Decision) -> None:
+    """A write and a contact of enumerated arguments, which an AUTO decision would release:
+    here they wait for the reviewer, and say nothing in the reasons."""
+    result = agent(message("Please reschedule my visit."))
+    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "appointment")
+    assert shown(result) == [
+        ("look_up_medications", "read", "released", "with_decision"),
+        ("assign_queue", "write", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
+    ]
+    # Nothing proposed here stops automation: the confidence alone sent it to a person.
+    assert result.reasons == ("confidence 0.70 is below the auto threshold 0.90 for 'appointment'",)
+
+
+def test_free_text_in_a_write_or_a_contact_is_never_released_without_a_person(
+    agent: Decision,
+) -> None:
+    """ADR-0027: a note for the chart and a reply to the patient, each a free string, proposed
+    with an answer confident enough to automate. Each turns AUTO into HUMAN_REVIEW and says
+    why, and everything proposed waits for the reviewer: the queue too, whose argument is
+    enumerated and which an AUTO decision would have released."""
+    result = agent(message("Please reply about my lisinopril."))
+    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
+    assert result.reasons == (
+        CONFIDENT,
+        f"{FREE_NOTE}; a person decides",
+        f"{FREE_REPLY}; a person decides",
+    )
+    assert shown(result) == [
+        ("assign_queue", "write", "held", "awaiting_review"),
+        ("file_note", "write", "held", "awaiting_review"),
+        ("send_reply", "contact", "held", "awaiting_review"),
+    ]
+    assert [a.free_text for a in result.actions or ()] == [False, True, True]
+    assert result.priority.value == "routine" and result.rule is None  # nothing else changed
+    inputs = result.policy_inputs
+    assert inputs is not None and inputs.actions == (FREE_NOTE, FREE_REPLY)
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments", "effect", "free_text"),
+    [
+        ("send_reply", {"message": "We received your request."}, "contact", True),
+        ("file_note", {"note": "Asked for a refill."}, "write", True),
+        ("send_template", {"template": "received"}, "contact", False),
+        ("assign_queue", {"queue": "refill"}, "write", False),
+    ],
+)
+def test_a_contact_or_a_write_automates_only_when_its_arguments_are_enumerated(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    arguments: dict[str, Any],
+    effect: str,
+    free_text: bool,
+) -> None:
+    """The same confident answer with one action proposed, four times. A `contact` or a `write`
+    that takes a free string goes to a person, with the reason, and is held; the same effect
+    with an argument from an `enum` still automates and is released."""
+    live(monkeypatch, lambda _: answers(actions=[{"name": name, "arguments": arguments}]))
+    result = Decision.from_path(MINI)(message("Could you refill my lisinopril?"))
+    assert result.recommendation == "refill"
+    if free_text:
+        stop = f"action {name!r} can carry free text and is never released without a person"
+        assert result.outcome is Outcome.HUMAN_REVIEW
+        assert result.reasons == (CONFIDENT, f"{stop}; a person decides")
+        assert shown(result) == [(name, effect, "held", "awaiting_review")]
+    else:
+        assert result.outcome is Outcome.AUTO and result.reasons == (CONFIDENT,)
+        assert shown(result) == [(name, effect, "released", "automated")]
+
+
+def test_a_decision_already_going_to_a_person_says_which_actions_can_carry_free_text(
+    agent: Decision,
+) -> None:
+    """The confidence sent this one to a person. It keeps its outcome and gets the same
+    reasons: the reviewer reads that the note and the reply are a person's whatever the
+    confidence had been. The read, which declares no schema, is released with the decision."""
     result = agent(message("I need to move my appointment."))
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "appointment")
     assert shown(result) == [
@@ -147,8 +231,11 @@ def test_a_decision_that_awaits_review_holds_what_writes_and_contacts(agent: Dec
         ("file_note", "write", "held", "awaiting_review"),
         ("send_reply", "contact", "held", "awaiting_review"),
     ]
-    # Nothing proposed here stops automation: the confidence alone sent it to a person.
-    assert result.reasons == ("confidence 0.70 is below the auto threshold 0.90 for 'appointment'",)
+    assert result.reasons == (
+        "confidence 0.70 is below the auto threshold 0.90 for 'appointment'",
+        f"{FREE_NOTE}; a person decides",
+        f"{FREE_REPLY}; a person decides",
+    )
 
 
 def test_an_abstention_blocks_side_effects_at_once_and_still_reads(agent: Decision) -> None:
@@ -228,6 +315,8 @@ def test_arguments_that_fail_their_schema_block_the_action_and_lower_the_decisio
     "body",
     [
         "Could you refill my lisinopril?",
+        "Please reply about my lisinopril.",
+        "I need to move my appointment.",
         "Please renew my prescription.",
         "Try an undeclared thing.",
         "Send malformed arguments.",
@@ -307,14 +396,14 @@ def test_a_well_formed_live_response_is_gated_as_a_canned_one_is(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     proposed = [
-        {"name": "file_note", "arguments": {"note": "Asked for a refill."}},
+        {"name": "assign_queue", "arguments": {"queue": "refill"}},
         {"name": "look_up_medications"},
     ]
     seen = live(monkeypatch, lambda _: answers(actions=proposed))
     result = Decision.from_path(MINI)(message("Could you refill my lisinopril?"))
     assert result.outcome is Outcome.AUTO
     assert shown(result) == [
-        ("file_note", "write", "released", "automated"),
+        ("assign_queue", "write", "released", "automated"),
         ("look_up_medications", "read", "released", "with_decision"),
     ]
     # The request carried the declared actions, in the manifest's order, each as declared.
@@ -370,9 +459,15 @@ def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_dige
     held = unapproved(body)
     assert held.outcome is Outcome.HUMAN_REVIEW
     assert {disposition for _, _, disposition, _ in shown(held)} == {"held"}
+    # Its draft is a free string: a person's for an agent nobody vouched for (ADR-0027), and
+    # the reasons say so. Its contact takes an enumerated argument and says nothing.
+    drafted = "action 'draft_reply' can carry free text and is never released without a person"
+    assert held.reasons[-1] == f"{drafted}; a person decides"
+    assert not any("send_template" in reason for reason in held.reasons)
     released = approved(body)
     assert released.outcome is Outcome.AUTO
     assert {disposition for _, _, disposition, _ in shown(released)} == {"released"}
+    assert released.reasons == (CONFIDENT,)  # vouched for: a draft is released with the decision
     # Recalled by its registry: held again, whatever the approval says.
     recalled = Decision(
         pulled, origin_approval=lambda agent: True, recall_source=lambda agent: "recalled"
@@ -397,11 +492,11 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     plain, governed = Decision(agent)(body), Decision(agent, governance=approval)(body)
     automated = [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "released", "automated"),
+        ("send_template", "contact", "released", "automated"),
     ]
     held = [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
     ]
     assert shown(plain) == (automated if level <= 1 else held)
     # A recorded approval that lets a level 2 or 3 agent automate releases its actions too;
@@ -425,12 +520,12 @@ def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert shown(result) == [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
     ]
     assert held.automation_stopped() == "automation is on hold: an operator's hold"
     shadow = agent.decide(message("Could you refill my lisinopril?"), shadow=True)
     assert shadow.outcome is Outcome.HUMAN_REVIEW
-    assert shown(shadow)[1] == ("send_reply", "contact", "held", "awaiting_review")
+    assert shown(shadow)[1] == ("send_template", "contact", "held", "awaiting_review")
 
 
 # -- an agent that declares no action ----------------------------------------------------------
@@ -515,4 +610,4 @@ def test_a_store_keys_the_arguments_hash_and_the_record_holds_no_actions() -> No
         assert first.arguments_hash == store.phi.arguments_hash(first.arguments)
         kept = store.get(result.id)
         assert kept is not None and "actions" not in kept["record"]
-        assert [a["name"] for a in kept["actions"]] == ["draft_reply", "send_reply"]
+        assert [a["name"] for a in kept["actions"]] == ["draft_reply", "send_template"]

@@ -1066,7 +1066,9 @@ probabilities, evidence and (score questions) value, outcome, recommendation, pr
 fallback, provider errors, latency, cost and token usage, and any governance override. Human
 review results and downstream outcomes are appended as events. Events form a SHA-256 hash chain
 that also commits to each decision record, so modification or deletion is detectable. Proposed
-actions add their own events (§13.9).
+actions add their own events (§13.9), and so does a text held for a reviewer (§15.8). A decision
+whose agent wrote a text also says in its record where each text stands (`written`, §15.8): a
+state, never the text.
 
 ## 13. Actions
 
@@ -1074,6 +1076,10 @@ An agent's answers say what it concluded. Its **actions** are what it asks to ha
 message sent, a note filed, an order placed. The runtime authorizes actions. It runs none: the
 caller runs an action, and only one that was released. The decision behind this section is
 [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
+[ADR-0027](../decisions/ADR-0027-no-free-text-is-released-unread.md) tightened it: an action
+whose arguments can hold free text needs a person (§13.3, §13.4), and a review releases it only
+by name (§13.8). It added no manifest key, so the spec version did not change: a manifest that
+was valid is valid, and what changed is what a runtime does with it.
 
 ### 13.1 The `actions` section
 
@@ -1133,6 +1139,28 @@ invalid, named by where it is and the keyword. Without a `schema`, the arguments
 object within §13.6's limits; an action whose effect is `write`, `contact` or `order` SHOULD
 have one.
 
+**Free text.** An action's arguments **can hold free text** unless they are a **menu**: a
+fixed set of values the manifest lists. They are a menu when all of these hold:
+
+- the action has a `schema`: without one nothing checks its arguments;
+- every string is limited to an `enum` or a `const`. Nothing else limits a string: a schema
+  has no `pattern` and no `format`, and a length does not count, since a dose fits in a few
+  characters. So an identifier that is not enumerated is free text;
+- every number is limited to an `enum` or a `const`, or is an `integer` between a lower and
+  an upper bound that admit at most 100 values, as many as an `enum` may list: a list the
+  manifest could have written out. A number nothing lists can be any dose, and one of a
+  million is not a choice from a list;
+- there is no array: a list puts a text together out of its items, however each is limited;
+- the schema admits at most 1,000,000 different arguments in all: the values of each property
+  multiplied together, a property that is not `required` counting once more for its absence.
+  Past that, the properties spell a text a character at a time.
+
+A runtime MUST decide this from the manifest alone, by these rules, wherever in the schema a
+string, a number or an array is. What an action whose arguments can hold free text needs before
+it is released is in §13.4, and how a review releases it in §13.8. An action meant to be
+released without a person takes a menu: every string and every number an `enum` or a `const`
+(or an integer in a range of at most a hundred), and no array.
+
 For example:
 
 ```yaml
@@ -1174,7 +1202,22 @@ actions:
   renew_prescription:
     description: Renew the prescription as it was last written.
     effect: order
+  assign_queue:
+    description: Put the message in the refill, scheduling or front-desk queue.
+    effect: write
+    schema:
+      type: object
+      additionalProperties: false
+      required: [queue]
+      properties:
+        queue: {type: string, enum: [refill, scheduling, front_desk]}
 ```
+
+Of these six, only `assign_queue` takes a menu: its one string is an `enum`. `draft_reply`,
+`send_reply` and `queue_refill` each take a string that is not enumerated, and
+`look_up_medications` and `renew_prescription` have no schema. In `queue_refill`,
+`days_supply` alone would be a menu of ninety values: an integer between two bounds, no more
+of them than a list may hold.
 
 ### 13.4 What an effect needs
 
@@ -1185,21 +1228,32 @@ action has a **gate**:
 | Gate | Effects | Released |
 |---|---|---|
 | `decision` | `read`, `draft` | with any decision that is not `BLOCK` |
-| `auto` | `write`, `contact` | with an `AUTO` decision; otherwise when the decision's reviewer confirms it |
-| `person` | `order` | never without a person: when the decision's reviewer confirms it |
+| `auto` | `write`, `contact`, with arguments that hold no free text | with an `AUTO` decision; otherwise by the decision's review (§13.8) |
+| `person` | `order`; `write`, `contact` with arguments that can hold free text (§13.3) | never without a person: by the decision's review (§13.8) |
+
+A gate only tightens, in four ways:
 
 - `allow_auto: false` gives an action the gate `person`, whatever its effect. No key loosens a
   gate: `allow_auto: true` is the default and changes nothing, on an `order` too.
 - For an agent the deployment has not vouched for (one from a registry before the organization
   approves its digest, or while its registry recalls it), `read` and `draft` take the gate
   `auto`: nothing it proposes is released without a person.
-- A runtime MUST NOT release an action a stricter reading of this section would not release. It
-  MAY be stricter.
+- **Arguments that can hold free text (§13.3) make the gate `auto` the gate `person`.** A
+  runtime MUST NOT release a `write` or a `contact` with such arguments without a person, nor a
+  `read` or a `draft` with them of an agent the deployment has not vouched for: an automated
+  decision would send words nobody read to a chart or to a patient. A `read` or a `draft` of an
+  agent the deployment vouches for keeps the gate `decision` (a read changes nothing, and a
+  person sees a draft before it takes effect), and an `order` had the gate `person` already.
+- A proposal that a second signal did not agree on has the gate `person`, whatever its effect
+  (§13.7).
+
+Nothing in a manifest, and nothing an agent proposes, loosens a gate. A runtime MUST NOT
+release an action a stricter reading of this section would not release. It MAY be stricter.
 
 Since a decision is `AUTO` only where the agent's risk level allows it (§7), so are `write` and
-`contact` released without a person only there: at levels 0 and 1; at levels 2 and 3 with the
-deploying organization's recorded approval, which covers the agent's actions as it covers its
-answers; at level 4 never.
+`contact` released without a person only there, and only with arguments that hold no free text:
+at levels 0 and 1; at levels 2 and 3 with the deploying organization's recorded approval, which
+covers the agent's actions as it covers its answers; at level 4 never.
 
 ### 13.5 The request
 
@@ -1270,10 +1324,20 @@ as the input hash is (§12): keyed where the deployment has an input hash key.
 **The actions' cap.** The policy (§6) applies, last, one more cap that only lowers `AUTO` to
 `HUMAN_REVIEW`: a proposed action that could not be released with an `AUTO` decision. That is
 an undeclared action, arguments that do not match their schema, or an action whose gate is
-`person`. The reasons say which, naming only declared actions, each followed by
-`; a person decides`. The recommendation and the priority do not change, a decision already
-going to a person keeps its outcome (and gets the reason), and a `BLOCK` stands and says nothing
-more. Then each proposal's disposition follows from the outcome:
+`person`: one the manifest tightens, an `order`, or one whose arguments can hold free text
+where its gate would be `auto` (§13.4). The reasons say which, naming only declared actions,
+each followed by `; a person decides`. An action never released without a person gets the
+first of these that applies:
+
+```text
+action 'queue_refill' is never released without a person (allow_auto: false); a person decides
+action 'renew_prescription' (order) is never released without a person; a person decides
+action 'send_reply' can carry free text and is never released without a person; a person decides
+```
+
+The recommendation and the priority do not change, a decision already going to a person keeps
+its outcome (and gets the reason), and a `BLOCK` stands and says nothing more. Then each
+proposal's disposition follows from the outcome:
 
 | The decision | gate `decision` | gate `auto` | gate `person` |
 |---|---|---|---|
@@ -1292,11 +1356,33 @@ blocks, and never released without a person.
 
 ### 13.8 Review, and asking again
 
-**Review.** When a reviewer resolves a decision, its held actions are resolved with it:
-`released` (`confirmed`) when the reviewer's label is the recommendation, `denied`
-(`overridden`) when it is another. A reviewer MAY deny any held action and still confirm the
-label (`reviewer_denied`): the reference server takes their ids as `deny_actions`, and the
-review is then no override. A resolved action does not change again: a release is final.
+**Review.** When a reviewer resolves a decision, its held actions are resolved with it, each
+once:
+
+- A label that is not the recommendation denies every held action (`denied`, `overridden`),
+  whatever else the review names.
+- A reviewer MAY refuse any held action and still confirm the label (`denied`,
+  `reviewer_denied`): the review is then no override.
+- Confirming the label releases the others (`released`, `confirmed`), **but free text only by
+  name, and what a reviewer may not have been shown.** A runtime MUST release a held action
+  only when the review names that action, where:
+    - its arguments can hold free text (§13.3);
+    - a caller asked for it after the decision was made ("Asking again", below): its reviewer
+      may have read the decision before then, so the label alone does not speak for it;
+    - or the review withholds one of the decision's texts (§15.8), which holds every held
+      action of that decision: a manifest does not say which action uses which text.
+
+  A held action the review had to name and did not is `denied` (`not_named`), and the review
+  is still no override.
+
+So a held action whose arguments are a menu, that came with the agent's answer, on a decision
+none of whose texts is withheld, is released when the reviewer confirms the label, unless the
+review refuses it. The reference server takes the ids to refuse as `deny_actions` and the ids
+to release by name as `release_actions`; an id that is no held action of the decision, or one
+in both lists, refuses the whole review (`409`) and nothing is recorded. Its review queue and a
+decision's record mark each action whose arguments can hold free text (`free_text: true`) and
+say how each was proposed (`source`: `answer` or `request`), so whatever shows a review knows
+which actions to name. A resolved action does not change again: a release is final.
 
 **Asking again.** A caller MAY ask, for a decision already recorded, whether one action with
 these arguments may run. The reference server exposes it as
@@ -1308,12 +1394,15 @@ these arguments may run. The reference server exposes it as
   asks again to learn that it was released, and a caller about to run a released action asks
   to check that these are the arguments that were released.
 - A new action is checked and gated as §13.7 says, by the decision as it stands: on an automated
-  decision a `person` action is blocked (`no_reviewer`: nobody is waiting), and an `auto`
-  action is blocked while the agent may not automate now (`not_automated`: a hold, an approval
-  no longer in force, a recall) or after an earlier proposal on that decision was refused
-  (`earlier_refusal`); on a decision already reviewed, `auto` and `person` actions are blocked
-  (`review_closed`); on a decision made by another version of the agent, everything is
-  (`agent_changed`).
+  decision a `person` action is blocked (`no_reviewer`: nobody is waiting), a `write` or a
+  `contact` whose arguments can hold free text among them, and an `auto` action is blocked
+  while the agent may not automate now (`not_automated`: a hold, an approval no longer in
+  force, a recall) or after an earlier proposal on that decision was refused
+  (`earlier_refusal`); on a decision that awaits review, an `auto` or a `person` action is
+  held with the rest (blocked where the decision has no recommendation), and the same review
+  resolves it, releasing it only by name; on a decision already reviewed, `auto` and
+  `person` actions are blocked (`review_closed`); on a decision made by another version of the
+  agent, everything is (`agent_changed`).
 - There is no authorization without a decision. An agent behind the contract proposes with its
   answer.
 
@@ -1322,14 +1411,20 @@ these arguments may run. The reference server exposes it as
 Each proposal is one event on its decision, `action.proposed`, chained after
 `decision.created` in the same transaction (or when a caller asks, §13.8): the action's id, its
 name and effect when the manifest declares it (else null), the disposition, the reason, the
-arguments' hash, whether it came with the answer or was asked for, and who asked. Each held
-action's resolution is one `action.resolved`: its id, name, effect, disposition, reason and the
-reviewer.
+arguments' hash, whether it came with the answer or was asked for, and who asked. A declared
+action's proposal also says whether its arguments can hold free text (§13.3), whatever its
+gate: `free_text`, `true` or `false`. A proposal of a declared action without the key was
+recorded before proposals said either way, and a runtime MUST read it, while its action is
+held, as one whose arguments can: nothing says they cannot. A review reads that key and how
+the action was proposed (`source`) to know which held actions it releases only by name
+(§13.8). Each held action's resolution is one `action.resolved`: its id,
+name, effect, disposition, reason and the reviewer.
 
 ```json
 {"action_id": "b2…", "name": "queue_refill", "effect": "write", "disposition": "held",
  "reason": "awaiting_review", "arguments_hash": "hmac-sha256:9f1c…:5b0e…",
- "source": "answer", "slot": "reader", "note_ref": {"id": "…", "sha256": "…"}, "org": "default"}
+ "source": "answer", "slot": "reader", "free_text": true,
+ "note_ref": {"id": "…", "sha256": "…"}, "org": "default"}
 ```
 
 ```json
@@ -1360,7 +1455,8 @@ Mendari to the agent (the request of §5.2, with §13.5's `actions`):
              {"name": "draft_reply", "description": "…", "effect": "draft", "schema": {"…": "…"}},
              {"name": "send_reply", "description": "…", "effect": "contact", "schema": {"…": "…"}},
              {"name": "queue_refill", "description": "…", "effect": "write", "schema": {"…": "…"}},
-             {"name": "renew_prescription", "description": "…", "effect": "order"}]}
+             {"name": "renew_prescription", "description": "…", "effect": "order"},
+             {"name": "assign_queue", "description": "…", "effect": "write", "schema": {"…": "…"}}]}
 ```
 
 The agent:
@@ -1387,8 +1483,15 @@ person decides:
     "arguments_hash": "sha256:…"}]}
 ```
 
-The caller shows the draft. A nurse confirms `refill`
-(`POST /api/review/7d0b… {"final_label": "refill", "reviewer": "rn-1"}`):
+The caller shows the draft. `queue_refill` takes a string that is not enumerated
+(`medication`), so confirming the label alone would deny it (`not_named`). A nurse reads what
+it would queue, confirms `refill` and names the action:
+
+```json
+{"final_label": "refill", "reviewer": "rn-1", "release_actions": ["b2…"]}
+```
+
+The answer of `POST /api/review/7d0b…`:
 
 ```json
 {"id": "7d0b…", "final_label": "refill", "human_override": false,
@@ -1655,7 +1758,9 @@ An agent's answers are labels. A **written output** is a text it writes: a draft
 summary, a note. Its **rubrics** say how clinicians and a model judge grade it, and an
 evaluation says when the judge's grades are believed. The decision behind this section is
 [ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md), and
-[the guide](../guides/written-output.md) walks through it.
+[the guide](../guides/written-output.md) walks through it. What a decision does with a text is
+[ADR-0027](../decisions/ADR-0027-no-free-text-is-released-unread.md)'s: it is handed only to a
+person (§15.8). That decision added no manifest key, so the spec version did not change.
 
 ### 15.1 Written outputs
 
@@ -1698,11 +1803,23 @@ The response MAY carry what it wrote, by name:
 - `outputs` is optional, and so is each output. A name the manifest does not declare for that
   slot, a value that is not text, or a text longer than its `max_chars` makes the response
   invalid: the slot fails closed, as for a malformed answer.
-- Control characters other than the newline and the tab become a space. A text that is then
+- Control characters other than the newline and the tab become a space, and so do the
+  characters that are not seen and change what is: every code point Unicode says is not shown
+  by default (its `Default_Ignorable_Code_Point` property: the soft hyphen, zero-width and
+  invisible characters, fillers, the bidirectional marks, embeddings, overrides and isolates,
+  the variation selectors, tag characters), the line and paragraph separators (U+2028,
+  U+2029), the interlinear annotation characters (U+FFF9 to U+FFFB) and the blank braille cell
+  (U+2800). A reviewer releases the text they read, and with one of these a screen shows one
+  thing while a channel that drops it says another, or the text carries words no eye sees.
+  Four of the first group stay, which a script or an emoji needs: the joiners (U+200C, U+200D)
+  and the selectors that say how an emoji is drawn (U+FE0E, U+FE0F). A text that is then
   blank is no output.
+- Half a character (a lone surrogate, as a service that cuts a text at a length counted in
+  UTF-16 units sends it) is read as U+FFFD, the replacement character, wherever it is in the
+  response: no UTF-8 text holds one. The same is done to a decision's input.
 - A slot with no declared output does not read the key at all.
-- A decision returns `outputs` to its caller. It does not store them: the audit record has the
-  shape §12 gives.
+- What a decision does with the texts a response carried is in §15.8: each is handed only to a
+  person, and none is ever part of a decision's record.
 
 ### 15.3 Rubrics
 
@@ -1838,3 +1955,101 @@ Publish a report; treat a ledger as the working record it is.
 
 A report holds counts, coefficients, case hashes and graders' ids. It MUST NOT hold a text, a
 context field or a case's id.
+
+### 15.8 A text is handed only to a person
+
+What an agent wrote (an output whose source is a `slot`) is free text nobody has read. A
+runtime MUST NOT hand it to anyone but a person who decides, and carrying one MUST NOT change
+the decision: a label, and an action whose arguments are a menu (§13.3), automate as they
+would without it. An output whose source is `input` is no part of this: the input already holds it.
+
+**Where a text stands.** A decision whose agent wrote a text has `written`, in its answer and
+in its record: a `state` for each output the agent wrote, by the output's name.
+
+```json
+"written": {"reply_draft": {"state": "held"}}
+```
+
+| `state` | The decision | The text |
+|---|---|---|
+| `held` | awaits a person: `HUMAN_REVIEW` or `ABSTAIN` | is that person's draft, kept for them as below |
+| `not_released` | is `AUTO` or `BLOCK` | is handed to nobody, and kept nowhere |
+
+A decision whose agent wrote nothing has no `written`. `written` never holds a text, and
+neither does a record, a reason, a log line or a chained event.
+
+**The draft.** An answer MAY carry a `held` text itself, as the draft of the person who
+decides, and MUST NOT carry a `not_released` one. The reference server's
+`POST /api/agents/{namespace}/{name}/decide`, and `mendari decide` without `--fhir`, carry it
+under `outputs`, by name:
+
+```json
+{"id": "7d0b…", "outcome": "HUMAN_REVIEW", "recommendation": "refill",
+ "written": {"reply_draft": {"state": "held"}},
+ "outputs": {"reply_draft": "Thank you for your message. ..."}}
+```
+
+Its FHIR routes give `written` and never a text, and its CDS Hooks cards, `$decide` and
+`mendari mcp` give neither. A caller MUST treat a `held` text as a draft: it is not released
+until the decision's review says so. For a `not_released` text a caller has nothing to send:
+what reaches a patient or a chart goes through an action a person releases (§13.8).
+
+**Keeping.** A runtime with an audit trail keeps each `held` text for the decision's reviewer
+as it keeps an action's arguments (§13.9): apart from the chain, as the note of one event on
+the decision, `output.held`. The events are chained after `decision.created` in the same
+transaction, one per text in the order of the outputs' names, before the proposals. An event
+holds the output's name and the note's commitment, never the text:
+
+```json
+{"output": "reply_draft", "note_ref": {"id": "…", "sha256": "…"}, "org": "default"}
+```
+
+A runtime MUST keep a held text only where it keeps the decision's input, and MUST NOT keep a
+`not_released` one, which adds no event. The reference runtime keeps a held text sealed under
+PHI mode `encrypt` and in the clear apart from the chain under `off`; under `hash`, and for an
+agent whose `audit.store_input` is `hash`, it keeps none, and `note_ref` is null. A kept text
+is read as inputs are (each read chained), erased with the decision's kept input, and removed
+by retention.
+
+**Review.** Whoever resolves the decision's review (§13.8) gives each held text a verdict:
+`release` (it may be sent or filed as written) or `withhold` (it may not). A review MUST give
+one for every held text and name no other; one that does not is refused whole, and nothing is
+recorded. That holds where the text was not kept, too: the reviewer read the draft where the
+caller showed it. A decision that holds no text takes no verdict. Each verdict is one event,
+`output.resolved`, chained after `review.resolved` and before the actions' resolutions:
+
+```json
+{"output": "reply_draft", "verdict": "released", "reviewer": "rn-1", "org": "default"}
+```
+
+`verdict` is `released` or `withheld`. A verdict does not depend on the label: a reviewer MAY
+release a text while correcting the label, or withhold one while confirming it. A withheld
+text also holds back the decision's actions: no held action is then released unless the review
+names it (§13.8).
+
+The reference server takes the verdicts as `texts`, by the output's name, and answers with each
+under `outputs`:
+
+```json
+{"final_label": "refill", "reviewer": "rn-1", "texts": {"reply_draft": "release"}}
+```
+
+```json
+{"id": "7d0b…", "final_label": "refill", "human_override": false,
+ "outputs": [{"name": "reply_draft", "verdict": "released"}]}
+```
+
+A review that leaves a held text out, or names an output the decision does not hold, is a
+`409`; a value that is neither verdict is a `422`. Its review queue and a decision's record
+list the held texts as `outputs`: each one's `name`, its `state` (`held`, then `released` or
+`withheld`, read from the chain) and its `text_status`: `open`, with the `text`, for whoever
+may read inputs (under PHI mode `off`, whoever may read the decision); `sealed` for anyone
+else; `erased`; `not_kept` where none was kept; and `missing` where its note is gone with no
+erasure chained, which `mendari audit verify --notes` reports. The record's own `written` is
+what the decision said when it was made, and does not change.
+
+**What this does not cover.** An answer's evidence (a rationale of at most 500 characters, and
+the names of the tools the agent called, §5.2) goes back with every decision. It is evidence
+for a reviewer, never a text for a patient or a chart, and a caller MUST NOT use it as one. An
+evaluation is not affected: it grades every text the agent wrote and hands none on (§15.7). No
+judge clears a text when a decision is made: a judge's grades are an evaluation's.

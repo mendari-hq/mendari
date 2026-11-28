@@ -1497,7 +1497,7 @@ def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
     first = out.split("\n== 1. ")[1].splitlines()[1]
     assert first.split()[0] == "AUTO"
     asked = out.split("\n== 2. ")[1].split("\n== 3. ")[0]
-    assert [line.split()[0] for line in asked.splitlines()[2:] if line.strip()] == [
+    assert [line.split()[0] for line in asked.splitlines()[2:6]] == [
         "released",
         "held",
         "released",
@@ -1533,13 +1533,22 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
     # What the agent asked to do with the messages above: each line a disposition, the action
     # with its effect, and why.
     asked = before.split("\n== 2. What the agent asks to do ")[1].split("\n== 3. ")[0]
-    assert [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()] == [
+    section = [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()]
+    assert section[:5] == [
         "Mendari authorizes each action and runs none: your caller runs what is released.",
         "released assign_queue (write) with the AUTO decision on message 1",
         "held send_acknowledgement (contact) message 3 waits for a reviewer",
         "released send_acknowledgement (contact) the reviewer confirmed it",
         "blocked an action the agent never declared asked for message 1",
     ]
+    # Then what became of what the agent wrote for those two messages (ADR-0027): the text of
+    # the automated one went to nobody, and the other's waited for its reviewer.
+    assert " ".join(section[5:]) == (
+        "What the agent wrote is handed only to a person. Message 1 automated, so the "
+        "acknowledgement it drafted there was returned to nobody and is kept nowhere; message "
+        "3's waited for the reviewer, who read it and released it."
+    )
+    assert max(map(len, asked.splitlines())) <= 100
     # The README and the guide show those four lines as the demo prints them.
     shown = [line for line in asked.splitlines() if line.split(" ")[0] in DISPOSITIONS]
     assert len(shown) == 4
@@ -1819,18 +1828,26 @@ def test_the_demo_agents_proposals_are_in_what_each_case_decided_from(
 def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> None:
     """Decided for real by the actions fixture: a plain refill automates exactly from its own
     confidence down, and the same answer with an order proposed never does, however low the
-    threshold. Applying the policy again is exact for both."""
+    threshold. Nor does an answer whose proposals can carry free text (ADR-0027), where the
+    same answer with enumerated proposals automates from its confidence down. Applying the
+    policy again is exact for each."""
     decision = Decision.from_path(ACTIONS_MINI, origin_cap=False)
     manifest = decision.agent.manifest
     plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
     order = decision({"message": {"body": "Please renew my prescription."}})
     undeclared = decision({"message": {"body": "Try an undeclared thing."}})
-    visit = decision({"message": {"body": "I need to move my appointment."}})
-    results = [plain, order, undeclared, visit]
-    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 3]
+    visit = decision({"message": {"body": "Please reschedule my visit."}})
+    noted = decision({"message": {"body": "I need to move my appointment."}})
+    results = [plain, order, undeclared, visit, noted]
+    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 4]
     assert plain.policy_inputs is not None and plain.policy_inputs.actions == ()
     assert order.policy_inputs is not None and order.policy_inputs.actions == (STOP,)
     assert visit.policy_inputs is not None and visit.policy_inputs.actions == ()  # held, no stop
+    # The same answer as `visit`, proposing a note and a reply that are free strings: two stops.
+    assert noted.policy_inputs is not None and noted.policy_inputs.actions == (
+        "action 'file_note' can carry free text and is never released without a person",
+        "action 'send_reply' can carry free text and is never released without a person",
+    )
     cases = [
         Case(r.recommendation, (), r.outcome.value, r.recommendation, r.policy_inputs)
         for r in results
@@ -1843,6 +1860,7 @@ def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> N
         assert outcomes[0] == ("AUTO" if threshold <= 0.95 else "HUMAN_REVIEW"), threshold
         assert outcomes[1:3] == ["HUMAN_REVIEW", "HUMAN_REVIEW"], threshold  # the stops hold
         assert outcomes[3] == ("AUTO" if threshold <= 0.70 else "HUMAN_REVIEW"), threshold
+        assert outcomes[4] == "HUMAN_REVIEW", threshold  # free text: a person's at any threshold
     # The same answers without the stop would automate: it is the stop that holds them.
     without = Case(
         "refill", (), "AUTO", "refill", PolicyInputs(order.policy_inputs.answers, {}, None, {})

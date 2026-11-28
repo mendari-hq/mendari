@@ -251,6 +251,31 @@ class Agent:
                 },
             }
         }
+        # Where each text the agent wrote stands (spec §15.8), and the texts themselves, which
+        # an answer carries only with a decision that waits for a person: only for an agent
+        # that declares outputs, so every other agent's schema is as it was.
+        texts = {
+            "written": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    name: {
+                        "type": "object",
+                        "required": ["state"],
+                        "properties": {"state": {"enum": ["held", "not_released"]}},
+                    }
+                    for name in m.outputs
+                },
+            },
+            "outputs": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    name: {"type": "string", "maxLength": output.max_chars}
+                    for name, output in m.outputs.items()
+                },
+            },
+        }
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": f"https://mendari.co/agents/{m.id}/{m.version}/output.schema.json",
@@ -267,6 +292,7 @@ class Agent:
                 "reasons": {"type": "array", "items": {"type": "string"}},
                 "fallback": {"type": ["string", "null"]},
                 **(proposed if m.actions else {}),
+                **(texts if m.outputs else {}),
             },
         }
 

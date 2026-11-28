@@ -248,10 +248,15 @@ def test_the_command_reports_the_demo_agent_with_its_own_grades(
 
 def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Agent) -> None:
     """Text only, from the manifest: each output, each criterion with its instructions and its
-    levels' anchors, and the floors. No figure of a judge is on either."""
+    levels' anchors, and the floors. No figure of a judge is on either. Both say whom a text is
+    handed to (ADR-0027): a person only, and never that it is returned with every decision."""
     card = render_card(demo)
     section = card.split("## Written outputs")[1].split("## Decision policy")[0]
     assert "### `acknowledgement`" in section and "Rubric `acknowledgement_quality`" in section
+    handed = "A text the agent wrote is handed only to a person."
+    nobody = "An automated or a blocked decision hands it to nobody and keeps none of it."
+    assert handed in section and nobody in section
+    assert "returned with the decision" not in card and "not kept with it" not in card
     assert "It is written by the agent behind slot `reader`, at most 600 characters." in section
     rubric = demo.manifest.rubrics[RUBRIC]
     for key, criterion in rubric.criteria.items():
@@ -289,3 +294,7 @@ def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Age
     page = packet.render_html(alone)
     assert "<h3>What the agent writes</h3>" in page and "acknowledgement_quality" in page
     assert "This packet shows no figure of a judge" in page
+    assert handed in page and nobody in page
+    assert "returned with the decision" not in page and "not kept with it" not in page
+    # What a review does with a held text and a held action, in the packet's own words.
+    assert "every one once a text is withheld" in page

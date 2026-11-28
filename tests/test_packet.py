@@ -31,6 +31,7 @@ from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import packet
 from mendari.core.agent import Agent
+from mendari.core.policy import FREE_TEXT_GATE, GATE_TEXT, Gate
 from mendari.server.app import create_app
 from mendari.server.scopes import DECIDE
 from tests.conftest import (
@@ -40,6 +41,7 @@ from tests.conftest import (
     encrypt_mode,
     encrypted_store,
     member,
+    releasing,
 )
 from tests.support.confidence_agents import calibration_file, live_member, scaffold, variant
 
@@ -61,6 +63,8 @@ SECTIONS = [
 ]
 # Text no agent, manifest or framework holds: if it is in a packet, a case leaked into it.
 SENTINEL = "zebraquartz7731"
+# The actions fixture: it declares actions whose arguments can hold free text (ADR-0027).
+ACTIONS_MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 REFILL = {"message": {"body": "Please send a refill of my metformin to the pharmacy."}}
 URGENT = {"message": {"body": "I have chest pain and trouble breathing since last night."}}
 FRONT_DESK = {"message": {"body": "Where do I park when I come in?"}}
@@ -257,7 +261,12 @@ def test_no_case_text_and_no_reviewers_name_reaches_the_packet(open_client: Test
     assert SENTINEL in json.dumps(kept)  # the deployment does hold it
     reviewed = open_client.post(
         f"/api/review/{held['id']}",
-        json={"final_label": "other", "reviewer": f"rn-{SENTINEL}", "note": f"called {SENTINEL}"},
+        json={
+            "final_label": "other",
+            "reviewer": f"rn-{SENTINEL}",
+            "note": f"called {SENTINEL}",
+            "texts": releasing(kept),  # the acknowledgement the agent wrote waits too
+        },
     )
     assert reviewed.status_code == 200 and reviewed.json()["human_override"] is True
     automated = decide(open_client, {"message": {"body": f"Please refill my inhaler {SENTINEL}"}})
@@ -1054,14 +1063,60 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
         "What the agent may ask to have done",
         "This software authorizes each one and runs none",
         "Never without a person: when a reviewer confirms the decision. tightened by the agent",
-        "checked: queue",
-        "checked: template",
+        "checked: queue; listed values only",
+        "checked: template; listed values only",
         "Whether the agent's confidence was checked",
         "reader / agent: not calibrated. Its confidence is the agent's own report",
         "Not stated: no part of this agent is asked a case more than once, and none is checked "
         "by a second model.",
     ):
         assert words in said, words
+
+
+def test_the_packet_shows_the_tightened_gate_of_an_action_that_can_hold_free_text() -> None:
+    """ADR-0027, for a committee: a contact or a write whose arguments can hold free text is
+    never released without a person, though the agent's own files did not tighten it, and the
+    page says why, and that a reviewer has to name it. The actions fixture declares both kinds,
+    and the same effects with enumerated arguments, which keep the gate of their effect."""
+    alone = packet.build_alone(load_agent(ACTIONS_MINI))
+    assert packet.problems(alone) == []
+    by_name = {a["name"]: a for a in section(alone, "oversight")["actions"]}
+    for name in ("send_reply", "file_note"):
+        assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("person", False), name
+        assert by_name[name]["released"] == FREE_TEXT_GATE
+    for name in ("send_template", "assign_queue"):
+        assert (by_name[name]["gate"], by_name[name]["tightened"]) == ("auto", False), name
+    # A read and a draft can hold free text and are released with the decision. What the agent
+    # tightened itself, and an order, can hold free text here too (a free string, no schema):
+    # a review releases each by name, and the page never says a confirmation does.
+    assert by_name["look_up_medications"]["gate"] == by_name["draft_reply"]["gate"] == "decision"
+    assert (by_name["queue_refill"]["released"], by_name["queue_refill"]["tightened"]) == (
+        FREE_TEXT_GATE,
+        True,
+    )
+    assert by_name["renew_prescription"]["released"] == FREE_TEXT_GATE
+    said = reads(packet.render_html(alone))
+    assert said.count(FREE_TEXT_GATE) == 4
+    assert GATE_TEXT[Gate.PERSON] not in said
+    # The runtime's rule, not the agent's own tightening: the label is on `queue_refill` alone.
+    assert said.count("tightened by the agent") == 1
+    assert f"{FREE_TEXT_GATE} tightened by the agent" in said
+    # Each action says whether its arguments can hold free text, whatever its gate: the draft
+    # and the read too, which are released with the decision.
+    assert {name: action["free_text"] for name, action in by_name.items()} == {
+        "look_up_medications": True,
+        "draft_reply": True,
+        "send_reply": True,
+        "queue_refill": True,
+        "file_note": True,
+        "renew_prescription": True,
+        "send_template": False,
+        "assign_queue": False,
+    }
+    assert "checked: message; can hold free text" in said
+    assert "not checked: can hold free text" in said
+    assert said.count("listed values only") == 2
+    assert "unless every value they take is one the agent's files list" in said
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:

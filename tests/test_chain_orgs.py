@@ -38,6 +38,11 @@ URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits fo
 # action held (`action.proposed`), which its review resolves (`action.resolved`).
 PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 HELD = "Please renew my prescription."
+# An agent that writes (spec §15): under an automation hold its decision waits for a reviewer
+# with its reply kept (`output.held`), and its review gives the reply a verdict
+# (`output.resolved`).
+WRITING = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
+WRITTEN = "Could you refill my lisinopril?"
 TRIAGE = "mendari-test/triage"  # the agent these tests decide with (`triage_agent`)
 CLINIC = "clinic-a"
 
@@ -105,6 +110,11 @@ def every_writer(store: AuditStore, agent: Agent, org: str | None) -> dict[str, 
         held = proposing(message(HELD)).id  # `action.proposed`, with the answer
         proposing.authorize_action(held, "file_note", {"note": "asked"})  # and when asked
         store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
+        writing = Decision.from_path(WRITING, store=store, hold_source=lambda _: "a drill")
+        written = writing(message(WRITTEN)).id  # `output.held`, with the answer
+        store.resolve_review(  # `output.resolved`
+            written, final_label="refill", reviewer="rn-1", texts={"reply_draft": "release"}
+        )
         first = Decision(agent, store=store)(message(URGENT)).id
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")

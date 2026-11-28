@@ -43,6 +43,7 @@ from mendari.core.policy import (
 from mendari.core.registry import origin_of, resolve_agent
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
 from mendari.core.spec import AgentManifest, Outcome, Priority
+from mendari.core.text import well_formed
 from mendari.errors import (
     AgentNotFoundError,
     AgentValidationError,
@@ -142,9 +143,10 @@ class DecisionResult:
     # agent changed since its confidence was calibrated, a second signal disagreed), with what
     # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
     signals: Signals = field(default_factory=Signals, compare=False, repr=False)
-    # What the agent wrote with its answers (spec section 15.2), by the output's name. In
-    # memory only, like `rejected`: not in `to_dict` or `to_record`, so the audit record keeps
-    # its shape and no stored record holds a written text. The caller's answer carries it.
+    # What the agent wrote with its answers (spec section 15.2), by the output's name: every
+    # text, in memory only, like `rejected`. It is in neither `to_dict` nor `to_record`, so no
+    # stored record holds a written text. An evaluation grades these; nothing else hands them
+    # on: an answer carries `drafts()`, and says where each text stands (`written`).
     outputs: Mapping[str, str] = field(default_factory=dict, compare=False, repr=False)
 
     @property
@@ -157,6 +159,21 @@ class DecisionResult:
     def confidence(self) -> float | None:
         answer = self.answers.get(self.primary)
         return answer.confidence if answer else None
+
+    @property
+    def written(self) -> dict[str, dict[str, str]]:
+        """Where each text the agent wrote stands (ADR-0027), by the output's name: `held` when
+        the decision awaits a person, who is handed it as a draft (`drafts`); `not_released`
+        otherwise: an automated or a blocked decision hands what its agent wrote to nobody.
+        Empty for a decision whose agent wrote nothing. Never a text."""
+        state = "held" if self.outcome in _REVIEWED else "not_released"
+        return {name: {"state": state} for name in sorted(self.outputs)}
+
+    def drafts(self) -> dict[str, str]:
+        """The texts an answer may carry (ADR-0027): what the agent wrote, when the decision
+        awaits a person; none otherwise. A text is handed only to a person: with an automated
+        decision nobody would read it before it was used, and a blocked one is not to be used."""
+        return dict(self.outputs) if self.outcome in _REVIEWED else {}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,6 +209,9 @@ class DecisionResult:
                 if self.actions is not None
                 else {}
             ),
+            # Where each text stands, only for a decision whose agent wrote one: every other
+            # record keeps the shape it had. The texts themselves are in neither.
+            **({"written": self.written} if self.outputs else {}),
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -449,6 +469,7 @@ class Decision:
                         allow_auto=spec.allow_auto,
                         vouched=vouched,
                         agreed=not item.proposed.disputed,
+                        free_text=spec.free_text,
                     ),
                     outcome=policy.outcome,
                     recommendation=policy.recommendation,
@@ -467,6 +488,7 @@ class Decision:
                     source="answer",
                     slot=item.proposed.slot,
                     problems=item.problems,
+                    free_text=spec is not None and spec.free_text,
                 )
             )
         return tuple(acted)
@@ -511,21 +533,28 @@ class Decision:
             if spec is None:
                 return Asked(None, None, "blocked", "undeclared")
             if checked.refusal is not None:
-                return Asked(name, spec.effect.value, "blocked", checked.refusal)
+                return Asked(
+                    name, spec.effect.value, "blocked", checked.refusal, free_text=spec.free_text
+                )
             refused_before = any(
                 event.get("event") == actions.PROPOSED
                 and event["payload"].get("reason") in actions.REFUSALS
                 for event in events
             )
             found = disposition(
-                gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched),
+                gate_of(
+                    spec.effect,
+                    allow_auto=spec.allow_auto,
+                    vouched=vouched,
+                    free_text=spec.free_text,
+                ),
                 outcome=Outcome(row["outcome"]),
                 recommendation=row["recommendation"],
                 review=_review_of(row),
                 automating=automating,
                 refused_before=refused_before,
             )
-            return Asked(name, spec.effect.value, found[0], found[1])
+            return Asked(name, spec.effect.value, found[0], found[1], free_text=spec.free_text)
 
         keep = manifest.audit.store_input == "full"
         return self.store.propose_action(
@@ -687,6 +716,7 @@ class Decision:
         rule's BLOCK, become HUMAN_REVIEW, the limitation a reason whatever the outcome (an
         ABSTAIN over unread data says it too, and a refused input's BLOCK, without "a person
         decides")."""
+        inputs = well_formed(inputs)  # half a character is read as U+FFFD, wherever it is kept
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -959,6 +989,8 @@ class Decision:
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
+        resources = well_formed(resources)  # as `decide` reads its input
+        focus = well_formed(focus)
         adapter = FhirAdapter.for_agent(self.agent)
         failed = dict(unreadable or {})
         hooks = self.agent.manifest.cds_hooks

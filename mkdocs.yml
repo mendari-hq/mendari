@@ -115,5 +115,6 @@ nav:
       - "ADR-0024: A checked confidence, and a second signal that only lowers automation": decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md
       - "ADR-0025: A judge of written output is trusted by its measured agreement": decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md
       - "ADR-0026: The first release is the one baseline, and it governs agents only": decisions/ADR-0026-one-release-baseline-agents-only.md
+      - "ADR-0027: No free text is released unread": decisions/ADR-0027-no-free-text-is-released-unread.md
   - Project:
       - Roadmap: roadmap.md

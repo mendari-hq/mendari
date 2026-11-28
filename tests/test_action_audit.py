@@ -5,8 +5,8 @@ The chain records every proposal and its resolution: ids, the declared name, the
 disposition, a reason code and a hash of the arguments. It never holds the arguments, nor a name
 the manifest does not declare: both are the agent's text and are kept apart, as a decision's
 input is. Recognizable text is seeded in both and searched for in every table, under each PHI
-mode. A review releases or denies the held actions, and a caller may ask again. SQLite and
-Postgres."""
+mode. A review releases or denies the held actions, one whose arguments can hold free text only
+by name (ADR-0027), and a caller may ask again. SQLite and Postgres."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from tests.conftest import INPUT_HASH_KEY, PHI_KEY, ROOT, TRIAGE_DIR, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
+REPLY = "Please reply about my lisinopril."  # HUMAN_REVIEW: a free-text note and reply, held
 ORDER = "Please renew my prescription."  # HUMAN_REVIEW: a read released, an order held
 QUEUE = "Put it in the queue, please."  # HUMAN_REVIEW: a write the manifest tightens, held
 VISIT = "I need to move my appointment."  # HUMAN_REVIEW: a write and a contact held
@@ -116,8 +117,12 @@ def test_each_proposal_is_chained_after_its_decision_in_order(store: AuditStore)
         ("file_note", "write", "held", "awaiting_review"),
         ("send_reply", "contact", "held", "awaiting_review"),
     ]
+    # An action whose arguments can hold free text says so in the chain (ADR-0027), and a
+    # review names it to release it: all three here (one declares no schema, two take a
+    # string). An action of enumerated arguments chains no such key.
+    assert [p.get("free_text") for p in proposed] == [True, True, True]
     for payload, action in zip(proposed, result.actions or (), strict=True):
-        assert set(payload) == {
+        assert set(payload) - {"free_text"} == {
             "action_id", "name", "effect", "disposition", "reason", "arguments_hash",
             "source", "slot", "note_ref", "org",
         }  # fmt: skip
@@ -193,8 +198,11 @@ def test_no_argument_and_no_undeclared_name_is_in_the_chain_or_a_record(
             payload = event["payload"]
             assert set(payload) <= {
                 "action_id", "name", "effect", "disposition", "reason", "arguments_hash",
-                "source", "slot", "note_ref", "org", "requested_by", "reviewer",
+                "source", "slot", "note_ref", "org", "requested_by", "reviewer", "free_text",
             }, event  # fmt: skip
+            assert isinstance(payload.get("free_text", False), bool), event  # never a text
+            if event["event"] == "action.proposed":  # a declared action says which it is
+                assert ("free_text" in payload) is (payload["name"] is not None), event
             if event["event"] == "action.proposed":
                 assert (payload["note_ref"] is not None) is kept, event
                 keyed = payload["arguments_hash"].startswith("hmac-sha256:")
@@ -312,11 +320,20 @@ def test_retention_removes_the_arguments_with_the_inputs(store: AuditStore) -> N
 # -- review: held actions are released or denied ------------------------------------------------
 
 
-def test_confirming_the_recommendation_releases_each_held_action(store: AuditStore) -> None:
+def test_confirming_the_recommendation_releases_each_held_action_it_names(
+    store: AuditStore,
+) -> None:
+    """Both held actions take a string, so each is released by name (ADR-0027)."""
     result = agent(store)(message(VISIT))
     held = held_of(store, result.id)
     assert [a["name"] for a in held] == ["file_note", "send_reply"]
-    answer = store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    assert [a["free_text"] for a in held] == [True, True]
+    answer = store.resolve_review(
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held],
+    )
     assert answer["human_override"] is False
     assert answer["actions"] == [
         {"id": a["id"], "name": a["name"], "effect": a["effect"], "disposition": "released",
@@ -349,6 +366,33 @@ def test_confirming_the_recommendation_releases_each_held_action(store: AuditSto
     assert held_of(store, result.id) == [] and store.verify()["ok"]
 
 
+def test_confirming_the_label_alone_releases_no_action_that_can_hold_free_text(
+    store: AuditStore,
+) -> None:
+    """A confirmation that names no action denies each held one whose arguments can hold free
+    text (`not_named`): nobody said they read what it would send or file. It is no override,
+    and an action named is released beside one left out."""
+    result = agent(store)(message(VISIT))
+    note, reply = held_of(store, result.id)
+    answer = store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    assert answer["human_override"] is False
+    assert [(a["id"], a["disposition"], a["reason"]) for a in answer["actions"]] == [
+        (note["id"], "denied", "not_named"),
+        (reply["id"], "denied", "not_named"),
+    ]
+    assert store.stats()["human_override_rate"] == 0.0
+    other = agent(store)(message(VISIT))
+    note, reply = held_of(store, other.id)
+    one = store.resolve_review(
+        other.id, final_label="appointment", reviewer="rn-1", release_actions=[note["id"]]
+    )
+    assert [(a["id"], a["disposition"], a["reason"]) for a in one["actions"]] == [
+        (note["id"], "released", "confirmed"),
+        (reply["id"], "denied", "not_named"),
+    ]
+    assert store.verify()["ok"]
+
+
 def test_overriding_the_recommendation_denies_each_held_action(store: AuditStore) -> None:
     result = agent(store)(message(VISIT))
     answer = store.resolve_review(result.id, final_label="refill", reviewer="rn-1")
@@ -375,7 +419,11 @@ def test_a_reviewer_denies_one_action_without_recording_a_false_override(
     result = agent(store)(message(VISIT))
     note, reply = held_of(store, result.id)
     answer = store.resolve_review(
-        result.id, final_label="appointment", reviewer="rn-1", deny_actions=[reply["id"]]
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        deny_actions=[reply["id"]],
+        release_actions=[note["id"]],
     )
     assert answer["human_override"] is False  # the label was confirmed: monitoring counts that
     assert [(a["id"], a["disposition"], a["reason"]) for a in answer["actions"]] == [
@@ -437,10 +485,13 @@ def ask(decision: Decision, decision_id: str, name: str, **arguments: Any) -> tu
 def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None:
     decision = agent(store)
     automated = decision(message(REFILL)).id
-    # An automated decision: what writes or contacts is released, an order has nobody to wait
-    # for, and what reads is released as always.
+    # An automated decision: what writes or contacts with enumerated arguments is released, an
+    # order has nobody to wait for, and what reads is released as always.
     assert ask(decision, automated, "look_up_medications") == ("released", "with_decision")
-    assert ask(decision, automated, "file_note", note="asked") == ("released", "automated")
+    assert ask(decision, automated, "assign_queue", queue="refill") == ("released", "automated")
+    # A write or a contact that can hold free text is a person's (ADR-0027): as an order.
+    assert ask(decision, automated, "file_note", note="asked") == ("blocked", "no_reviewer")
+    assert ask(decision, automated, "send_reply", message="asked") == ("blocked", "no_reviewer")
     assert ask(decision, automated, "renew_prescription") == ("blocked", "no_reviewer")
     assert ask(decision, automated, "queue_refill", medication="x") == ("blocked", "no_reviewer")
     # A decision that awaits review: held, and released when its reviewer confirms it.
@@ -448,7 +499,13 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     assert ask(decision, pending, "look_up_medications") == ("released", "with_decision")
     assert ask(decision, pending, "queue_refill", medication="x") == ("held", "awaiting_review")
     assert ask(decision, pending, "renew_prescription") == ("held", "awaiting_review")
-    store.resolve_review(pending, final_label="appointment", reviewer="rn-1")
+    held = held_of(store, pending)  # each takes free text or no schema: released by name
+    store.resolve_review(
+        pending,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held],
+    )
     assert ask(decision, pending, "renew_prescription") == ("released", "confirmed")  # as it stands
     # After the review a new action is not released: the reviewer never saw it.
     assert ask(decision, pending, "file_note", note="later") == ("blocked", "review_closed")
@@ -462,6 +519,67 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     assert ask(decision, abstained, "draft_reply", message="x") == ("released", "with_decision")
     blocked = decision(message(ABUSIVE)).id
     assert ask(decision, blocked, "look_up_medications", why="x") == ("blocked", "decision_blocked")
+    assert store.verify()["ok"] and store.verify(notes=True)["ok"]
+
+
+def test_free_text_asked_for_after_an_automated_decision_is_not_released(
+    store: AuditStore,
+) -> None:
+    """ADR-0027, the second way in. An automated decision has no reviewer, so a `write` or a
+    `contact` whose arguments can hold free text has nobody to wait for: it is `blocked`,
+    `no_reviewer`, as an order is (rule 6 of `policy.disposition`), and chained saying it can
+    hold free text. It is no refusal of the proposal: what an AUTO decision releases is
+    released after it as before."""
+    decision = agent(store)
+    result = decision(message(REFILL))
+    assert result.outcome.value == "AUTO"
+    for name, arguments in (
+        ("send_reply", {"message": "Sent later."}),
+        ("file_note", {"note": "Filed later."}),
+    ):
+        found = decision.authorize_action(result.id, name, arguments)
+        assert (found["disposition"], found["reason"]) == ("blocked", "no_reviewer")
+        assert (found["name"], found["repeated"]) == (name, False)
+        payload = chained(store)[-1]["payload"]
+        assert (payload["name"], payload["disposition"], payload["reason"]) == (
+            name,
+            "blocked",
+            "no_reviewer",
+        )
+        assert payload["free_text"] is True and payload["source"] == "request"
+        again = decision.authorize_action(result.id, name, arguments)  # as it stands
+        assert (again["disposition"], again["reason"], again["repeated"]) == (
+            "blocked",
+            "no_reviewer",
+            True,
+        )
+    # The same effects with enumerated arguments are released, and chain that they hold none.
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
+    assert chained(store)[-1]["payload"]["free_text"] is False
+    assert ask(decision, result.id, "send_template", template="refill_queued") == (
+        "released",
+        "automated",
+    )
+    # A draft can hold free text and waits for nobody: a person sees it before it takes effect.
+    assert ask(decision, result.id, "draft_reply", message="A draft.") == (
+        "released",
+        "with_decision",
+    )
+    # What the answer proposed says which it is too: its enumerated arguments hold none.
+    proposed = [e["payload"] for e in of(store, result.id, "action.proposed")][:2]
+    assert [(p["name"], p.get("free_text")) for p in proposed] == [
+        ("draft_reply", True),
+        ("send_template", False),
+    ]
+    # On a decision that awaits review, free text waits for the reviewer.
+    pending = decision(message(REPLY))
+    assert pending.outcome.value == "HUMAN_REVIEW"
+    assert [a["name"] for a in held_of(store, pending.id)] == [
+        "assign_queue",
+        "file_note",
+        "send_reply",
+    ]
+    assert ask(decision, pending.id, "send_reply", message="Later.") == ("held", "awaiting_review")
     assert store.verify()["ok"] and store.verify(notes=True)["ok"]
 
 
@@ -491,9 +609,14 @@ def test_asking_again_answers_how_it_stands_and_chains_nothing_new(store: AuditS
     assert len(chained(store)) == len(before) + 1
     asked = chained(store)[-1]["payload"]
     assert (asked["source"], asked["slot"], asked["name"]) == ("request", None, "send_reply")
-    # The reviewer confirms: the caller that asks again learns the action was released, and a
-    # caller about to run it checks that these are the arguments that were.
-    store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    # The reviewer confirms and names them: the caller that asks again learns the action was
+    # released, and a caller about to run it checks that these are the arguments that were.
+    store.resolve_review(
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held_of(store, result.id)],
+    )
     for arguments in (dict(proposed.arguments), {"message": "Another."}):
         released = decision.authorize_action(result.id, "send_reply", arguments)
         assert (released["disposition"], released["reason"], released["repeated"]) == (
@@ -520,14 +643,17 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
 ) -> None:
     decision = agent(store)
     result = decision(message(REFILL))  # AUTO
-    assert ask(decision, result.id, "file_note", note="first") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
     assert ask(decision, result.id, "send_reply", message=5) == ("blocked", "invalid_arguments")
     refused = chained(store)[-1]["payload"]
     assert (refused["name"], refused["effect"]) == ("send_reply", "contact")  # declared: named
     # An agent that asked for what it may not is not trusted to automate more on this decision.
-    assert ask(decision, result.id, "file_note", note="second") == ("blocked", "earlier_refusal")
+    assert ask(decision, result.id, "assign_queue", queue="scheduling") == (
+        "blocked",
+        "earlier_refusal",
+    )
     assert ask(decision, result.id, "look_up_medications") == ("released", "with_decision")
-    assert ask(decision, result.id, "file_note", note="first") == (
+    assert ask(decision, result.id, "assign_queue", queue="refill") == (
         "released",
         "automated",
     )  # stands
@@ -546,19 +672,22 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
     repeated = decision.authorize_action(other.id, "wipe_the_chart", {"why": "SENTINEL-ASKED"})
     assert repeated["repeated"] is True and repeated["id"] == unknown["id"]
     assert len(chained(store)) == count
-    assert ask(decision, other.id, "file_note", note="x") == ("blocked", "earlier_refusal")
+    assert ask(decision, other.id, "assign_queue", queue="refill") == ("blocked", "earlier_refusal")
 
 
 def test_a_hold_set_after_an_automated_decision_stops_new_releases(store: AuditStore) -> None:
     holds: list[str] = []
     decision = agent(store, hold_source=lambda agent: holds[0] if holds else None)
     result = decision(message(REFILL))
-    assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
     holds.append("an operator's hold")
-    assert ask(decision, result.id, "file_note", note="after") == ("blocked", "not_automated")
+    assert ask(decision, result.id, "assign_queue", queue="scheduling") == (
+        "blocked",
+        "not_automated",
+    )
     assert ask(decision, result.id, "look_up_medications") == ("released", "with_decision")
     # A release is final: what was released before the hold still reads as released.
-    assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
 
 
 def test_a_decision_of_another_version_of_the_agent_gets_nothing(
@@ -626,7 +755,10 @@ def test_the_fhir_export_names_both_kinds_and_holds_no_argument(store: AuditStor
     result = decision(message(UNDECLARED))
     with tenancy.acting_for(None, "key service-1"):
         decision.authorize_action(result.id, "send_reply", {"message": "SENTINEL-ASKED-TEXT"})
-    store.resolve_review(result.id, final_label="refill", reviewer="rn-1")
+    (asked_for,) = held_of(store, result.id)
+    store.resolve_review(
+        result.id, final_label="refill", reviewer="rn-1", release_actions=[asked_for["id"]]
+    )
     item = store.get(result.id)
     assert item is not None
     exported = list(audit_fhir.resources(audit_fhir.joined(item)))
@@ -672,7 +804,8 @@ def test_two_identical_questions_chain_one_event_whatever_the_disposition(
 ) -> None:
     decision = agent(store)
     for body, name, arguments in (
-        (REFILL, "file_note", {"note": "x"}),  # released
+        (REFILL, "assign_queue", {"queue": "refill"}),  # released
+        (REFILL, "file_note", {"note": "x"}),  # blocked: free text, and nobody to wait for
         (VISIT, "file_note", {"note": "y"}),  # held
         (UNCLEAR, "file_note", {"note": "z"}),  # blocked
         (REFILL, "send_reply", {"message": 5}),  # refused, declared

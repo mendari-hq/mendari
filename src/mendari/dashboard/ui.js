@@ -9,6 +9,28 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+// Characters that are not seen and change what is (the engine's `providers/agent.py` `_UNSEEN`,
+// the same set: `tests/test_dashboard_unseen.py`): control characters but the newline and the
+// tab, every code point Unicode says is not shown by default but the joiners and the two emoji
+// selectors, the line separators and the braille blank. With one, a screen shows one
+// thing while a channel that drops it, or a screen reader, says another: `Take` + U+202E + `01`
+// is drawn "Take 10". The engine takes them out of what an agent writes. An action's arguments
+// are kept as the agent sent them, and a reviewer reads them here before naming the action.
+const UNSEEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b\u200e\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0d\ufeff\uffa0\ufff0-\ufffb\u{1bca0}-\u{1bca3}\u{1d173}-\u{1d17a}\u{e0000}-\u{e0fff}]/gu;
+
+// A text as markup that shows every character of it: escaped, and a character that is not
+// seen as its code point, named, so that it is read and never left to do its work.
+export function legible(value) {
+  const text = String(value ?? "");
+  let [out, last] = ["", 0];
+  for (const found of text.matchAll(UNSEEN)) {
+    const code = `U+${found[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
+    out += `${esc(text.slice(last, found.index))}<code class="unseen" title="A character that is not shown: ${code}">${code}</code>`;
+    last = found.index + found[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
 // A decision's whole id (a UUID, as each is made): what its record is read by
 // (`GET /api/audit/{id}`), so the audit search and the palette open a record by it, never by a part.
 export const WHOLE_DECISION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

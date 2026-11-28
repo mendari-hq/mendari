@@ -118,7 +118,7 @@ tests: tests/cases.yaml
 #   assign_queue:
 #     description: Put the message in the refill, scheduling or front-desk queue.
 #     effect: write  # released with an AUTO decision; otherwise when a reviewer confirms it
-#     schema:
+#     schema:  # enumerated: with a free string, it is never released without a person
 #       type: object
 #       additionalProperties: false
 #       required: [queue]

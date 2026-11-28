@@ -11,7 +11,7 @@ from typing import Any, Literal
 from mendari import notices
 from mendari.core import clock
 from mendari.core.agent import Agent
-from mendari.core.policy import GATE_TEXT, gate_of
+from mendari.core.policy import gate_words
 from mendari.core.spec import AgentManifest, Condition, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
@@ -312,10 +312,10 @@ _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
 
 def _written(agent: Agent) -> list[str]:
     """The card's Written outputs section (spec sections 15.1 to 15.6): each text the agent
-    writes, each rubric it is graded against (every criterion's instructions and every level's
-    anchor, as a clinician and the judge read them) and the floors a judge is held to. Text
-    only: the card shows no figure of a judge. Nothing for an agent that declares none, so its
-    card is what it always was."""
+    writes, whom a text is handed to (ADR-0027: a person only), each rubric it is graded against
+    (every criterion's instructions and every level's anchor, as a clinician and the judge read
+    them) and the floors a judge is held to. Text only: the card shows no figure of a judge.
+    Nothing for an agent that declares none, so its card is what it always was."""
     from mendari.evals import written
 
     manifest = agent.manifest
@@ -324,11 +324,17 @@ def _written(agent: Agent) -> list[str]:
     out = [
         "## Written outputs",
         "",
-        "What the agent writes besides its answers. A text is returned with the decision and "
-        "is not kept with it. Each is graded against a rubric: clinicians grade a sample "
-        "blind, a model judge grades every text in the same words, and the judge's grades are "
-        "reported for the texts no clinician graded only where its agreement with clinicians "
-        "clears the floors below. Otherwise they are withheld.",
+        "What the agent writes besides its answers. A text the agent wrote is handed only to "
+        "a person. With a decision that waits for a reviewer it is that reviewer's draft: it "
+        "is kept for them where the decision's input is kept, and they release it or withhold "
+        "it. An automated or a blocked decision hands it to nobody and keeps none of it. Once "
+        "a reviewer withholds a text, no action the decision holds is released unless the "
+        "reviewer names it.",
+        "",
+        "Each text is graded against a rubric: clinicians grade a sample blind, a model judge "
+        "grades every text in the same words, and the judge's grades are reported for the "
+        "texts no clinician graded only where its agreement with clinicians clears the floors "
+        "below. Otherwise they are withheld.",
         "",
     ]
     for name, output in manifest.outputs.items():
@@ -382,8 +388,11 @@ def _written(agent: Agent) -> list[str]:
 
 def _actions(agent: Agent) -> list[str]:
     """The card's Actions section (spec §13): each action the agent may propose, what it does,
-    its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
-    Nothing for an agent that declares none, so its card is what it always was."""
+    its effect and how the runtime gates it (`policy.gate_of`, in `policy.gate_words`' words:
+    the tightened gate of an action whose arguments can hold free text, saying why, and that a
+    reviewer releases it only by naming it), and whether its arguments can hold free text,
+    whatever its gate. Nothing for an agent that declares none, so its card is what it always
+    was."""
     declared = agent.manifest.actions
     if not declared:
         return []
@@ -395,24 +404,31 @@ def _actions(agent: Agent) -> list[str]:
         "proposal and its release or denial is in the audit trail. An action the agent "
         "proposes that is not listed here is blocked, and its decision goes to a person. "
         "Where the deployment has not vouched for the agent (one from a registry before its "
-        "organization approves its digest), nothing it proposes is released without a person.",
+        "organization approves its digest), nothing it proposes is released without a person. "
+        "Arguments can hold free text unless every value they take is one the manifest "
+        "lists: a text or a number that is not one of a list of values, a list, or arguments "
+        "nothing checks, can. An action that writes or contacts with such arguments is never "
+        "released without a person.",
         "",
         "| Action | Does | Effect | Released | Arguments |",
         "|---|---|---|---|---|",
     ]
     for name, spec in declared.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
+        released = gate_words(spec.effect, allow_auto=spec.allow_auto, free_text=spec.free_text)
         schema = spec.json_schema
         named = list((schema or {}).get("properties") or {})
         if schema is None:
-            arguments = "not checked"
+            arguments = "not checked: can hold free text"
         elif named:
-            arguments = "checked: " + ", ".join(_c(key) for key in named)
+            holds = "can hold free text" if spec.free_text else "listed values only"
+            arguments = "checked: " + ", ".join(_c(key) for key in named) + f"; {holds}"
+        elif spec.free_text:  # a schema that names no field and still takes a text
+            arguments = "checked: can hold free text"
         else:
             arguments = "checked: none taken"
         out.append(
             f"| {_c(name)} | {_t(spec.description)} | `{spec.effect.value}` | "
-            f"{GATE_TEXT[gate]} | {arguments} |"
+            f"{released} | {arguments} |"
         )
     return [*out, ""]
 

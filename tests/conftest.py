@@ -13,7 +13,7 @@ import secrets
 import shutil
 import time
 import uuid
-from collections.abc import Callable, Coroutine, Iterator
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -644,6 +644,14 @@ def hosted(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def message(body: str, **extra: Any) -> dict[str, Any]:
     return {"message": {"body": body, **extra}}
+
+
+def releasing(decision: Mapping[str, Any] | None) -> dict[str, str]:
+    """`release` on each text a decision holds for a person (ADR-0027), as its review sends
+    them in `texts`: for a test that resolves a review and is about something else. `decision`
+    is the decision as the trail shows it (`AuditStore.get`, `GET /api/audit/{id}`, an item of
+    the review queue); one that holds no text gives no verdict."""
+    return {text["name"]: "release" for text in (decision or {}).get("outputs", ())}
 
 
 # What every request of Mendari's own pages carries besides its cookie (server/origin.py): the

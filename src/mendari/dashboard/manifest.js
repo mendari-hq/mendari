@@ -3,7 +3,7 @@
 
 import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
-import { esc, num, pct, slotText, state } from "./ui.js";
+import { esc, legible, may, num, pct, signedIn, slotText, state } from "./ui.js";
 
 // An agent's words for its questions and labels (spec §4.3 `display`, `names`), else the key as
 // words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
@@ -233,6 +233,9 @@ const ACTION_REASON = {
   review_closed: "asked for after the review was resolved",
   overridden: "the reviewer overrode the recommendation",
   reviewer_denied: "the reviewer refused it",
+  // Free text is released by name (ADR-0027): its arguments can hold free text, or a text of
+  // the decision was withheld, and the review that confirmed the decision did not name it.
+  not_named: "not released: the review did not name it",
 };
 const ARGUMENTS_STATUS = {
   sealed: "Arguments kept sealed: reviewers and administrators can read them, and each read is logged.",
@@ -261,16 +264,111 @@ function actionArguments(action) {
   const given = Object.entries(action.arguments ?? {});
   if (!given.length) return `<p class="muted">No arguments.</p>`;
   return `<dl class="facts">${given.map(([key, value]) =>
-    `<dt>${esc(key)}</dt><dd class="break-anywhere">${esc(typeof value === "string" ? value : JSON.stringify(value))}</dd>`).join("")}</dl>`;
+    `<dt>${legible(key)}</dt><dd class="break-anywhere">${legible(typeof value === "string" ? value : JSON.stringify(value))}</dd>`).join("")}</dl>`;
 }
 
-// `choose`: a reviewer picks which held actions confirming releases (each starts checked).
-export function actionsList(actions, { choose = false } = {}) {
+// `choose`: a reviewer picks which held actions confirming releases, each by its tick
+// (`releaseChoice`). `brief`: what became of each, without its arguments (a review's answer
+// has none).
+export function actionsList(actions, { choose = false, brief = false } = {}) {
   if (!actions?.length) return "";
   return `<ul class="actions-list" aria-label="Proposed actions">${actions.map((action) => `<li data-action="${esc(action.id)}" data-disposition="${esc(action.disposition)}">
     <div class="row"><b>${actionName(action)}</b> ${effectBadge(action.effect)} ${dispositionBadge(action.disposition)}
-      <span class="muted">${esc(actionReason(action.reason))}</span></div>
-    ${actionArguments(action)}
-    ${choose && action.disposition === "held" ? `<label><input type="checkbox" data-release="${esc(action.id)}" checked> Release when I confirm</label>` : ""}
+      <span class="muted">${esc(actionReason(action.reason))}${askedLater(action) ? " · asked for after the decision" : ""}</span></div>
+    ${brief ? "" : actionArguments(action)}
+    ${choose && action.disposition === "held" ? releaseChoice(action) : ""}
   </li>`).join("")}</ul>`;
+}
+
+// A caller asked for the action after the decision was made (`source: request`), so possibly
+// after its reviewer read the queue: a review releases it only by name (ADR-0027).
+const askedLater = (action) => action.source === "request";
+
+// What an unticked held action is told (the review view keeps it in step with the tick), and
+// why one starts unticked.
+export const NOT_RELEASED = "Will not be released.";
+const FREE_TEXT = "Its arguments can hold free text: read them before releasing.";
+
+// A held action's tick. Ticked, the action is released when the reviewer confirms the
+// decision. An action whose arguments can hold free text (`free_text`, ADR-0027) starts
+// unticked and says why: nobody releases what they have not read. Any other starts ticked, as
+// it always did. One asked for after the decision (`data-asked`) is on this screen, so its
+// tick names it in the review. The tick is described by what it is told, so a screen reader
+// says it too.
+function releaseChoice(action) {
+  const id = esc(action.id);
+  const free = action.free_text === true;
+  return `<div class="release-choice">
+      <label class="pick"><input type="checkbox" data-release="${id}"${askedLater(action) ? " data-asked" : ""}${free ? ` data-free-text aria-describedby="why-${id} off-${id}"` : " checked"}> Release when I confirm</label>
+      <span class="release-off" id="off-${id}"${free ? "" : " hidden"}>${free ? NOT_RELEASED : ""}</span>
+    </div>
+    ${free ? `<p class="muted release-why" id="why-${id}">${FREE_TEXT}</p>` : ""}`;
+}
+
+// -- held texts (ADR-0027) ------------------------------------------------------------------------
+// What an agent wrote for a decision that went to a person. Each text is held until the review
+// gives it a verdict: released (it may be sent or filed as written) or withheld (it may not).
+// A text is what its agent wrote: it is shown as text, every character escaped, with its line
+// breaks, and never run as markup.
+// `not_released`: the decision automated or was blocked, so its text was handed to nobody.
+const TEXT_STATE = { held: "Held", released: "Released", withheld: "Withheld", not_released: "Not released" };
+const TEXT_TONE = { held: "s-warning", released: "s-ok", withheld: "s-degraded", not_released: "" };
+const VERDICTS = [["release", "Release as written"], ["withhold", "Withhold"]];
+
+export const textStateBadge = (stands) =>
+  `<span class="badge ${TEXT_TONE[stands] ?? "s-degraded"}" title="${esc(stands)}">${esc(TEXT_STATE[stands] ?? stands)}</span>`;
+
+// A text by the name its manifest declares for the output.
+export const textName = (name) => named(readable(name), name);
+
+// Whoever reads this decision reads what it keeps: anyone under PHI mode off, else someone
+// signed in who may read inputs. A text still sealed for them is one the deployment's keys do
+// not open.
+const readsInputs = () => state.phiMode === "off" || (signedIn() && may("read_input"));
+
+// Why a held text is not on the screen, in words.
+function textUnshown(status) {
+  if (status === "sealed") {
+    return readsInputs()
+      ? "Kept sealed under a key this deployment does not hold."
+      : "Kept sealed: reviewers and administrators can read it, and each read is logged.";
+  }
+  if (status === "erased") return "Erased, with what this decision kept of its input.";
+  if (status === "missing") return "Missing: verify the chain with --notes.";
+  if (status !== "not_kept") return "Not shown here.";
+  // Kept only where the decision's input is: never under PHI mode hash, nor for an agent that
+  // keeps only its input's hash.
+  return state.phiMode === "hash"
+    ? "Not kept here: PHI mode hash keeps no free text."
+    : "Not kept here: this agent keeps only a hash of its input (audit.store_input).";
+}
+
+// The text in a box of its own that scrolls (a text can be 8,000 characters), in the tab order
+// so the keyboard scrolls it; or why there is none. `choose`: the verdict is still owed.
+function textBody(text, choose) {
+  if (text.text_status === "open" && typeof text.text === "string") {
+    return `<div class="message text-body" tabindex="0" role="group" aria-label="${esc(readable(text.name))}: the text">${legible(text.text)}</div>`;
+  }
+  return `<p class="muted text-missing">${esc(textUnshown(text.text_status))}${choose ? " Read the draft where your own system shows it, then give your verdict." : ""}</p>`;
+}
+
+// The two verdicts of one text, neither chosen: the reviewer says which.
+const verdictChoice = (id, name) => `<div class="label-options">${VERDICTS.map(([verdict, words]) =>
+  `<label class="label-option"><input type="radio" name="verdict-${esc(id)}-${esc(name)}" value="${verdict}" data-verdict="${esc(name)}"> <span>${words}</span></label>`).join("")}</div>`;
+
+// A decision's texts (`outputs`: each one's `name`, `state` and, where it is shown, `text`).
+// `choose`: a reviewer gives each held text its verdict (`id`: the decision's, which names
+// each group). `described`: the chosen agent made the decision, so its manifest says what each
+// output is. `brief`: where each stands and no more (a review's answer has no text).
+export function textsList(outputs, { choose = false, id = "", described = true, brief = false } = {}) {
+  if (!outputs?.length) return "";
+  return `<ul class="texts-list" aria-label="Texts the agent wrote">${outputs.map((text) => {
+    const asked = choose && text.state === "held";
+    const head = `<span class="row"><b>${textName(text.name)}</b> ${textStateBadge(text.state)}</span>`;
+    const what = described ? own(state.detail?.manifest?.outputs, text.name)?.description : null;
+    const body = brief ? "" : `${what ? `<p class="muted">${esc(what)}</p>` : ""}${textBody(text, asked)}`;
+    return `<li data-output="${esc(text.name)}" data-state="${esc(text.state)}">${asked
+      ? `<fieldset class="text-verdict"><legend>${head}</legend>${body}${verdictChoice(id, text.name)}</fieldset>`
+      : `${head}${body}`}</li>`;
+  }).join("")}</ul>`;
 }

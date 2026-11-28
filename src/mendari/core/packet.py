@@ -54,7 +54,7 @@ from mendari.core import validation_brief
 from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.card import RISK_AUTOMATION, RISK_NAMES, read_benchmark
-from mendari.core.policy import GATE_TEXT, gate_of
+from mendari.core.policy import gate_of, gate_words
 from mendari.core.spec import variant_configs
 from mendari.core.status import title as question_title
 from mendari.errors import MendariError
@@ -486,24 +486,41 @@ def _risk(agent: Agent, deployment: Deployment | None) -> dict[str, Any]:
 
 def _actions(agent: Agent) -> list[dict[str, Any]]:
     """The actions the agent declares (spec §13), each with its effect and how the runtime
-    gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
+    gates it (`policy.gate_of`, in `policy.gate_words`' words): the tightened gate of an action
+    whose arguments can hold free text, saying why, and that a reviewer releases it only by
+    naming it. `tightened` says the agent's own files did it (`allow_auto: false`); free text
+    is the runtime's rule, and is not marked so. Empty: it declares none."""
     declared = []
     for name, spec in agent.manifest.actions.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
+        gated = {"allow_auto": spec.allow_auto, "free_text": spec.free_text}
         schema = spec.json_schema
         declared.append(
             {
                 "name": name,
                 "description": spec.description,
                 "effect": spec.effect.value,
-                "gate": gate.value,
-                "released": GATE_TEXT[gate],
+                "gate": gate_of(spec.effect, **gated).value,
+                "released": gate_words(spec.effect, **gated),
                 "tightened": not spec.allow_auto,
                 # None: no schema, so its arguments are not checked; else the fields it takes.
                 "arguments": None if schema is None else list(schema.get("properties") or {}),
+                # Whether they can hold free text (ADR-0027): anything but listed values.
+                "free_text": spec.free_text,
             }
         )
     return declared
+
+
+def _html_arguments(action: Mapping[str, Any]) -> str:
+    """What an action's arguments are checked for, and whether they can hold free text, as
+    the Decision Card says it (`card._actions`)."""
+    named = action["arguments"]
+    if named is None:
+        return "not checked: can hold free text"
+    if not named:  # a schema that names no field may still take a text
+        return "checked: can hold free text" if action.get("free_text") else "checked: none taken"
+    holds = "can hold free text" if action.get("free_text") else "listed values only"
+    return "checked: " + ", ".join(_code(name) for name in named) + f"; {holds}"
 
 
 def _written(agent: Agent) -> list[dict[str, Any]]:
@@ -2038,7 +2055,10 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
     out += (
         "<p>Decisions that go to a person wait in the review queue. A reviewer confirms the "
         "recommendation or chooses another answer, and that choice is recorded with the "
-        "decision.</p>"
+        "decision. The reviewer also says what becomes of each text the agent wrote for the "
+        "decision: released or withheld. Confirming the recommendation releases the actions "
+        "the decision holds, but two kinds only when the reviewer names the action: one whose "
+        "arguments can hold free text, and every one once a text is withheld.</p>"
     )
     if queue is not None:
         out += _facts(
@@ -2084,12 +2104,16 @@ def _html_written(outputs: Sequence[Mapping[str, Any]]) -> str:
             "nothing it writes is graded."
         )
     out += (
-        "<p>Besides answering, the agent writes these texts. A text is returned with the "
-        "decision and is not kept with it. Each is graded against a rubric in the agent's "
-        "files: clinicians grade a sample blind, a model judge grades every text in the same "
-        "words, and the judge's grades are reported for the texts no clinician graded only "
-        "where its agreement with clinicians clears the floors stated here. Otherwise they are "
-        "withheld. This packet shows no figure of a judge: a grading round's report does.</p>"
+        "<p>Besides answering, the agent writes these texts. A text the agent wrote is handed "
+        "only to a person. With a decision that waits for a reviewer it is that reviewer's "
+        "draft: it is kept for them where the decision's input is kept, and they release it or "
+        "withhold it. An automated or a blocked decision hands it to nobody and keeps none of "
+        "it.</p>"
+        "<p>Each text is graded against a rubric in the agent's files: clinicians grade a "
+        "sample blind, a model judge grades every text in the same words, and the judge's "
+        "grades are reported for the texts no clinician graded only where its agreement with "
+        "clinicians clears the floors stated here. Otherwise they are withheld. This packet "
+        "shows no figure of a judge: a grading round's report does.</p>"
     )
     rows = []
     for output in outputs:
@@ -2151,7 +2175,11 @@ def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
         "each one and runs none: whoever calls it runs an action only when it was released, "
         "and every proposal and its release or denial is in the audit trail. What an action "
         "needs before it is released is the runtime's rule for its effect, which the agent's "
-        "files can only tighten. An action that is not listed here is blocked.</p>"
+        "files can only tighten. An action that is not listed here is blocked. Arguments can "
+        "hold free text unless every value they take is one the agent's files list: a text or "
+        "a number that is not one of a list of values, a list, or arguments nothing checks, "
+        "can. An action that writes or contacts with such arguments is never released without "
+        "a person.</p>"
     )
     return out + _table(
         ["Action", "What it does, in the publisher's words", "Effect", "Released", "Arguments"],
@@ -2162,10 +2190,7 @@ def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
                 _code(action["effect"]),
                 _e(action["released"])
                 + (" " + _label("tightened by the agent") if action["tightened"] else ""),
-                "not checked"
-                if action["arguments"] is None
-                else "checked: "
-                + (", ".join(_code(n) for n in action["arguments"]) or "none taken"),
+                _html_arguments(action),
             ]
             for action in actions
         ],

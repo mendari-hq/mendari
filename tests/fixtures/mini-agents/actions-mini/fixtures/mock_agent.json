@@ -67,6 +67,20 @@
       }
     },
     {
+      "match": "reply",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "assign_queue", "arguments": {"queue": "front_desk"}},
+          {"name": "file_note", "arguments": {"note": "Asked for a refill of lisinopril."}},
+          {"name": "send_reply", "arguments": {"message": "We received your refill request."}}
+        ]
+      }
+    },
+    {
       "match": "refill",
       "response": {
         "answers": {
@@ -75,8 +89,22 @@
         },
         "actions": [
           {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}},
-          {"name": "send_reply", "arguments": {"message": "We received your refill request."}},
+          {"name": "send_template", "arguments": {"template": "received"}},
           {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}}
+        ]
+      }
+    },
+    {
+      "match": "reschedule",
+      "response": {
+        "answers": {
+          "request": {"value": "appointment", "confidence": 0.7},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "look_up_medications"},
+          {"name": "assign_queue", "arguments": {"queue": "scheduling"}},
+          {"name": "send_template", "arguments": {"template": "received"}}
         ]
       }
     },

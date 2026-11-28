@@ -75,6 +75,9 @@ def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:
     assert main(["new", str(tmp_path / "taken"), "--id", "a/b"]) == 1
     assert (tmp_path / "taken" / "notes.txt").read_text() == "mine"
     assert main(["new", str(tmp_path / "fresh"), "--id", "Not An Id"]) == 1
+    # An id is matched whole: a line break after the name is no part of one.
+    assert main(["new", str(tmp_path / "broken"), "--id", "my-clinic/refill-router\n"]) == 1
+    assert not (tmp_path / "broken").exists()
     assert not (tmp_path / "fresh").exists()
 
 

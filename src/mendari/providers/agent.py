@@ -49,6 +49,7 @@ from mendari.core.spec import (
     WrittenOutput,
     deployment_env_problem,
 )
+from mendari.core.text import well_formed
 from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.providers import agent_calibration, deadline, fixture, reach
 from mendari.providers.base import (
@@ -580,6 +581,7 @@ def validate_response(
     the contract's shape (`_validate_actions`); without, the key is not read at all. With
     `outputs` (what the manifest asks this slot to write), the response's `outputs` are read
     and held to them (`_validate_outputs`); with none declared the key is not read either."""
+    raw = well_formed(raw)  # half a character is U+FFFD, however the response got here
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
 
@@ -612,8 +614,27 @@ def validate_response(
     return validated
 
 
-# Control characters a written text may not carry: all but the newline and the tab.
-_OUTPUT_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]+")
+# What a written text may not carry, each run of them a space. The control characters, all but
+# the newline and the tab. And the characters that are not seen and change what is: a reviewer
+# releases the text they read, and with one of these the screen shows one thing while a channel
+# that drops it, or a screen reader, says another (`Take` + U+202E + `01` is drawn "Take 10"),
+# or the text carries words no eye sees (a byte in each variation selector).
+# - Every code point Unicode says is not shown by default (Default_Ignorable_Code_Point): the
+#   soft hyphen, zero-width and invisible characters, fillers, the bidirectional marks,
+#   embeddings, overrides and isolates, the variation selectors, tag characters.
+# - U+2028, U+2029: separators that break a line in some places and not in others.
+# - U+FFF9 to U+FFFB, U+2800: interlinear annotation, and the braille cell with no dot.
+# But four of the first group, which a script or an emoji needs: the joiners (U+200C, U+200D)
+# and the selectors that say how an emoji is drawn (U+FE0E, U+FE0F).
+# The console shows the same set by code point where it is not taken out
+# (`dashboard/ui.js` `UNSEEN`; `tests/test_dashboard_unseen.py` holds the two equal).
+_UNSEEN = (
+    "\x00-\x08\x0b-\x1f\x7f-\x9f"
+    "\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b\u200e\u200f"
+    "\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0d\ufeff\uffa0\ufff0-\ufffb"
+    "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0000-\U000e0fff"
+)
+_OUTPUT_CTRL = re.compile(f"[{_UNSEEN}]+")
 
 
 def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[str, str]:
@@ -645,7 +666,8 @@ def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[s
 
 def clean_output(text: str) -> str:
     """A written text as it is kept and graded: control characters other than the newline and
-    the tab a space, and no blank at either end. Empty for a text that says nothing."""
+    the tab, and characters that are not seen (`_UNSEEN`), a space; no blank at either end.
+    Empty for a text that says nothing."""
     return _OUTPUT_CTRL.sub(" ", text).strip()
 
 
@@ -802,7 +824,9 @@ def _effective_model(
     return service_id or service_version
 
 
-_CTRL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
+# What an answer's evidence may not carry (a rationale, a tool's name), each run a space: every
+# control character, the newline and the tab too, and the characters that are not seen.
+_CTRL_CHARS = re.compile(f"[\t\n{_UNSEEN}]+")
 
 
 def _tool_evidence(tool_calls: list[Any]) -> list[str]:

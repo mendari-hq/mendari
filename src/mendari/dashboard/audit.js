@@ -4,12 +4,12 @@
 
 import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { actionName, actionReason, actionsList, answerChart, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./manifest.js";
+import { actionName, actionReason, actionsList, answerChart, dispositionBadge, effectBadge, inputView, labelName, statusNotice, textName, textsList, textStateBadge } from "./manifest.js";
 import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
+import { $, api, copyText, download, esc, fileSlug, icon, legible, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -25,6 +25,8 @@ const EVENT_TEXT = {
   "card.feedback": "Card feedback from the EHR",
   "action.proposed": "Action proposed",
   "action.resolved": "Action released or denied by review",
+  "output.held": "Text held for review",
+  "output.resolved": "Text released or withheld by review",
 };
 
 // A note is kept apart from the chain and shown only to those who may read inputs.
@@ -338,6 +340,7 @@ async function openRecord(id) {
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, { own: sameAgent })).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
+      ${writtenSection(found, sameAgent)}
       ${found.actions?.length ? `<h3>Actions</h3>
         <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>
         ${actionsList(found.actions)}` : ""}
@@ -476,13 +479,37 @@ function coveragePanel(id, coverage, declared) {
   </section>`;
 }
 
+// What the agent wrote for a decision (ADR-0027). The texts a person was to read, each where it
+// stands and shown to whoever may read it; or, for a decision no person was to read (it
+// automated, or was blocked), their names alone: the record says each was `not_released`, and
+// there is no text anywhere to show.
+function writtenSection(found, sameAgent) {
+  if (found.outputs?.length) {
+    return `<h3>What the agent wrote</h3>
+      <p class="muted">Each text was held for a person to read. A released text may be sent or filed as written; a withheld one may not.</p>
+      ${textsList(found.outputs, { described: sameAgent })}`;
+  }
+  const unread = Object.entries(found.record.written ?? {})
+    .filter(([, text]) => text?.state === "not_released")
+    .map(([name]) => ({ name, state: "not_released" }));
+  if (!unread.length) return "";
+  return `<h3>What the agent wrote</h3>
+    <p class="muted">No person was to read this decision, so what its agent wrote was returned to nobody and is kept nowhere.</p>
+    ${textsList(unread, { brief: true })}`;
+}
+
+// What an event's note is, where it is not a person's note: a proposed action's arguments and a
+// held text, each kept apart from the chain as inputs are.
+const KEPT = { "action.proposed": "Arguments", "output.held": "Text" };
+
 // An event's note, when it has one: its text for those who may read it, else what became of it.
 function noteLine(e) {
   if (!e.note_status) return "";
-  // A proposed action's note is its arguments, kept apart from the chain as inputs are.
-  const what = e.event === "action.proposed" ? "Arguments" : "Note";
-  if (e.note_status === "open") return `<p class="event-note"><b>${what}:</b> ${esc(what === "Note" ? e.note : keptArguments(e.note))}</p>`;
-  return `<p class="event-note muted">${esc((NOTE_STATUS[e.note_status] ?? "Note").replace(/^Note/, what))}</p>`;
+  const what = KEPT[e.event] ?? "Note";
+  if (e.note_status !== "open") return `<p class="event-note muted">${esc((NOTE_STATUS[e.note_status] ?? "Note").replace(/^Note/, what))}</p>`;
+  // A held text is shown once, whole, under its name: the timeline does not repeat it.
+  if (what === "Text") return `<p class="event-note muted">Its text is shown above, under “What the agent wrote”.</p>`;
+  return `<p class="event-note"><b>${what}:</b> ${legible(what === "Note" ? e.note : keptArguments(e.note))}</p>`;
 }
 
 // A proposed action's kept note is `{name, arguments}`: the arguments, as JSON.
@@ -502,13 +529,20 @@ function actionLine(e) {
     <span class="muted">${esc(actionReason(p.reason))}${p.reviewer ? ` · ${esc(p.reviewer)}` : ""}</span></p>`;
 }
 
+// A held text's event in a line: which text, where it stood then, and who gave its verdict.
+function textLine(e) {
+  if (!e.event.startsWith("output.")) return "";
+  const p = e.payload;
+  return `<p class="event-note">${textName(p.output)} ${textStateBadge(p.verdict ?? "held")}${p.reviewer ? ` <span class="muted">${esc(p.reviewer)}</span>` : ""}</p>`;
+}
+
 // The hash chain as an ordered list: what happened, when, and each event's hash.
 function timeline(events) {
   return `<ol class="timeline">${events.map((e) => `<li>
     <div class="row"><b>${esc(EVENT_TEXT[e.event] ?? e.event)}</b>
       <span class="muted"><time datetime="${esc(e.created_at)}">${esc(time(e.created_at))}</time></span>
       <span class="grow"></span><span class="mono muted" title="hash ${esc(e.hash)}">#${e.seq} · ${esc(e.hash.slice(0, 12))}…</span></div>
-    ${actionLine(e)}${noteLine(e)}
+    ${actionLine(e)}${textLine(e)}${noteLine(e)}
     <details><summary>Payload</summary><pre class="json">${esc(JSON.stringify(e.payload, null, 2))}</pre></details>
   </li>`).join("")}</ol>`;
 }

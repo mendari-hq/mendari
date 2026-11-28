@@ -19,7 +19,7 @@ It is built for two groups, and for the loop between them:
   engine records what the agent would have automated), then share their results back as signed
   counts, never cases.
 
-> **Status: research preview** (0.1.2). Everything here runs on synthetic
+> **Status: research preview** (0.2.0). Everything here runs on synthetic
 > data. Mendari is not a medical device, and it must not be used with real PHI or real patients:
 > its external security review has not happened yet ([Status and limits](#status-and-limits)).
 
@@ -67,7 +67,7 @@ an effect, the agent proposes actions with its answers, and the decision's outco
 may be done with each. Mendari authorizes an action and records that it did; it runs none, and
 your caller runs only what was released ([Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md)).
 
-| The decision is | `read`, `draft` | `write`, `contact` | `order` |
+| The decision is | `read`, `draft` | `write`, `contact` whose arguments are a menu | `order`; `write`, `contact` that can hold free text |
 |---|---|---|---|
 | `AUTO` | released | released | never: proposing one sends the decision to a person |
 | `HUMAN_REVIEW` | released | held for the reviewer | held for the reviewer |
@@ -76,6 +76,17 @@ your caller runs only what was released ([Governing actions](https://github.com/
 
 The gate is the runtime's, like the risk caps: a manifest can tighten it (`allow_auto: false`)
 and nothing loosens it. An action the agent never declared is blocked.
+
+**No free text is released unread**
+([ADR-0027](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0027-no-free-text-is-released-unread.md)).
+An action whose arguments can hold free text (anything but a menu of listed values: a string
+that is not enumerated, a number that is neither listed nor an integer in a short range, a
+list, or no schema at all) is never released without a person when it writes or contacts, and
+a reviewer releases it only by naming it. A text the agent writes (a draft reply, a note) is handed only
+to a person: a decision that waits for a reviewer returns it as that reviewer's draft, and
+the reviewer releases it or withholds it; an automated or a blocked decision returns none of
+it and keeps none. To send a text, declare an action a person releases
+([Evaluating written output](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md)).
 
 The confidence the thresholds cut on can be checked: `mendari calibrate` fits an external
 agent's confidence on labelled cases, for the version its service reported then, and when the
@@ -380,8 +391,10 @@ The steps below are the same path, whichever way the engine was installed.
 Every decision is an event in an append-only, hash-chained trail (SQLite locally, Postgres on a
 server): the agent's id, version and digest, each answer with its provider and evidence, the
 outcome and the reasons. A `HUMAN_REVIEW` decision waits in the review queue, ordered by
-priority, and what the reviewer decides is recorded in the same trail. Reports and exports
-carry ids, never case text. Anyone with the database can check the chain:
+priority, and what the reviewer decides is recorded in the same trail. What the agent wrote
+for a decision that waits is kept for its reviewer apart from the trail, as the input is, and
+removed with it. Reports and exports carry ids, never case text. Anyone with the database can
+check the chain:
 
 <!-- check: run cli -->
 ```bash

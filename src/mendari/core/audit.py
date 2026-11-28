@@ -139,8 +139,19 @@ DECISION_KINDS = frozenset(
         # arguments, nor a name the manifest does not declare.
         "action.proposed",
         "action.resolved",
+        # A text an agent wrote, held for the person who reviews its decision, and that
+        # reviewer's verdict on it (spec §15, ADR-0027): the output's name as the manifest
+        # declares it, a commitment to the text (`note_ref`) and the verdict. Never the text.
+        "output.held",
+        "output.resolved",
     }
 )
+# A held text's two events, as they are read back (`_texts`); its note is the kept text.
+TEXT_HELD = "output.held"
+TEXT_RESOLVED = "output.resolved"
+# The verdict a review gives a held text (`resolve_review`'s `texts`), and how the chain and
+# every answer say it afterwards.
+VERDICTS = {"release": "released", "withhold": "withheld"}
 # On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
 # organization column. A hold's is NULL when it is the deployment's, a hold set for every
 # organization.
@@ -1240,7 +1251,12 @@ class AuditStore(RateBuckets):
         CDS client's verified token), the chained event also names who asked (`requested_by`,
         the principal's chain name, `tenancy.requester`). The actions the agent proposed are
         chained after it, one `action.proposed` each, their arguments kept as the input is: as
-        the event's note, sealed under `encrypt`, and not at all where the input is not kept."""
+        the event's note, sealed under `encrypt`, and not at all where the input is not kept.
+
+        The texts the agent wrote (`result.outputs`) are kept the same way, and only for a
+        decision that awaits review (ADR-0027): one `output.held` each, before the actions, by
+        the output's name in sorted order, the text its note. A decision that waits for nobody
+        (AUTO, BLOCK) chains and keeps nothing of its texts."""
         from mendari.core.decision import kept_as_json  # here: decision's imports load this module
 
         inputs = kept_as_json(inputs)  # as a decision keeps a refused NaN: null, so JSON
@@ -1289,6 +1305,27 @@ class AuditStore(RateBuckets):
             if requester is not None:
                 created["requested_by"] = requester
             self._append(db, result.id, "decision.created", self._bound(created, org))
+            # Each text the agent wrote, for the person this decision waits for (ADR-0027), in
+            # the same transaction: its output's name, and the text apart, as a note, exactly
+            # when the decision's input is kept. Nobody reads a text of a decision that waits
+            # for nobody, so none is kept.
+            written = sorted(result.outputs.items()) if status == "pending" else []
+            held = [
+                (
+                    result.id,
+                    self._bound(
+                        {
+                            "output": name,
+                            "note_ref": self._keep_note(db, result.id, "output.held", text)
+                            if keep
+                            else None,
+                        },
+                        org,
+                    ),
+                )
+                for name, text in written
+            ]
+            self._append_many(db, "output.held", held)
             # Each action proposed with the answer (spec §13.9), in the same transaction: what the
             # chain keeps of it (`ActionResult.chained`), and its arguments apart, as a note,
             # exactly when the decision's input is kept.
@@ -1335,22 +1372,38 @@ class AuditStore(RateBuckets):
         note: str | None = None,
         labels: QuestionLabels | None = None,
         deny_actions: Sequence[str] = (),
+        texts: Mapping[str, str] | None = None,
+        release_actions: Sequence[str] = (),
     ) -> dict[str, Any]:
         """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision with one of the labels
         of its primary question (`_check_label`). A note is kept apart from the chain (`notes`);
         the answer repeats it to whoever wrote it.
 
-        The decision's held actions (spec §13.8) are resolved with it, in the same transaction,
-        one `action.resolved` each: released when the reviewer's label is the recommendation,
-        denied when it is another. `deny_actions` names held actions (by id) the reviewer
-        refuses while confirming the label, so refusing an action never takes a false override:
-        each is denied (`reviewer_denied`) and `human_override` says what it always said. An id
-        that is no held action of this decision refuses the whole review, before anything is
-        written. The answer has `actions` only when some were held."""
+        The decision's held texts (ADR-0027) each get a verdict with it, in the same
+        transaction, one `output.resolved` each: `texts` names exactly the held texts, each
+        `release` or `withhold`, whether or not the text was kept. One left out, a name the
+        decision does not hold or another value refuses the whole review (`_verdicts`); a
+        decision that holds none takes no `texts`.
+
+        The decision's held actions (spec §13.8) are resolved with it too, one `action.resolved`
+        each. A label that is not the recommendation denies them all. `deny_actions` names held
+        actions (by id) the reviewer refuses while confirming the label, so refusing an action
+        never takes a false override: each is denied (`reviewer_denied`) and `human_override`
+        says what it always said. Confirming the label releases the others, but some only by
+        name: a held action whose arguments can hold free text (its proposal's `free_text`),
+        one a caller asked for after the decision was made (`source: request`: the reviewer
+        may never have been shown it), and every held action once a text is withheld (a
+        manifest does not say which action uses which text), is released only when
+        `release_actions` names it, and denied otherwise (`not_named`). An id in
+        `deny_actions` or `release_actions` that is no held action of this decision, or one in
+        both, refuses the whole review.
+
+        Every refusal comes before anything is written. The answer has `outputs` only when
+        texts were held, and `actions` only when actions were."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
         note = self._may_keep(note)
-        denied = set(deny_actions)
+        denied, named = set(deny_actions), set(release_actions)
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
@@ -1364,9 +1417,16 @@ class AuditStore(RateBuckets):
             # Overriding means disagreeing with a recommendation; an abstention made none.
             recommendation = row["recommendation"]
             override = None if recommendation is None else recommendation != final_label
-            held = actions.held(actions.state(_events_of(db, [decision_id])[decision_id]))
-            if denied - {action["id"] for action in held}:
+            events = _events_of(db, [decision_id])[decision_id]
+            verdicts = _verdicts(decision_id, [text["name"] for text in _texts(events)], texts)
+            held = actions.held(actions.state(events))
+            holds = {action["id"] for action in held}
+            if denied - holds:
                 raise ReviewError("deny_actions names an action this decision does not hold")
+            if named - holds:
+                raise ReviewError("release_actions names an action this decision does not hold")
+            if named & denied:
+                raise ReviewError("an action is named in both release_actions and deny_actions")
             resolved_at = _now()
             db.all(
                 "UPDATE decisions SET review_status = 'resolved', final_label = ?, "
@@ -1388,14 +1448,35 @@ class AuditStore(RateBuckets):
             }
             chained = self._bound(payload, row["org"])
             self._append(db, decision_id, "review.resolved", chained)
-            # Each held action is resolved here and nowhere else, so exactly once: a held action
-            # exists only on a decision that awaits review, and this is the only way out of it.
+            # Each held text's verdict, and each held action's resolution, here and nowhere
+            # else, so exactly once: a text or an action is held only on a decision that awaits
+            # review, and this is the only way out of it.
+            self._append_many(
+                db,
+                "output.resolved",
+                [
+                    (
+                        decision_id,
+                        self._bound(
+                            {"output": name, "verdict": verdict, "reviewer": reviewer}, row["org"]
+                        ),
+                    )
+                    for name, verdict in verdicts.items()
+                ],
+            )
+            # Once a text is withheld, no held action is released unless the review names it.
+            withheld = "withheld" in verdicts.values()
             resolved = [
                 {
                     "action_id": action["id"],
                     "name": action["name"],
                     "effect": action["effect"],
-                    **_resolution(override, action["id"] in denied),
+                    **_resolution(
+                        override,
+                        denied=action["id"] in denied,
+                        named=action["id"] in named,
+                        by_name=withheld or actions.by_name(action),
+                    ),
                     "reviewer": reviewer,
                 }
                 for action in held
@@ -1406,6 +1487,10 @@ class AuditStore(RateBuckets):
                 [(decision_id, self._bound(item, row["org"])) for item in resolved],
             )
         answer = {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
+        if verdicts:
+            answer["outputs"] = [
+                {"name": name, "verdict": verdict} for name, verdict in verdicts.items()
+            ]
         if resolved:
             answer["actions"] = [
                 {
@@ -1458,6 +1543,8 @@ class AuditStore(RateBuckets):
                 "source": "request",
                 "slot": None,
             }
+            if asked.name is not None:  # as `ActionResult.chained`: a declared action says
+                payload["free_text"] = asked.free_text
             requester = tenancy.requester()
             if requester is not None:
                 payload["requested_by"] = requester
@@ -2146,7 +2233,8 @@ class AuditStore(RateBuckets):
         """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`,
         and its events' notes as `reveal_inputs` shows them (the read it chains is the last
         event). A decision with proposed actions (spec §13.7) has `actions`: each as it stands
-        (`actions.state`), its arguments as its event's note is shown."""
+        (`actions.state`), its arguments as its event's note is shown. One with held texts
+        (ADR-0027) has `outputs`: each as it stands (`_texts`), its text shown the same way."""
         with self._db.session(exclusive=False) as db:
             item = _decision(db, decision_id)
             if item is not None:
@@ -2155,6 +2243,7 @@ class AuditStore(RateBuckets):
             return None
         self.reveal_inputs([item], reader)
         _with_actions(item)
+        _with_outputs(item)
         return item
 
     def item(self, decision_id: str) -> dict[str, Any] | None:
@@ -5286,20 +5375,23 @@ class AuditStore(RateBuckets):
         """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`.
         A decision with proposed actions (spec §13.7) has `actions`, each as it stands, so a
         reviewer sees what confirming the decision releases; their arguments are shown as
-        inputs are (to a `reader`, the read chained)."""
+        inputs are (to a `reader`, the read chained). One with held texts (ADR-0027) has
+        `outputs`, each with its text shown the same way: what the reviewer gives a verdict
+        on."""
         items = self.query(agent_id=agent_id, review_status="pending", limit=limit)
         if items:
+            kinds = (actions.PROPOSED, actions.RESOLVED, TEXT_HELD, TEXT_RESOLVED)
             with self._db.session(exclusive=False) as db:
-                found = _events_of(
-                    db, [item["id"] for item in items], kinds=(actions.PROPOSED, actions.RESOLVED)
-                )
+                found = _events_of(db, [item["id"] for item in items], kinds=kinds)
             for item in items:
-                if found[item["id"]]:  # only a decision with actions: every other is as it was
+                # Only a decision with actions or held texts: every other is as it was.
+                if found[item["id"]]:
                     item["events"] = found[item["id"]]
         self.reveal_inputs(items, reader)
         for item in items:
             if "events" in item:
                 _with_actions(item)
+                _with_outputs(item)
                 del item["events"]
         return items
 
@@ -5799,15 +5891,75 @@ def _with_actions(item: dict[str, Any]) -> None:
         item["actions"] = found
 
 
-def _resolution(override: bool | None, denied: bool) -> dict[str, str]:
-    """How a review resolves one held action: released when the reviewer confirmed the
-    recommendation and did not refuse the action, denied otherwise. A review with no
-    recommendation to confirm (`override` None) releases nothing."""
-    if override is False and not denied:
-        return {"disposition": "released", "reason": "confirmed"}
-    if override is False:
+def _texts(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """A decision's held texts as they stand (ADR-0027), read from its events in chain order:
+    one item for each `output.held`, by the output's name. `state` is `held` until the review's
+    `output.resolved` says `released` or `withheld`. `text_status` is the event's note as
+    `reveal_inputs` showed it (`open`, `sealed`, `erased` or `missing`; `not_kept` where nothing
+    was kept); `text` only when it is open."""
+    found: dict[str, dict[str, Any]] = {}
+    for event in events:
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("output"), str):
+            continue
+        name = payload["output"]
+        if event.get("event") == TEXT_HELD:
+            item: dict[str, Any] = {"name": name, "state": "held", "text_status": "not_kept"}
+            if isinstance(payload.get("note_ref"), Mapping):
+                item["text_status"] = event.get("note_status") or "sealed"
+                if item["text_status"] == "open" and isinstance(event.get("note"), str):
+                    item["text"] = event["note"]
+            found[name] = item
+        elif event.get("event") == TEXT_RESOLVED and name in found:
+            found[name]["state"] = payload.get("verdict")
+    return list(found.values())
+
+
+def _with_outputs(item: dict[str, Any]) -> None:
+    """Give a decision its `outputs` (`_texts` of its events, after `reveal_inputs` showed
+    their notes), when it holds or held a text: a decision without is as it always was."""
+    found = _texts(item.get("events") or ())
+    if found:
+        item["outputs"] = found
+
+
+def _verdicts(decision_id: str, held: Sequence[str], texts: Any) -> dict[str, str]:
+    """The verdict a review gives each held text (`released` or `withheld`), by the output's
+    name, in the order held. `ReviewError` unless `texts` names exactly the held texts, each
+    `release` or `withhold`; and, for a decision that holds none, unless it names none. The
+    refusal names the outputs the decision holds, which its manifest declares: never what the
+    caller sent, which may be a text."""
+    given = texts if isinstance(texts, Mapping) else {}
+    if not held:
+        if texts:
+            raise ReviewError(f"decision {decision_id} holds no written output: send no texts")
+        return {}
+    if set(given) != set(held) or any(given[name] not in tuple(VERDICTS) for name in held):
+        names = ", ".join(f"'{name}'" for name in held)
+        raise ReviewError(
+            f"decision {decision_id} holds written output {names}: texts gives each a "
+            "verdict, release or withhold, and names no other"
+        )
+    return {name: VERDICTS[given[name]] for name in held}
+
+
+def _resolution(
+    override: bool | None, *, denied: bool, named: bool, by_name: bool
+) -> dict[str, str]:
+    """How a review resolves one held action. A review that does not confirm the
+    recommendation releases nothing (`overridden`; `override` None: there was none to
+    confirm), and a reviewer may refuse an action while confirming it (`denied`:
+    `reviewer_denied`). Otherwise the action is released (`confirmed`), unless it is one a
+    review releases only by name (`by_name`: its arguments can hold free text, it was asked for
+    after the decision was made, or a text of the decision is withheld) and this review did
+    not name it (`not_named`)."""
+    if override is not False:
+        return {"disposition": "denied", "reason": "overridden"}
+    if denied:
         return {"disposition": "denied", "reason": "reviewer_denied"}
-    return {"disposition": "denied", "reason": "overridden"}
+    if by_name and not named:
+        return {"disposition": "denied", "reason": "not_named"}
+    return {"disposition": "released", "reason": "confirmed"}
 
 
 def _asked(decision_id: str, action: Mapping[str, Any]) -> dict[str, Any]:

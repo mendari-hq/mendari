@@ -7,8 +7,12 @@ One story, in six numbered sections and an ending:
 2. It shows what the agent asked to do with them (spec §13): the demo agent declares two
    actions and its canned answers propose them. A write is released with an AUTO decision, a
    message to the patient is held until a reviewer confirms the decision, and an action the
-   agent never declared is blocked. Mendari authorizes each and runs none.
-3. It fills a review queue, has simulated reviewers work it, and verifies the audit chain.
+   agent never declared is blocked. Mendari authorizes each and runs none. Then what became of
+   the acknowledgement the agent wrote for the same two messages (ADR-0027): the automated
+   decision returned it to nobody, and the other's waited for its reviewer.
+3. It fills a review queue, has simulated reviewers work it, and verifies the audit chain. A
+   decision that waits holds the acknowledgement the agent wrote, and its reviewer says what
+   becomes of it (ADR-0027): released with a label they confirm, withheld with one they correct.
 4. It evaluates the agent on its 600-case set the way a site would before going live. The demo
    agent answers from canned responses (its `mock_file`) and does not detect urgent messages
    that are worded as a patient might say them: the evaluation is there to catch exactly that.
@@ -139,7 +143,10 @@ def _run(store: AuditStore) -> None:
     print(f"{len(pending)} decisions wait for a person (urgent first). Simulating reviewers…")
     for item in pending:
         if item["id"] in truth:
-            store.resolve_review(item["id"], final_label=truth[item["id"]], reviewer="demo-nurse")
+            label = truth[item["id"]]
+            store.resolve_review(
+                item["id"], final_label=label, reviewer="demo-nurse", texts=_verdicts(item, label)
+            )
     stats = store.stats()
     outcomes = "  ".join(f"{k} {v}" for k, v in stats["outcomes"].items())
     print(f"decisions: {stats['decisions']}   {outcomes}")
@@ -198,7 +205,8 @@ def _run(store: AuditStore) -> None:
 def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResult]) -> None:
     """What may be done with the actions the agent proposed with the messages above, in four
     lines: one released with an automated decision, one held for a decision's reviewer, the same
-    one once the reviewer confirms, and one the agent never declared, asked for afterwards."""
+    one once the reviewer confirms, and one the agent never declared, asked for afterwards.
+    Then, in a sentence, what became of the text the agent wrote for the same two messages."""
     print("Mendari authorizes each action and runs none: your caller runs what is released.")
     automated = next(result for result in decided if result.outcome.value == "AUTO")
     reviewed = next(
@@ -214,12 +222,38 @@ def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResul
     waits = f"message {position} waits for a reviewer"
     _line(contact.disposition, contact.name, contact.effect, waits)
     confirmed = store.resolve_review(
-        reviewed.id, final_label=str(reviewed.recommendation), reviewer="demo-nurse"
+        reviewed.id,
+        final_label=str(reviewed.recommendation),
+        reviewer="demo-nurse",
+        # The acknowledgement the agent wrote waits with the decision: the reviewer read it.
+        texts=dict.fromkeys(reviewed.outputs, "release"),
     )
     after = next(a for a in confirmed["actions"] if a["id"] == contact.id)
     _line(after["disposition"], after["name"], after["effect"], "the reviewer confirmed it")
     asked = agent.authorize_action(automated.id, *UNDECLARED)
     _line(asked["disposition"], "an action the agent never declared", None, "asked for message 1")
+    # What became of what the agent wrote for the same two messages (ADR-0027), as the
+    # decision and the review say it.
+    unread = [name for name, text in automated.written.items() if text["state"] == "not_released"]
+    read = [text["name"] for text in confirmed.get("outputs", ()) if text["verdict"] == "released"]
+    if unread and unread == read:
+        print(
+            textwrap.fill(
+                "What the agent wrote is handed only to a person. Message 1 automated, so the "
+                f"{' and '.join(unread)} it drafted there was returned to nobody and is kept "
+                f"nowhere; message {position}'s waited for the reviewer, who read it and "
+                "released it.",
+                _WIDTH,
+                break_on_hyphens=False,
+            )
+        )
+
+
+def _verdicts(item: Mapping[str, Any], label: str) -> dict[str, str]:
+    """A simulated reviewer's verdict on each text a decision in the queue holds (ADR-0027):
+    released with a label they confirm, withheld with one they correct."""
+    verdict = "release" if item["recommendation"] == label else "withhold"
+    return {text["name"]: verdict for text in item.get("outputs", ())}
 
 
 def _written(agent: Any) -> None:

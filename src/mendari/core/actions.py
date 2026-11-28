@@ -69,6 +69,10 @@ Reason = Literal[
     # denied
     "overridden",  # the reviewer overrode the decision's recommendation
     "reviewer_denied",  # the reviewer confirmed the recommendation and refused this action
+    # The reviewer confirmed the recommendation and did not name this action, which a review
+    # releases only by name: its arguments can hold free text, or a text of the decision was
+    # withheld (ADR-0027).
+    "not_named",
 ]
 # The reasons that refuse a proposal for what it is, whatever its decision: each also stops the
 # decision from being automated (`policy.action_stops`).
@@ -121,6 +125,10 @@ class ActionResult:
     source: Source = "answer"
     slot: str | None = None
     problems: tuple[str, ...] = ()
+    # Whether the declared action's arguments can hold free text (`ActionSpec.free_text`,
+    # ADR-0027): chained either way, so a review knows whether it must name the action to
+    # release it, and a proposal that says nothing is known to be older than the rule.
+    free_text: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """The action as its caller gets it back, arguments included: the caller sent them, or
@@ -141,7 +149,7 @@ class ActionResult:
     def chained(self) -> dict[str, Any]:
         """The action as the audit chain keeps it: ids, codes and a hash. Never the arguments,
         and never a name the manifest does not declare."""
-        return {
+        chained: dict[str, Any] = {
             "action_id": self.id,
             "name": self.name if self.declared else None,
             "effect": None if self.effect is None or not self.declared else self.effect.value,
@@ -151,6 +159,9 @@ class ActionResult:
             "source": self.source,
             "slot": self.slot,
         }
+        if self.declared:  # an undeclared action is blocked, and says nothing of arguments
+            chained["free_text"] = self.free_text
+        return chained
 
     def kept(self) -> str:
         """What is kept apart from the chain, as a decision's input is: the name as proposed and
@@ -168,6 +179,7 @@ class Asked:
     effect: str | None
     disposition: Disposition
     reason: Reason
+    free_text: bool = False  # as `ActionResult.free_text`: chained for a declared action
 
 
 def new_id() -> str:
@@ -347,8 +359,13 @@ def state(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     each `action.proposed`, updated by its `action.resolved`. `arguments_status` is the
     proposal's note as `AuditStore.reveal_inputs` showed it (`open`, `sealed`, `erased` or
     `missing`; `not_kept` when nothing was kept); `arguments`, and for an undeclared action
-    `proposed_name`, only when it is open."""
+    `proposed_name`, only when it is open. `free_text` (True, or no key) marks an action whose
+    arguments can hold free text, which a review releases by name (ADR-0027): one whose
+    proposal says so, and a declared action that still waits and whose proposal says nothing.
+    That one was chained before proposals said either way; nothing says its arguments cannot
+    hold free text, so it is read as one whose can."""
     found: dict[str, dict[str, Any]] = {}
+    unsaid: set[str] = set()
     for event in events:
         payload = event.get("payload")
         if not isinstance(payload, Mapping):
@@ -370,6 +387,10 @@ def state(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "arguments_status": "not_kept",
                 "arguments": None,
             }
+            if payload.get("free_text") is True:  # only then: every other item is as it was
+                item["free_text"] = True
+            elif payload.get("free_text") is not False and item["name"] is not None:
+                unsaid.add(action_id)
             if isinstance(payload.get("note_ref"), Mapping):
                 item["arguments_status"] = event.get("note_status") or "sealed"
                 kept = _kept(event.get("note")) if item["arguments_status"] == "open" else None
@@ -385,6 +406,9 @@ def state(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 resolved_at=event.get("created_at"),
                 resolved_by=payload.get("reviewer"),
             )
+    for action_id in unsaid:
+        if found[action_id]["disposition"] == "held":
+            found[action_id]["free_text"] = True
     return list(found.values())
 
 
@@ -404,3 +428,12 @@ def _kept(note: Any) -> dict[str, Any] | None:
 def held(actions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The actions that still wait for their decision's reviewer."""
     return [action for action in actions if action.get("disposition") == "held"]
+
+
+def by_name(action: Mapping[str, Any]) -> bool:
+    """Whether a review releases this held action only when it names it (ADR-0027), whatever
+    else the review says. Its arguments can hold free text (`free_text`): someone has to have
+    read them. Or a caller asked for it after the decision was made (`source: request`): a
+    reviewer who read the queue before that was never shown it, so their label alone does
+    not speak for it."""
+    return action.get("free_text") is True or action.get("source") == "request"

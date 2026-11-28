@@ -44,6 +44,21 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # its version is released). 0.1.0 is released: its fixed resources never change, and a change
 # needs a new version.
 PINNED = {
+    # ADR-0027: the audit events gain `output.held` and `output.resolved`, a text held for a
+    # decision's reviewer and that reviewer's verdict on it. Every other definition is 0.1.2's,
+    # each carrying the version.
+    "0.2.0": {
+        "CodeSystem/decision-outcome": "234bfafa73294aef",
+        "CodeSystem/audit-event": "1f7cea2ffd86c01d",
+        "CodeSystem/audit-administrative-event": "05a7fc2baaef72fb",
+        "CodeSystem/card-override-reasons": "5f8914430300cdab",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
+        "NamingSystem/agent-version": "1448a6d6492ce83f",
+        "CodeSystem/sandbox": "c0658e0c62246daf",
+        "CodeSystem/message-channel": "4eb874973e0ec2af",
+    },
     # The audit's fixes: the same definitions as 0.1.1, each carrying the version.
     "0.1.2": {
         "CodeSystem/decision-outcome": "669f25af27b85ce6",
@@ -111,6 +126,12 @@ PINNED = {
         "NamingSystem/audit-subject": "5804d858d1fb1240",
     },
 }
+# What a fixed resource gained since the released version it follows, in no release yet: by
+# that version, the resource and its content now. A url|version must never name two contents,
+# so this is a debt, not a pin: the release that ships these carries a new Mendari version,
+# whose own entry in PINNED takes them, and this goes back to empty. PINNED's released entries
+# stay what was released.
+UNRELEASED: dict[str, dict[str, str]] = {}
 
 
 @pytest.fixture(scope="module")
@@ -386,7 +407,10 @@ def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) 
     found = {f"{r['resourceType']}/{r['id']}": content(r)[:16] for r in fixed}
     # A new version (a pre-release too: the resources carry it) pins these, as PINNED's entry.
     assert __version__ in PINNED, f"a new Mendari version: pin its fixed resources: {found}"
-    assert found == PINNED[__version__], "changed a fixed resource: it needs a new version"
+    # It takes what was not released yet into that entry: nothing is owed across a version.
+    assert set(UNRELEASED) <= {__version__}, "a new version: its PINNED entry takes UNRELEASED"
+    pinned = {**PINNED[__version__], **UNRELEASED.get(__version__, {})}
+    assert found == pinned, "changed a fixed resource: it needs a new version"
 
 
 def test_every_resource_is_well_formed(served: Terminology) -> None:

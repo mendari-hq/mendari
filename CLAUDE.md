@@ -71,9 +71,22 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
   AUTO into HUMAN_REVIEW, never the reverse. Risk-level limits live in `core/policy.py`, not
   in manifests (ADR-0002).
 - **The action gate lives in `core/policy.py` and only tightens** (ADR-0023): `EFFECT_GATES`,
-  `gate_of`, `disposition`. A manifest (`allow_auto: false`), an agent nobody vouched for and
-  a second signal that did not agree on a proposal each make a gate stricter; nothing loosens
-  one. Mendari authorizes an action and records it, and runs none.
+  `gate_of`, `disposition`. A manifest (`allow_auto: false`), an agent nobody vouched for, a
+  second signal that did not agree on a proposal and arguments that can hold free text
+  (ADR-0027: `ActionSpec.free_text`, `holds_free_text` in `core/spec.py`; anything but a menu:
+  every string an `enum` or a `const`, every number listed or an integer in a range of at most
+  `MAX_ACTION_ENUM` values, no array, at most `MAX_ACTION_MENU` arguments in all) each make a
+  gate stricter; nothing
+  loosens one. A proposal chains `free_text` either way, and one that says nothing is read as
+  free text. Mendari authorizes an action and records it, and runs none.
+- **A text is handed only to a person** (ADR-0027). An answer carries what an agent wrote only
+  with a decision that awaits one (`DecisionResult.drafts` and `written`, `core/decision.py`):
+  an automated or a blocked decision returns none and keeps none, and no outcome changes. A
+  held text is the note of `output.held`, kept only where the input is; a review gives each a
+  verdict and releases only by name free text and an action asked for after the decision
+  (`AuditStore.resolve_review`: `texts`, `release_actions`, `not_named`; `actions.by_name`).
+  `tests/test_agent_outputs.py`, `tests/test_held_texts.py`,
+  `tests/test_held_text_routes.py`.
 - **A calibration is tied to the service version it was fitted for** (ADR-0024): when the
   agent's service reports another version, or none, nothing is rescaled and the decision is
   capped. The version cap and the second signal's are `apply_policy`'s step 7, the actions'
@@ -109,7 +122,8 @@ See README "Project layout". Spec: one page, `docs/spec/agent-manifest.md`, for 
 refused. Decisions: `docs/decisions/` (ADR-0021: an agent's connection; ADR-0022: the first
 administrator and the operator organization; ADR-0023: actions; ADR-0024: a checked confidence
 and a second signal; ADR-0025: a judge is trusted by measured agreement; ADR-0026: one release
-baseline, agents only). The one-machine install is `deploy/site/` (its script `mendari-site`,
+baseline, agents only; ADR-0027: no free text is released unread). The one-machine install is
+`deploy/site/` (its script `mendari-site`,
 its settings made by `src/mendari/install.py`); the console's Agents, connection and System
 views are `dashboard/agents.js`, `connection.js` and `system.js`, over `server/hub_routes.py`,
 `connection_routes.py` and `system_routes.py`. Lessons: `tasks/lessons.md`. Plan and status:

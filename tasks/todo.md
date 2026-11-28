@@ -20,7 +20,88 @@ The loop, and where the platform stands:
    the dashboard: discover, pull, shadow on real workflows, validate locally, approve.
 5. **Share back:** site evidence (signed counts, never cases): in place on the Hub.
 
-## Plan: the engineering to A+ (2026-11-23, owner request), the current work
+## Plan: the trust core to the state of the art (2026-11-27, owner request), the current work
+
+**Objective.** The owner asked which part of the engine must be world class, and the answer was
+the trust core: the machinery that decides when an agent may act on its own and keeps proving
+that decision still holds. The reviewed recommendation, the sources and the order of work are
+in `notes/trust-core.md`. Each wave has a decision record first and is one pull request: built
+test first in worktrees, combined, reviewed by an engineer who built none of it, run on the
+full suite (SQLite and Postgres) and the browser suite, merged when CI is green, then checked
+in production.
+
+- [ ] **Wave T1. No free text is released unread** (ADR-0027). The judge gate's first design
+  (`notes/trust-core-judge-gate-draft.md`) was reviewed before anything was built and found
+  unsound while a held text still went out on a label confirmation, an agent could move its
+  words into an action's arguments, and a `contact` action with a free-text message was
+  released with AUTO. So first, with nothing statistical in it:
+  - [x] A1: a text is handed only to a person: an answer carries what the agent wrote only
+    with a decision that awaits one. The first build sent every decision that carries a text
+    to a person; measured on the demo agent (326 of its 600 test decisions automate their
+    routing while carrying a draft), it stopped all automation, and was replaced before
+    anything merged.
+  - [x] A2: an action whose arguments can hold free text is never released without a person
+    where its gate would be `auto`.
+  - [x] A3: a held text is kept for its reviewer as an action's arguments are; the review
+    gives each text a verdict; free text is released by name.
+  - [x] B1: the console's review shows the texts and takes the verdicts. A free-text action
+    starts unticked, withholding a text unticks every action, a verdict or a release waits
+    five seconds for Undo, and what a review did is listed under the queue.
+  - [x] B2: the spec, the guides, the threat model, the Card and the packet say so.
+  - [x] Found while the combined change was checked (2026-11-28), each fixed with its test:
+    - **A review released an action its reviewer never saw.** A caller may ask for one more
+      action on a decision that waits; asked for after the queue was read, it was released by
+      the label. Reproduced, then closed: an action asked for after the decision (`source:
+      request`) is released only by name (`actions.by_name`; ADR-0027 point 5, spec 13.8,
+      threat model E26).
+    - **The count beside "Review queue" read the queue**, on every view: under PHI mode
+      `encrypt` the chain recorded a read of every waiting input, and now of every held text,
+      each time a reviewer changed view. It comes from the counts-only summary now. This
+      predates the wave.
+    - **The scripted pilot (`mendari sandbox pilot-check`, a CI job no local test runs whole)
+      resolved its review with a label alone**, which a decision that holds a text refuses.
+      Reproduced against the mock identity provider CI uses, fixed, and run again there.
+    - Small additions: the record of an automated decision says its text was handed to
+      nobody; `mendari demo` says what became of the acknowledgement; the changelog says what
+      an upgrade does to a decision that was already waiting.
+  - [x] Review by an engineer who built none of it (2026-11-28). On fresh data it found no
+    way for a text or a free-text argument to leave unnamed, and ten findings, two of them
+    major, each fixed with its test (the table is in `notes/trust-core.md`):
+    - a decision 0.1.2 left waiting released free text on a plain confirmation: a proposal
+      now says whether it can hold free text, and one that says nothing is named;
+    - enumerated pieces spelled a text, and a number nothing lists automated: arguments are
+      free text unless they are a menu (every value listed, no list, at most a million);
+    - leaving the page sent a release; a text kept characters that are not seen; a name
+      ending in a line break; tests that held nothing for the FHIR answers, the escaping of
+      arguments and the log records.
+  - [x] A second engineer re-checked the fixes (2026-11-28): no blocker, and the main fixes
+    held against the real 0.1.2 source, a fuzz of 103,554 schemas and 84 mutations. It found
+    one major bug older than this wave (half a character in an answer, or in a message, made
+    the queue and the audit list answer 500: read as U+FFFD now) and tightened four things:
+    the set of unseen characters is Unicode's own list, a range of integers is a menu only up
+    to a hundred values, the console's Card says what holds free text, ten surviving mutations
+    have tests.
+  - [ ] The whole suite on SQLite and Postgres and the browser suite on the final code; the
+    pull request, which is also the release's: two event kinds join the FHIR audit code
+    system, which is pinned to the released version, so the wave ships as 0.2.0.
+- [ ] **Wave T2. A judge clears a text, kept honest by spot checks.** A round the server runs
+  on the organization's own connection, on cases like those that would automate; the writer,
+  the judge and their settings bound; a design fixed before grades exist; three graders; an
+  exact bound on the share of cleared texts a clinician would fail; a named approval; a random
+  share of cleared texts sent to a person, blind to why.
+- [ ] **Wave T3. The loop closes.** Spot checks of automated decisions; monitoring that stays
+  valid when read every day (confidence sequences); a confirmed alert holds automation by
+  itself and a person lifts it (the owner's answer to the question ADR-0010 and ADR-0019 left
+  open); the daily job covers an organization's store versions; alerts are chained and not
+  repeated.
+- [ ] **Wave T4. The steps inside an agent.** A trace in the agent contract, kept as inputs
+  are; evaluations and policy rules read it.
+- [ ] **Wave T5. Sharper statistics.** Prediction-powered inference for judged figures; a
+  bias-corrected interval for kappa; adjudication where two clinicians differ.
+- The owner's, which no engineering replaces: a design-partner site and clinician labels (real
+  outcomes); the external security review.
+
+## Plan: the engineering to A+ (2026-11-23, owner request)
 
 **Objective.** The owner graded the product C+ against the north star and asked for all of the
 engineering first; what depends on them (going public, the security review, a design-partner

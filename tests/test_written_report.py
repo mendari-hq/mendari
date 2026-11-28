@@ -166,6 +166,21 @@ def everywhere(value: Any) -> list[dict[str, Any]]:
 # -- the gate -----------------------------------------------------------------------------------
 
 
+def test_a_text_is_graded_as_it_would_be_kept_with_nothing_unseen_in_it() -> None:
+    """What a clinician and the judge grade is the text a reviewer would be shown: cleaned as
+    an agent's answer is, whether the agent wrote it or the input held it. A right-to-left
+    override or a zero-width space in it becomes a space; a text that is then blank is none."""
+    manifest = load_agent(MINI).manifest
+    wrote = {"reply_draft": "Take \u202e01\u202c mg\u200b now"}
+    assert written.written_text(manifest, "reply_draft", {}, wrote) == "Take  01  mg  now"
+    given = {"draft": "Call \u2066us\u2069 today\x07"}
+    assert written.written_text(manifest, "given_draft", given, {}) == "Call  us  today"
+    assert (
+        written.written_text(manifest, "reply_draft", {}, {"reply_draft": "\u200b\u202e"}) is None
+    )
+    assert written.written_text(manifest, "reply_draft", {}, {}) is None
+
+
 def test_a_validated_criterion_reports_the_judges_grades_for_ungraded_outputs() -> None:
     rows = paired(60, 36, 2, 2) + UNGRADED
     ledger, grades = constructed(rows)

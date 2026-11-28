@@ -11,10 +11,14 @@ label to count, so Mendari evaluates it another way.
   for the texts no clinician graded are reported **only where that agreement clears stated
   floors**. Below them the figure is withheld. It is not shown with a caveat.
 
+Grading is one half. The other is who gets a text when a decision is made: **a text is
+handed only to a person**, never sent on unread ([section 2](#2-who-gets-the-text)).
+
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
 rules are in [the agent manifest spec](../spec/agent-manifest.md#15-written-output) (section
 15), the formats in [evaluation reports](../spec/evaluation-reports.md), and the reasons in
-[ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md).
+[ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md) (grading) and
+[ADR-0027](../decisions/ADR-0027-no-free-text-is-released-unread.md) (who gets a text).
 
 ## See it in a minute
 
@@ -94,6 +98,13 @@ rubrics:
 - A grader, and the judge, read the text and the `context_fields`. Nothing else of the input.
 - An output may instead be `input: <field>`: a text the input already holds, such as a reply
   another system drafted. No agent is called for it.
+- What your agent writes is read as plain characters. A control character becomes a space, and
+  so does a character that is not seen and changes what is: a right-to-left override, a
+  zero-width space, a soft hyphen, a variation selector, a tag character (every code point
+  Unicode says is not shown by default). With one, a reviewer would read one text and release
+  another. Line breaks and tabs stay, and so do the joiners and the emoji selectors a script
+  or an emoji needs. A character cut in half (a text truncated at a length counted in UTF-16
+  units) becomes the replacement character, U+FFFD: cut your texts by characters.
 
 The agent returns the text with its answers. With the
 [agent kit](authoring-an-agent.md#starters):
@@ -102,9 +113,87 @@ The agent returns the text with its answers. With the
 return respond(case, answers, outputs={"acknowledgement": text})
 ```
 
-A decision returns `outputs` to its caller and does not store them.
+## 2. Who gets the text
 
-## 2. Choose the judge
+**A text is handed only to a person.** What your agent wrote is free text nobody has read, so
+a decision gives it to someone only when a person decides:
+
+| The decision | `written` says | The text |
+|---|---|---|
+| waits for a person (`HUMAN_REVIEW`, `ABSTAIN`) | `held` | is that person's draft: returned to your caller, and kept for the reviewer |
+| is `AUTO` or `BLOCK` | `not_released` | is returned to nobody and kept nowhere |
+
+The decision itself does not change. A text does not stop a label from automating, nor an
+action whose arguments are a menu from being released: the demo agent drafts an acknowledgement
+with every message, and still automates its routing. What changes is that the acknowledgement
+comes back only with the decisions a person reviews.
+
+A decision that waits, from `POST /api/agents/{namespace}/{name}/decide`:
+
+```json
+{"outcome": "HUMAN_REVIEW", "recommendation": "other",
+ "written": {"acknowledgement": {"state": "held"}},
+ "outputs": {"acknowledgement": "Thank you for your message. We have received it. The front desk will read it and reply within two business days."}}
+```
+
+One that automated has `"written": {"acknowledgement": {"state": "not_released"}}` and no
+`outputs`. `mendari decide` answers the same way. The FHIR routes give `written` and never a
+text, and CDS Hooks cards, `$decide` and `mendari mcp` give neither: there, a reviewer reads
+the draft in the review queue.
+
+**Treat a held text as a draft.** Show it to the person who decides; do not send it or file
+it. It is released when the decision's review says so.
+
+**The reviewer gives each text a verdict.** The review queue (`GET /api/review`) lists a
+decision's held texts under `outputs`, and resolving the review takes a verdict on each, by
+the output's name: `release` or `withhold`.
+
+```json
+{"final_label": "other", "reviewer": "rn-1", "texts": {"acknowledgement": "release"}}
+```
+
+A review that leaves a held text out is refused. Withholding a text also holds back the
+decision's actions: none is released unless the review names it
+([Governing actions](governing-actions.md#6-review-releases-or-denies)). Afterwards the
+decision's record (`GET /api/audit/{id}`) says where each text stands: `released` or
+`withheld`. In the console, the decision's card in the review queue shows each held text with
+its two verdicts, and no label resolves the review until each text has one; the record of a
+decision that automated names its texts and says they were returned to nobody.
+
+**What is kept.** A held text is kept for its reviewer exactly as the decision's input is, and
+apart from the audit chain, which holds the output's name and a commitment, never the text:
+
+| PHI mode | A held text |
+|---|---|
+| `encrypt` | sealed; reviewers and administrators read it, and each read is chained |
+| `hash`, or an agent whose `audit.store_input` is `hash` | not kept: the reviewer reads the draft where your caller shows it, and still gives the verdict |
+| `off` (a local sandbox) | kept beside the chain, readable by whoever may read the decision |
+
+Erasing a decision's input erases its held texts, and retention removes them, each with its
+own chained event ([Deploying with real patient data](../deploying-with-phi.md#3-phi-mode)).
+The text of an automated or a blocked decision is kept nowhere. Where a text is neither kept
+nor returned (a FHIR route, under a mode that keeps none), nobody is shown the draft, and the
+verdict is still asked for: withhold it.
+
+**How a text reaches a patient.** Through an action a person releases, never by itself. The
+demo agent shows the shape: it writes `acknowledgement`, and proposes `send_acknowledgement`,
+a `contact` with `allow_auto: false` whose one argument is an enumerated template name. The
+action waits for a reviewer, who reads the draft, releases it or withholds it, and confirms
+the decision; your caller sends the text once the action is released. Do not put the words in
+an action's arguments to get them sent automatically: an action whose arguments can hold free
+text is never released without a person either.
+
+**An automated decision comes without its text.** If your caller sent what the agent wrote
+with every automated decision, it has nothing to send for those now. A judge that clears a
+text when the decision is made, so that some texts could go without a person, is not built.
+
+**A rationale is not a text.** An answer's `rationale` (at most 500 characters) and the names
+of the tools the agent called still come back with every decision, as evidence for a
+reviewer. Do not send them to a patient or file them in a chart. Every proposed action's
+arguments come back too, with what may be done with it, whatever the decision: a `draft` is
+released for staff to read and send themselves, and a blocked action is not to be run.
+
+## 3. Choose the judge
 
 With `LLM_MODEL` set (or `judge.model` in the rubric), the judge is that model, asked the
 rubric's criteria at the deployment's model endpoint. It is sent a fixed preamble, each
@@ -115,7 +204,7 @@ With no model set, grades come from the rubric's `judge.mock_file`, a fixture of
 That is for trying the workflow offline. Every report made from it says "demonstration only".
 `--judge canned` or `--judge live` forces either.
 
-## 3. Have clinicians grade
+## 4. Have clinicians grade
 
 Two ways lead to the same report.
 
@@ -154,7 +243,7 @@ mendari written eval my-agent --rubric reply_quality --dataset written --grades 
 A grade binds to the exact text it was given for. Run a changed agent and its old grades are
 counted as stale and not used. Reword the rubric and its old grades are refused.
 
-## 4. Read the report
+## 5. Read the report
 
 Per criterion:
 
@@ -222,5 +311,6 @@ grade. A round whose closing was interrupted reads `closing`: run
 
 - A validation holds for one run of one agent on one set. It is not carried to another.
 - Each criterion is judged on its own at 95%. The report claims nothing about all together.
-- Nothing here releases a text at run time. A written output still reaches a patient only
-  through an action a person confirmed ([Governing actions](governing-actions.md)).
+- A validation is about an evaluation's texts. No judge releases a text when a decision is
+  made: a text is handed only to a person ([section 2](#2-who-gets-the-text)), and reaches a
+  patient only through an action a person released ([Governing actions](governing-actions.md)).

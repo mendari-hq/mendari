@@ -6,6 +6,9 @@
 - name: an action never released without a person sends the decision to one
   input: {message: {body: "Please renew my prescription."}}
   expect: {outcome: HUMAN_REVIEW, recommendation: refill}
+- name: a reply written as free text sends the decision to a person
+  input: {message: {body: "Please reply about my lisinopril."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: refill}
 - name: an abusive message is blocked
   input: {message: {body: "This is abusive."}}
   expect: {outcome: BLOCK}

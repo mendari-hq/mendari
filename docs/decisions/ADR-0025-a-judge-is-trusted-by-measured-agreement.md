@@ -5,6 +5,10 @@ Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
+Its second phase begins with [ADR-0027](ADR-0027-no-free-text-is-released-unread.md): a held
+text is now kept for its reviewer, which replaces point 9's "does not store it" for a held
+text only.
+
 Specified in [the agent manifest spec](../spec/agent-manifest.md), section 15, and in
 [evaluation reports](../spec/evaluation-reports.md) (`mendari.written/1`). Built after
 [ADR-0023](ADR-0023-an-agent-proposes-actions.md) (actions) and
