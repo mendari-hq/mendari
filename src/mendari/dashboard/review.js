@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
+//
+// A decision that carries what its agent wrote holds each text for the reviewer (ADR-0027): the
+// card shows it, and takes a verdict on each, "Release as written" or "Withhold", before any
+// label resolves the review. Its held actions are released by their ticks: one whose arguments
+// can hold free text starts unticked, and withholding a text unticks them all. What the review
+// did is listed under the queue afterwards, as the server answered it.
 
-import { actionsList, inputView, labelName, statusNotice } from "./manifest.js";
+import { actionsList, inputView, labelName, NOT_RELEASED, statusNotice, textsList } from "./manifest.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -46,7 +52,13 @@ views.review = async (main) => {
         <h2 id="group-${esc(priority)}">${esc(PRIORITY_TEXT[priority] ?? "Other")} <span class="count-plain">${group.length}</span></h2>
         ${group.map(reviewCard).join("")}
       </section>`).join("") || emptyQueue()}
-    </div>`;
+    </div>
+    <section id="resolved" aria-labelledby="resolved-title" hidden>
+      <h2 id="resolved-title">What your reviews did</h2>
+      <p class="muted">Each review you resolved here that held a text or an action: what it released, withheld or denied, as the audit trail recorded it. Newest first.</p>
+      <ol class="resolved-list"></ol>
+    </section>`;
+  main.querySelectorAll(".review-card").forEach(syncCard);
 
   const applyFilter = (refocusPriority = null) => {
     const allGroups = [...main.querySelectorAll(".review-group")];
@@ -70,6 +82,12 @@ views.review = async (main) => {
   $("#queue").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-label]");
     if (button) resolveCard(button, applyFilter);
+  });
+  $("#queue").addEventListener("change", (event) => {
+    const card = event.target.closest(".review-card");
+    if (!card) return;
+    if (event.target.matches("input[data-verdict]")) verdictChanged(card, event.target);
+    else if (event.target.matches("input[data-release]")) syncCard(card);
   });
 
   // Keyboard triage: J/K step through visible cards, C confirms the focused card's recommendation,
@@ -133,6 +151,109 @@ function queueCounts(items, activePriority = "") {
     `<button type="button" class="badge p-${p} priority-filter" data-priority-filter="${p}" aria-pressed="${activePriority === p}" title="Filter by ${esc(PRIORITY_TEXT[p].toLowerCase())}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</button>`).join(" ");
 }
 
+// -- what the reviewer chose on a card (ADR-0027) -------------------------------------------------
+
+const WITHHELD = "A text is withheld: no held action is released unless you tick it.";
+const READY = "Every text has a verdict: you can resolve this review.";
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const waitsFor = (n) => `${n === 1 ? "1 text needs" : `${n} texts need`} a verdict before you can resolve this review.`;
+
+// The verdict given to each held text of a card, by its output's name (null: none yet).
+function verdicts(card) {
+  const given = {};
+  card.querySelectorAll("input[data-verdict]").forEach((radio) => {
+    given[radio.dataset.verdict] ??= null;
+    if (radio.checked) given[radio.dataset.verdict] = radio.value;
+  });
+  return given;
+}
+// The texts still without a verdict, in the order shown; the ticks of the held actions.
+const waiting = (card) => Object.entries(verdicts(card)).filter(([, verdict]) => verdict === null).map(([name]) => name);
+const ticks = (card) => [...card.querySelectorAll("input[data-release]")];
+
+// A card in step with its verdicts and ticks. Until every held text has a verdict the labels
+// are unavailable: `aria-disabled`, so the keyboard still reaches them, each described by the
+// reason, which is on the card in words. While a text is withheld the card says that no held
+// action is released without its tick. Each tick is described by what applies to it, and an
+// unticked action says it will not be released.
+function syncCard(card) {
+  const given = Object.values(verdicts(card));
+  const missing = given.filter((verdict) => verdict === null).length;
+  const withheld = given.includes("withhold");
+  card.dataset.waiting = String(missing);
+  const gate = card.querySelector(".review-gate");
+  if (gate) {
+    gate.hidden = !missing;
+    gate.textContent = missing ? waitsFor(missing) : "";
+    card.querySelectorAll(".labels button").forEach((button) => {
+      if (missing) {
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-describedby", gate.id);
+      } else {
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-describedby");
+      }
+    });
+  }
+  const note = card.querySelector(".withheld-note");
+  if (note) {
+    note.hidden = !withheld;
+    note.textContent = withheld ? WITHHELD : "";
+  }
+  ticks(card).forEach((box) => {
+    const row = box.closest("li");
+    const off = row.querySelector(".release-off");
+    off.hidden = box.checked;
+    off.textContent = box.checked ? "" : NOT_RELEASED;
+    const said = [row.querySelector(".release-why")?.id, withheld && note?.id, !box.checked && off.id].filter(Boolean);
+    if (said.length) box.setAttribute("aria-describedby", said.join(" "));
+    else box.removeAttribute("aria-describedby");
+  });
+}
+
+// A text was given its verdict (`radio`: the one chosen), or another. A manifest does not say
+// which action uses which text, so once a text is withheld no held action is released unless
+// the review names it: each time a text is withheld every tick comes off, the reviewer's own
+// too, and what is released after that, they ticked after that. Nothing is ticked for them
+// again, whatever a verdict becomes. Said to a screen reader as it happens.
+function verdictChanged(card, radio) {
+  const wasWaiting = Number(card.dataset.waiting);
+  const unticked = radio.value === "withhold" && ticks(card).length > 0;
+  if (unticked) ticks(card).forEach((box) => (box.checked = false));
+  syncCard(card);
+  const missing = Number(card.dataset.waiting);
+  const said = [missing !== wasWaiting && (missing ? waitsFor(missing) : READY), unticked && WITHHELD].filter(Boolean);
+  if (said.length) announce(said.join(" "));
+}
+
+// What a label would send for a card, as the reviewer left it. Each held text's verdict. Then,
+// when the label confirms the recommendation (any other denies every held action, so it names
+// none): a tick releases, and names the action where confirming alone does not release it,
+// because its arguments can hold free text or a text is withheld; a missing tick refuses by
+// name what confirming alone would release, and leaves the rest unnamed, which is not released.
+// So no action is ever both named and refused.
+function choices(card, label) {
+  const texts = verdicts(card);
+  const byName = Object.values(texts).includes("withhold");
+  const held = label === card.dataset.recommendation ? ticks(card) : [];
+  const needsName = (box) => byName || "freeText" in box.dataset;
+  const ids = (boxes) => boxes.map((box) => box.dataset.release);
+  return {
+    texts,
+    released: held.filter((box) => box.checked).length,
+    named: ids(held.filter((box) => box.checked && needsName(box))),
+    denied: ids(held.filter((box) => !box.checked && !needsName(box))),
+  };
+}
+
+// What the review does besides its label, in words: "release 2 texts and 1 action, withhold 1 text".
+function doing({ texts, released }) {
+  const given = Object.values(texts);
+  const [release, withhold] = ["release", "withhold"].map((verdict) => given.filter((v) => v === verdict).length);
+  const out = [release && plural(release, "text"), released && plural(released, "action")].filter(Boolean);
+  return [out.length ? `release ${out.join(" and ")}` : "", withhold ? `withhold ${plural(withhold, "text")}` : ""].filter(Boolean).join(", ");
+}
+
 // Confirming the recommendation is one tap. Any other label is held for UNDO_SECONDS with an Undo
 // button (focused), since the audit chain is append-only and a mis-tap on a phone would otherwise be
 // a permanent override. Leaving the view or the page sends what is held, as if the time ran out.
@@ -141,32 +262,42 @@ const held = new Map(); // decision id -> send()
 
 function resolveCard(button, onResolved) {
   const card = button.closest(".review-card");
+  // Every held text has its verdict first: asked without, nothing is sent; the reason is said
+  // and the first text that waits takes focus.
+  const [first] = waiting(card);
+  if (first) {
+    card.querySelector(`input[data-verdict="${CSS.escape(first)}"]`).focus();
+    return toastError(waitsFor(waiting(card).length));
+  }
   const reviewer = $("#reviewer").value.trim();
   if (!reviewer) {
     $("#reviewer").focus();
     return toastError("Enter a reviewer name first");
   }
   const label = button.dataset.label;
-  // Confirming releases the held actions that are still checked, and a release is final: it
-  // waits for Undo as an override does. Confirming with nothing to release is one tap, as before.
-  if (label === card.dataset.recommendation && !releasing(card).length) return sendResolution(card, label, reviewer, { onResolved });
-  holdResolution(card, button, label, reviewer, onResolved);
+  const chosen = choices(card, label);
+  // A verdict is final, and so is a release: either waits for Undo as an override does.
+  // Confirming with no text to judge and nothing to release is one tap, as before.
+  const final = Object.keys(chosen.texts).length > 0 || chosen.released > 0;
+  if (label === card.dataset.recommendation && !final) return sendResolution(card, label, reviewer, chosen, { onResolved });
+  holdResolution(card, button, label, reviewer, chosen, onResolved);
 }
 
-// The held actions a reviewer leaves checked (released on confirm) and unchecks (denied).
-const releasing = (card) => [...card.querySelectorAll("input[data-release]:checked")].map((box) => box.dataset.release);
-const refusing = (card) => [...card.querySelectorAll("input[data-release]:not(:checked)")].map((box) => box.dataset.release);
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// While a review waits for Undo or for the server's answer, its card's verdicts and ticks cannot
+// change: what the bar says is what is sent. Undo, or a refusal, gives them back as they were.
+function freeze(card, frozen) {
+  card.querySelectorAll("input[data-verdict], input[data-release]").forEach((input) => (input.disabled = frozen));
+}
 
-function holdResolution(card, button, label, reviewer, onResolved) {
+function holdResolution(card, button, label, reviewer, chosen, onResolved) {
   const labelButtons = card.querySelectorAll(".labels button");
   labelButtons.forEach((b) => (b.disabled = true));
+  freeze(card, true);
   button.classList.add("held");
   const name = labelName(state.detail.primary, label);
   const confirming = label === card.dataset.recommendation;
-  const what = confirming
-    ? `Confirm <b>${esc(name)}</b> and release ${plural(releasing(card).length, "action")}`
-    : card.dataset.recommendation ? `Override to <b>${esc(name)}</b>` : `Label <b>${esc(name)}</b>`;
+  const more = doing(chosen);
+  const what = `${confirming ? "Confirm" : card.dataset.recommendation ? "Override to" : "Label"} <b>${esc(name)}</b>${more ? ` and ${esc(more)}` : ""}`;
   const bar = document.createElement("div");
   bar.className = "undo-bar";
   bar.innerHTML = `<span>${what} in <span class="undo-seconds">${UNDO_SECONDS}</span> s</span>
@@ -182,7 +313,7 @@ function holdResolution(card, button, label, reviewer, onResolved) {
   };
   const send = (options) => {
     release();
-    return sendResolution(card, label, reviewer, { ...options, onResolved });
+    return sendResolution(card, label, reviewer, chosen, { ...options, onResolved });
   };
   const timer = setTimeout(send, UNDO_SECONDS * 1000);
   held.set(card.dataset.id, send);
@@ -190,11 +321,12 @@ function holdResolution(card, button, label, reviewer, onResolved) {
     release();
     button.classList.remove("held");
     labelButtons.forEach((b) => (b.disabled = false));
+    freeze(card, false);
     button.focus();
     announce(`Cancelled: ${name} was not sent`);
   });
   bar.querySelector(".undo").focus();
-  announce(`${confirming ? "Confirm" : card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
+  announce(`${confirming ? "Confirm" : card.dataset.recommendation ? "Override" : "Label"} ${name}${more ? ` and ${more}` : ""} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
 // Leaving the queue (another view, another agent, another organization: that one waits for them)
@@ -205,16 +337,51 @@ views.review.leave = () => {
 };
 window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
 
-async function sendResolution(card, label, reviewer, { keepalive = false, onResolved } = {}) {
+// What a resolved review did, as the server answered it, in words for a toast:
+// ["2 texts released", "1 action released, 1 action denied"].
+function outcomeWords(result) {
+  const [texts, actions] = [result.outputs ?? [], result.actions ?? []];
+  const count = (items, test) => items.filter(test).length;
+  const said = (counts) => counts.filter(([n]) => n).map(([n, noun, verb]) => `${plural(n, noun)} ${verb}`).join(", ");
+  return [
+    said([[count(texts, (t) => t.verdict === "released"), "text", "released"], [count(texts, (t) => t.verdict !== "released"), "text", "withheld"]]),
+    said([[count(actions, (a) => a.disposition === "released"), "action", "released"], [count(actions, (a) => a.disposition !== "released"), "action", "denied"]]),
+  ].filter(Boolean);
+}
+
+// A decision's id as the queue shows it: a link to its record for whoever may read it.
+const recordLink = (id) => (may("read")
+  ? `<a class="action-link mono" href="#audit/${encodeURIComponent(id)}" title="Inspect decision ${esc(id)}">${esc(id.slice(0, 8))}</a>`
+  : `<span class="mono muted">${esc(id.slice(0, 8))}</span>`);
+
+// Under the queue, once a review that held a text or an action is resolved: each text with the
+// verdict it got and each held action with what became of it and why, as the server answered.
+// Never the texts themselves: the decision's record shows them to whoever may read them.
+function listResolved(id, said, result) {
+  const list = document.querySelector("#resolved .resolved-list");
+  if (!list || !(result.outputs?.length || result.actions?.length)) return;
+  const item = document.createElement("li");
+  item.className = "panel resolved-item";
+  item.dataset.id = id;
+  item.innerHTML = `<div class="row"><b>${esc(said)}</b><span class="grow"></span>${recordLink(id)}</div>
+    ${textsList((result.outputs ?? []).map((text) => ({ name: text.name, state: text.verdict })), { brief: true })}
+    ${actionsList(result.actions, { brief: true })}`;
+  list.prepend(item);
+  $("#resolved").hidden = false;
+}
+
+async function sendResolution(card, label, reviewer, chosen, { keepalive = false, onResolved } = {}) {
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  freeze(card, true);
+  const failed = card.querySelector(".review-error");
+  if (failed) failed.hidden = true;
   const hadFocus = card.contains(document.activeElement) || document.activeElement === document.body;
   const primary = state.detail?.primary;
   const note = card.querySelector(".review-note textarea")?.value.trim() || null;
   const payload = note ? { final_label: label, reviewer, note } : { final_label: label, reviewer };
-  // A held action the reviewer unchecked is denied while the label is confirmed (an override
-  // denies them all, so it names none).
-  const denied = label === card.dataset.recommendation ? refusing(card) : [];
-  if (denied.length) payload.deny_actions = denied;
+  if (Object.keys(chosen.texts).length) payload.texts = chosen.texts;
+  if (chosen.named.length) payload.release_actions = chosen.named;
+  if (chosen.denied.length) payload.deny_actions = chosen.denied;
   try {
     const result = await api(`/api/review/${card.dataset.id}`, {
       method: "POST",
@@ -222,14 +389,12 @@ async function sendResolution(card, label, reviewer, { keepalive = false, onReso
       keepalive,
     });
     const name = primary ? labelName(primary, label) : label;
-    const released = (result.actions ?? []).filter((a) => a.disposition === "released").length;
-    const refused = (result.actions ?? []).length - released;
-    const acted = result.actions?.length
-      ? ` · ${[released ? `${plural(released, "action")} released` : "", refused ? `${plural(refused, "action")} denied` : ""].filter(Boolean).join(", ")}`
-      : "";
-    toast(`${result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`}${acted}`);
+    // What was done is what the server answered, never what was asked for.
+    const said = result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`;
+    toast([said, ...outcomeWords(result)].join(" · "));
     refreshReviewCount();
     if (!card.isConnected) return; // sent on the way out of the queue
+    listResolved(card.dataset.id, said, result);
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
     // unless they have already moved on to another.
     const cards = [...document.querySelectorAll(".review-group:not([hidden]) .review-card")];
@@ -258,8 +423,18 @@ async function sendResolution(card, label, reviewer, { keepalive = false, onReso
       if (fallback) focusHeading(fallback);
     }
   } catch (error) {
-    toastError(error.message);
-    if (card.isConnected) card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    // Refused, or it never arrived: nothing was recorded, and nothing is shown as done. The
+    // card says why, in place, and gives back every verdict and tick as the reviewer left it.
+    const why = `Not recorded: ${error instanceof TypeError ? "the server could not be reached. Your choices are kept: try again." : error.message}`;
+    if (!card.isConnected || !failed) return toastError(why);
+    card.querySelectorAll("button").forEach((b) => {
+      b.disabled = false;
+      b.classList.remove("held");
+    });
+    freeze(card, false);
+    failed.hidden = false; // shown, then filled: an alert is announced when its words change
+    failed.textContent = why;
+    if (hadFocus) card.focus({ preventScroll: true });
   }
 }
 
@@ -273,7 +448,10 @@ function reviewCard(item) {
   const labels = state.detail.labels;
   const name = (label) => labelName(state.detail.primary, label);
   const title = recommendation ? `Recommended: ${name(recommendation)}` : "No recommendation: the agent abstained";
-  const noteField = may("review") && state.phiMode !== "hash"
+  const reviewing = may("review");
+  // A held text waits for its verdict, and the labels wait with it (`syncCard`).
+  const waits = (item.outputs ?? []).some((text) => text.state === "held");
+  const noteField = reviewing && state.phiMode !== "hash"
     ? `<details class="review-note"><summary>Add a note <span class="muted">(optional)</span></summary>
         <label class="sr-only" for="review-note-${esc(item.id)}">Review note</label>
         <textarea id="review-note-${esc(item.id)}" rows="2" maxlength="2000" placeholder="Context for the team (kept apart from the audit chain)"></textarea>
@@ -289,15 +467,21 @@ function reviewCard(item) {
       <span class="grow"></span>
       ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
-      ${may("read") ? `<a class="action-link mono" href="#audit/${encodeURIComponent(item.id)}" title="Inspect decision ${esc(item.id)}">${esc(item.id.slice(0, 8))}</a>` : `<span class="mono muted">${esc(item.id.slice(0, 8))}</span>`}
+      ${recordLink(item.id)}
     </div>
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    ${item.outputs?.length ? `<h4>What the agent wrote</h4>
+      <p class="muted">${reviewing ? "Read each text and choose what becomes of it. " : ""}A released text may be sent or filed as written; a withheld one may not.</p>
+      ${textsList(item.outputs, { choose: reviewing, id: item.id })}` : ""}
     ${item.actions?.length ? `<h4>Proposed actions</h4>
-      ${item.actions.some((a) => a.disposition === "held") ? `<p class="muted">Confirming the recommendation releases the held actions; another label denies them.</p>` : ""}
-      ${actionsList(item.actions, { choose: may("review") && Boolean(recommendation) })}` : ""}
+      ${item.actions.some((a) => a.disposition === "held") ? `<p class="muted">Confirming the recommendation releases the held actions that are ticked; another label denies them all.</p>
+        <p class="callout warning withheld-note" id="withheld-${esc(item.id)}" hidden></p>` : ""}
+      ${actionsList(item.actions, { choose: reviewing && Boolean(recommendation) })}` : ""}
     ${noteField}
-    ${may("review") ? `<div class="labels">
+    ${reviewing ? `<p class="field-error review-error" role="alert" hidden></p>
+    ${waits ? `<p class="review-gate" id="gate-${esc(item.id)}" hidden></p>` : ""}
+    <div class="labels">
       ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(name(recommendation))}</button>
         <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}
       ${labels.filter((l) => l !== recommendation).map((l) => `<button type="button" data-label="${esc(l)}">${esc(name(l))}</button>`).join("")}

@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Accessibility: axe-core (vendored, tests/browser/vendor/axe-core; scripts/vendor_docs_ui.py)
-on every dashboard view, an open record drawer and the developer pages, in both themes, against
-WCAG 2.0, 2.1 and 2.2 A and AA. axe is injected by the test (the pages' own CSP never allows it:
-the context bypasses CSP for that one script), so nothing in the product loads it. A page is
-checked once its entrance animations have finished, as a person reads it.
+on every dashboard view, an open record drawer, the review of a decision that holds a text and
+the developer pages, in both themes, against WCAG 2.0, 2.1 and 2.2 A and AA. axe is injected by
+the test (the pages' own CSP never allows it: the context bypasses CSP for that one script), so
+nothing in the product loads it. A page is checked once its entrance animations have finished,
+as a person reads it.
 
 Swagger UI's own markup on /docs/reference is left out (the page around it is checked): it is
 vendored as released, and its known findings (a control inside the operation summary's button,
@@ -14,11 +15,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Browser, Page, expect
 
+from tests.browser import held_site
 from tests.browser.conftest import TRIAGE
 from tests.browser.test_dashboard import AGENTS, VIEWS, open_agent, show
 from tests.browser.test_registry_approvals import APPROVAL, from_registry, registry_approvals
@@ -79,6 +81,40 @@ def test_an_open_drawer_passes_axe(axe_page: Page) -> None:
     axe_page.locator("button.open-record").first.click()
     expect(axe_page.locator(".drawer")).to_be_visible()
     assert violations(axe_page) == []
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+def test_the_review_of_a_held_text_passes_axe(
+    browser: Browser, held_server: str, scheme: Literal["light", "dark"]
+) -> None:
+    """A decision that holds two texts and two actions (ADR-0027), on the server that makes
+    such decisions: as its card opens (each text with its two verdicts, the labels unavailable
+    and saying why), with a text withheld and an action ticked, once resolved (what the review
+    did, listed under the queue), and in its record."""
+    decided = held_site.decide(held_server, held_site.WRITER, held_site.LETTER)
+    context = browser.new_context(base_url=held_server, bypass_csp=True, color_scheme=scheme)
+    try:
+        page = context.new_page()
+        page.clock.install()  # the review waits five seconds for Undo
+        open_agent(page, held_site.WRITER, "review")
+        card = held_site.card(page, decided["id"])
+        expect(card.locator(".review-gate")).to_be_visible()
+        assert violations(page) == []
+        held_site.verdict(card, "chart_note", "Release as written")
+        held_site.verdict(card, "reply_draft", "Withhold")
+        held_site.release_box(card, "Send reply").check()
+        expect(card.locator(".withheld-note")).to_be_visible()
+        assert violations(page) == []
+        card.get_by_role("button", name=re.compile("^Confirm Refill")).click()
+        expect(card.locator(".undo-bar")).to_be_visible()
+        page.clock.run_for(5000)
+        expect(page.locator(f'.resolved-item[data-id="{decided["id"]}"]')).to_be_visible()
+        assert violations(page) == []
+        page.goto(f"/#audit/{decided['id']}")
+        expect(page.locator(".drawer .texts-list")).to_be_visible()
+        assert violations(page) == []
+    finally:
+        context.close()
 
 
 @pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)

@@ -194,6 +194,28 @@ def agent_ids(live_server: str) -> list[str]:
     return [agent["id"] for agent in httpx.get(f"{live_server}/api/agents").json()]
 
 
+@pytest.fixture(scope="session")
+def held_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    """A second server, whose decisions hold texts for a person to read (ADR-0027): the address
+    of `tests/browser/held_site.py`'s, for the tests of their review."""
+    from tests.browser import held_site  # here: it imports this module
+
+    with held_site.running(Path(tmp_path_factory.mktemp("held"))) as base:
+        yield base
+
+
+@pytest.fixture
+def held_console(browser: Browser, held_server: str) -> Iterator[Page]:
+    """A browser window on `held_server`. The test fails if its console or its pages reported
+    an error."""
+    from tests.browser import held_site
+
+    errors: list[str] = []
+    with held_site.window(browser, held_server, errors) as page:
+        yield page
+    assert errors == []
+
+
 @pytest.fixture
 def axe_page(browser: Browser, base_url: str, request: pytest.FixtureRequest) -> Page:
     """A page in a context that lets a test inject axe (tests/browser/test_accessibility.py; the

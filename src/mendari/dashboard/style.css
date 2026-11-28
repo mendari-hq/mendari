@@ -342,12 +342,17 @@ button.primary, a.button.primary { background: var(--color-accent); border-color
 button.danger { background: var(--color-danger-solid); border-color: var(--color-danger-solid); color: var(--color-on-solid); }
 button.danger:hover { border-color: var(--color-danger); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Unavailable and still in the tab order (the review's labels while a text waits for its verdict,
+   review.js): quieter, never faint, so its name and its focus ring stay readable. */
+button[aria-disabled="true"] {
+  background: var(--color-surface-sunken); border-color: var(--color-border); color: var(--color-text-muted); cursor: not-allowed;
+}
 /* Controls answer the pointer: a short colour transition on hover, a 1 px press. */
 :is(button, a.button, .nav a, .segmented a) {
   transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
-:is(button, a.button):active:not(:disabled) { transform: translateY(1px); }
+:is(button, a.button):active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
 button[aria-busy="true"] { cursor: progress; }
 /* A button that reads as text (e.g. the time that opens an audit record). */
 button.linklike {
@@ -1121,6 +1126,32 @@ ol.rules p { margin: var(--space-1) 0; }
 .actions-list { list-style: none; margin: var(--space-1-5) 0 var(--space-3); padding: 0; display: grid; gap: var(--space-2); }
 .actions-list > li { padding: var(--space-2) var(--space-3); background: var(--color-surface-sunken); border-radius: var(--radius-sm); }
 .actions-list :is(p, dl.facts) { margin: var(--space-1) 0 0; }
+/* A held action's tick (manifest.js `releaseChoice`): the label is the checkbox's target, the
+   checkbox 24 px of its own (WCAG 2.5.8); beside it, what an unticked action is told. */
+.release-choice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
+.pick { display: inline-flex; align-items: center; gap: var(--space-1-5); min-height: 24px; cursor: pointer; }
+.pick input[type="checkbox"] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--color-accent); }
+.release-off { font-weight: var(--weight-medium); }
+/* Held texts (ADR-0027; manifest.js `textsList`): one row per text. The text is in a box of its
+   own, as text with its line breaks (.message), which scrolls when it is long (8,000 characters
+   at most) and takes focus so the keyboard scrolls it; under it, for its reviewer, the two
+   verdicts (the grading screen's radios). */
+.texts-list { list-style: none; margin: var(--space-1-5) 0 var(--space-3); padding: 0; display: grid; gap: var(--space-2); }
+.texts-list > li { min-width: 0; padding: var(--space-2) var(--space-3); background: var(--color-surface-sunken); border-radius: var(--radius-sm); }
+.texts-list p { margin: var(--space-1) 0 0; }
+.text-verdict { min-width: 0; margin: 0; padding: 0; border: 0; }
+.text-verdict legend { padding: 0; }
+.text-body {
+  max-height: 280px; overflow: auto; overflow-wrap: anywhere; margin: var(--space-2) 0;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+}
+.text-verdict .label-options { margin-top: var(--space-2); }
+/* The review's labels wait for every verdict: why, above them; and why a review was not recorded. */
+.review-gate { margin: 0 0 var(--space-2); font-weight: var(--weight-medium); }
+.review-error { margin-bottom: var(--space-2); }
+/* Under the queue: what each review resolved here did to the texts and actions it held. */
+.resolved-list { list-style: none; margin: 0; padding: 0; }
+.resolved-item :is(.texts-list, .actions-list) { margin-bottom: 0; }
 /* A label other than the recommendation waits here for five seconds before it is sent; the line along
    the bottom runs down with the time (it stays full under reduced motion; the seconds still count). */
 .undo-bar {
@@ -1349,6 +1380,7 @@ ol.rules p { margin: var(--space-1) 0; }
   }
   .badge, .callout, .panel, .stat, .stack, .psi-gauge { border: 1px solid CanvasText; }
   .psi-fill { background: Highlight; }
+  button[aria-disabled="true"] { color: GrayText; border-color: GrayText; }  /* as a disabled one reads */
 }
 
 @media (prefers-reduced-motion: reduce) {
