@@ -6,7 +6,9 @@ manifest.
 The table is written out here, cell by cell, and held against the code; then properties over
 every effect, manifest key, origin and decision state prove what the table alone cannot: that
 nothing a manifest declares and nothing an agent proposes loosens a gate or releases what a
-stricter reading would not, and that the cap never raises an outcome."""
+stricter reading would not, and that the cap never raises an outcome. Arguments that can hold
+free text are a fourth way a gate tightens (ADR-0027): where it would be `auto` it is `person`,
+so no automated decision releases a `write` or a `contact` that carries words nobody read."""
 
 from __future__ import annotations
 

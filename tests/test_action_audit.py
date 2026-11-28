@@ -443,8 +443,8 @@ def ask(decision: Decision, decision_id: str, name: str, **arguments: Any) -> tu
 def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None:
     decision = agent(store)
     automated = decision(message(REFILL)).id
-    # An automated decision: what writes or contacts is released, an order has nobody to wait
-    # for, and what reads is released as always.
+    # An automated decision: what writes or contacts with enumerated arguments is released, an
+    # order has nobody to wait for, and what reads is released as always.
     assert ask(decision, automated, "look_up_medications") == ("released", "with_decision")
     assert ask(decision, automated, "assign_queue", queue="refill") == ("released", "automated")
     # A write or a contact that can hold free text is a person's (ADR-0027): as an order.
