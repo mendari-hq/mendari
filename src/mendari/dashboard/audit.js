@@ -340,9 +340,7 @@ async function openRecord(id) {
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, { own: sameAgent })).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
-      ${found.outputs?.length ? `<h3>What the agent wrote</h3>
-        <p class="muted">Each text was held for a person to read. A released text may be sent or filed as written; a withheld one may not.</p>
-        ${textsList(found.outputs, { described: sameAgent })}` : ""}
+      ${writtenSection(found, sameAgent)}
       ${found.actions?.length ? `<h3>Actions</h3>
         <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>
         ${actionsList(found.actions)}` : ""}
@@ -479,6 +477,25 @@ function coveragePanel(id, coverage, declared) {
     })}
     ${prefetchLine(coverage.prefetch)}${linksLine(coverage.links)}${declarationLine(declared)}
   </section>`;
+}
+
+// What the agent wrote for a decision (ADR-0027). The texts a person was to read, each where it
+// stands and shown to whoever may read it; or, for a decision no person was to read (it
+// automated, or was blocked), their names alone: the record says each was `not_released`, and
+// there is no text anywhere to show.
+function writtenSection(found, sameAgent) {
+  if (found.outputs?.length) {
+    return `<h3>What the agent wrote</h3>
+      <p class="muted">Each text was held for a person to read. A released text may be sent or filed as written; a withheld one may not.</p>
+      ${textsList(found.outputs, { described: sameAgent })}`;
+  }
+  const unread = Object.entries(found.record.written ?? {})
+    .filter(([, text]) => text?.state === "not_released")
+    .map(([name]) => ({ name, state: "not_released" }));
+  if (!unread.length) return "";
+  return `<h3>What the agent wrote</h3>
+    <p class="muted">No person was to read this decision, so what its agent wrote was returned to nobody and is kept nowhere.</p>
+    ${textsList(unread, { brief: true })}`;
 }
 
 // What an event's note is, where it is not a person's note: a proposed action's arguments and a

@@ -304,8 +304,9 @@ function releaseChoice(action) {
 // gives it a verdict: released (it may be sent or filed as written) or withheld (it may not).
 // A text is what its agent wrote: it is shown as text, every character escaped, with its line
 // breaks, and never run as markup.
-const TEXT_STATE = { held: "Held", released: "Released", withheld: "Withheld" };
-const TEXT_TONE = { held: "s-warning", released: "s-ok", withheld: "s-degraded" };
+// `not_released`: the decision automated or was blocked, so its text was handed to nobody.
+const TEXT_STATE = { held: "Held", released: "Released", withheld: "Withheld", not_released: "Not released" };
+const TEXT_TONE = { held: "s-warning", released: "s-ok", withheld: "s-degraded", not_released: "" };
 const VERDICTS = [["release", "Release as written"], ["withhold", "Withhold"]];
 
 export const textStateBadge = (stands) =>

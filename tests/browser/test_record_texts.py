@@ -19,6 +19,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.browser.held_site import (
+    DEMO,
     IMAGE,
     LETTER,
     MARKUP,
@@ -40,6 +41,11 @@ from tests.test_held_texts import ARGUMENT, NOTE, REPLY
 pytestmark = pytest.mark.browser
 
 NOT_NAMED = "not released: the review did not name it"
+RENEWAL = "Please renew my prescription for insulin pens. Thank you."  # the demo agent automates it
+UNREAD = (
+    "No person was to read this decision, so what its agent wrote was returned to nobody "
+    "and is kept nowhere."
+)
 POINTER = "Its text is shown above, under “What the agent wrote”."
 
 
@@ -220,3 +226,25 @@ def test_the_record_says_why_a_text_cannot_be_shown(
     if status in said:
         expect(kept.first).to_contain_text(said[status])
     expect(kept.first).not_to_contain_text(POINTER)
+
+
+def test_the_record_of_an_automated_decision_says_its_text_was_handed_to_nobody(
+    held_console: Page, held_server: str
+) -> None:
+    """A decision no person was to read (ADR-0027, point 1): the demo agent drafts its
+    acknowledgement with every message, and this one automated. Its record names the text and
+    says that it was returned to nobody and is kept nowhere: there is no text to show, nothing
+    was held, and no verdict was asked for."""
+    decided = decide(held_server, DEMO, RENEWAL)
+    assert decided["outcome"] == "AUTO" and "outputs" not in decided
+    assert decided["written"] == {"acknowledgement": {"state": "not_released"}}
+    open_agent(held_console, DEMO, "audit")
+    shown = drawer(held_console, decided["id"])
+    expect(shown.get_by_role("heading", name="What the agent wrote")).to_be_visible()
+    expect(shown).to_contain_text(UNREAD)
+    text = text_of(shown, "acknowledgement")
+    expect(text).to_contain_text("Acknowledgement")
+    expect(text.locator(".badge")).to_have_text("Not released")
+    expect(shown.locator(".text-body, .text-missing")).to_have_count(0)
+    expect(shown.get_by_role("radio")).to_have_count(0)
+    expect(shown.locator(".timeline > li", has_text="Text held for review")).to_have_count(0)
