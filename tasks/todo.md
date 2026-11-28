@@ -35,15 +35,20 @@ in production.
   unsound while a held text still went out on a label confirmation, an agent could move its
   words into an action's arguments, and a `contact` action with a free-text message was
   released with AUTO. So first, with nothing statistical in it:
-  - [ ] A1: a decision that carries a text does not automate (`apply_policy`'s step 8; the
-    actions cap becomes step 9); an evaluation still measures the agent's own policy.
-  - [ ] A2: an action whose arguments can hold free text is never released without a person
+  - [x] A1: a text is handed only to a person: an answer carries what the agent wrote only
+    with a decision that awaits one. The first build sent every decision that carries a text
+    to a person; measured on the demo agent (326 of its 600 test decisions automate their
+    routing while carrying a draft), it stopped all automation, and was replaced before
+    anything merged.
+  - [x] A2: an action whose arguments can hold free text is never released without a person
     where its gate would be `auto`.
-  - [ ] A3: a held text is kept for its reviewer as an action's arguments are; the review
+  - [x] A3: a held text is kept for its reviewer as an action's arguments are; the review
     gives each text a verdict; free text is released by name.
   - [ ] B1: the console's review shows the texts and takes the verdicts.
   - [ ] B2: the spec, the guides, the threat model, the Card and the packet say so.
-  - [ ] Review by an engineer who built none of it; the whole suite; the pull request.
+  - [ ] Review by an engineer who built none of it; the whole suite; the pull request, which
+    is also the release's: two event kinds join the FHIR audit code system, which is pinned
+    to the released version, so the wave ships as 0.2.0.
 - [ ] **Wave T2. A judge clears a text, kept honest by spot checks.** A round the server runs
   on the organization's own connection, on cases like those that would automate; the writer,
   the judge and their settings bound; a design fixed before grades exist; three graders; an

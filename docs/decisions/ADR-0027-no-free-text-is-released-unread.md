@@ -37,20 +37,16 @@ record), on the review this one builds.
 
 ## Decision
 
-1. **A decision that carries a text does not automate.** Where an agent wrote a text for the
-   decision (an output with a `slot` source), AUTO becomes HUMAN_REVIEW, with the reason
-   `written output '<name>' is held for a person to read`. A decision already going to a
-   person keeps its outcome and gets the same reason; a BLOCK stands and says nothing of its
-   texts. It is `apply_policy`'s step 8 (`PolicyInputs.written`), after the caps a provider
-   found and before the actions cap, which stays last (now step 9): what the agent wrote is
-   settled before what it asks to do. It only lowers automation, and no governance approval,
-   risk level or manifest key lifts it.
+1. **A text is handed only to a person.** A decision's answer carries what its agent wrote
+   (an output with a `slot` source) only when the decision awaits a person, HUMAN_REVIEW or
+   ABSTAIN: it is that person's draft. An automated decision and a blocked one return none of
+   it and keep none of it. Nobody would read it before it was used, so it is handed to nobody.
 
-2. **It is how a decision is served, everywhere.** A server, `mendari mcp` and `mendari decide`
-   apply it, with or without sign-in. An evaluation measures the agent's own policy, as it
-   does without the origin cap (`mendari eval`, `mendari test`, `mendari probe`, `mendari
-   calibrate`, `mendari written eval`): its decisions are made with the hold off, so a
-   threshold can still be studied on an agent that writes.
+2. **The decision itself does not change.** Carrying a text does not lower an outcome: a
+   label, and an action of enumerated arguments, automate as they did, and the policy's steps
+   are as they were. It holds everywhere a decision is served (a server with or without
+   sign-in, `mendari decide`, `mendari mcp`, which returns no text at all). An evaluation is
+   not affected: it grades every text the agent wrote, and hands none on.
 
 3. **Free text in an action's arguments needs a person too.** An action whose arguments can
    hold free text is never released without a person when its gate would be `auto`: a `write`
@@ -86,25 +82,25 @@ record), on the review this one builds.
    Where the text is not kept (point 4), the verdict is still required: the reviewer read the
    draft where the caller shows it.
 
-6. **The record says where each text stands, and no more.** A decision that carries texts
-   gains `written` in its record and its answer: each output's `state`, `held` (it awaits a
-   person) or `released` (the decision automated: only where the hold is off). After review
-   the decision's answer gives the verdict, `released` or `withheld`, read from the chain. No
-   text is in a record, a reason, a log line or an event.
-
-7. **A held text is still returned.** `/decide` and `mendari decide` return what the agent
-   wrote under every outcome: with HUMAN_REVIEW it is the draft, and the caller already has
-   the outcome to act on.
+6. **The record says where each text stands, and no more.** A decision whose agent wrote
+   texts gains `written` in its record and its answer: each output's `state`, `held` (it
+   awaits a person, who is handed it) or `not_released` (the decision automated or was
+   blocked: it was handed to nobody). After review the decision's answer gives the verdict,
+   `released` or `withheld`, read from the chain. No text is in a record, a reason, a log line
+   or an event.
 
 ## Consequences
 
 - No free text an agent produced reaches a patient or a chart through a decision unless a
   person released it by name. An author no longer chooses whether text is read.
-- **Agents that write stop automating** the decisions that carry a text, and `write` and
-  `contact` actions with a free-text argument stop being released with AUTO. That is the
-  price of the rule until a judge can clear a text (the next record). The bundled demo agent
-  is unchanged: its acknowledgement already rode with an action that is never released without
-  a person, and its actions take enumerated arguments.
+- **An automated decision no longer comes with its text,** and `write` and `contact` actions
+  with a free-text argument stop being released with AUTO. A caller that sent what an
+  automated decision's agent wrote has nothing to send until a judge can clear a text (the
+  next record): the way to send a text is an action a person releases, as the bundled demo
+  agent's `send_acknowledgement` is. That agent's decisions are unchanged: it automates its
+  routing as before, and its actions take enumerated arguments. What changes is that the
+  acknowledgement it drafts with every message is returned only with the decisions a person
+  reviews.
 - **An identifier that is not enumerated is free text.** An arguments schema has no pattern
   keyword, so a `write` action that takes an id as a string is a person's. A spec revision may
   add an identifier type; none can loosen the rule.
@@ -114,10 +110,14 @@ record), on the review this one builds.
 - **Reviewing changes for callers.** A review of a decision that carries texts must give a
   verdict on each, and a free-text action must be named to be released. A caller that
   confirmed labels and relied on the release has to say so explicitly.
-- An evaluation of an agent that writes reports its own policy; it does not say how many of
-  its automated decisions carried a text. The Decision Card states the rule.
-- `PolicyInputs` gains a field, a decision's record gains an optional key, and two event kinds
-  are added (`output.held`, `output.resolved`). No table is added: a held text is a note.
+- **A rationale is still returned.** An answer's evidence (a rationale of up to 500
+  characters, the names of the tools called) goes back with every decision. It is evidence
+  for a reviewer and is not a text for a patient or a chart; an integration that sends it on
+  is outside what this decides.
+- A decision's record gains an optional key, an `action.proposed` event says when its
+  arguments can hold free text, and two event kinds are added (`output.held`,
+  `output.resolved`), which the FHIR audit code system lists: so this ships with a new Mendari
+  version, never under a released one. No table is added: a held text is a note.
 
 ## Not decided here
 
@@ -128,20 +128,31 @@ record), on the review this one builds.
   the error level spent across rounds); at least three graders; a hold that a resubmitted case
   cannot draw again; and spot checks of what the judge clears, with this record's verdicts as
   their measure.
-- **Which action uses which text.** A manifest does not say, so a withheld text holds every
-  action that needs an automated decision or a person, unless the review names it.
+- **Which action uses which text.** A manifest does not say. At review, a withheld text holds
+  every action that needs an automated decision or a person unless the review names it. At
+  decision time nothing ties them: an automated decision may release an action of enumerated
+  arguments whose text was not returned, and the caller has no text to send with it.
 - **An identifier type** for arguments, and whether a judge may also clear an action's
   free-text argument.
 
 ## Alternatives considered
 
 - **Build the judge's gate first.** Reviewed and rejected for now: see the context.
+- **Send every decision that carries a text to a person.** This was the first build, and it
+  was measured before it was kept: the bundled demo agent drafts an acknowledgement with every
+  message, and 326 of its 600 test decisions automate their routing while carrying one. It
+  would have automated nothing. The text is what needs a person, not the routing.
+- **Hold the `write` and `contact` actions of a decision that carries a text.** The same
+  measurement: the demo agent's automated decisions put the message in a queue, which has
+  nothing to do with the draft. Without the manifest saying which action uses the text, the
+  hold would be a guess that costs every agent its automation.
 - **Hold only texts that have a rubric.** An author would switch the hold off by declaring
   none.
-- **Hold on a server with sign-in only,** as the canned cap does. A local decision would then
-  promise an automation no deployment gives; and `mendari mcp`, which has no sign-in, would
-  release.
+- **Apply it on a server with sign-in only,** as the canned cap does. A local decision would
+  then hand out a text no deployment does.
 - **Treat a short string as an identifier.** A dose fits in sixteen characters.
 - **Keep released texts as well.** Nothing reads them yet; spot checks will need a sample, not
   every text.
-- **Withhold a held text from the answer.** The person who decides needs the draft.
+- **Withhold the draft from the answer of a decision that awaits a person, too.** The person
+  who decides needs it, and where texts are not kept (PHI mode `hash`) the answer is the only
+  place it is.

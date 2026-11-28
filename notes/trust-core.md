@@ -34,9 +34,10 @@ more (marked **new**); none was dropped.
 1. **new: no free text is released unread.** Found by the review of the judge gate's first
    design (`trust-core-judge-gate-draft.md`): a held text still went out when a reviewer
    confirmed the label, an agent could move its words into an action's arguments, and a
-   `contact` action with a free-text message was released with AUTO. So first: a decision that
-   carries a text does not automate, free-text arguments need a person, a held text is kept
-   and shown to its reviewer, and free text is released by name. Nothing statistical.
+   `contact` action with a free-text message was released with AUTO. So first: a text is
+   handed only to a person (an automated decision returns none of what its agent wrote),
+   free-text arguments need a person, a held text is kept and shown to its reviewer, and free
+   text is released by name. Nothing statistical.
    ADR-0027. *Wave T1, being built.*
 2. **A judge clears a text at run time** (was item 2), with **new: a stated guarantee**: the
    share of cleared texts a clinician would fail is bounded (exact, 95%), as the operating
@@ -101,7 +102,7 @@ combined, then the console and the words.
 
 | Part | Files | What |
 |---|---|---|
-| A1. The policy step and the decision | `core/policy.py`, `core/decision.py`, the evaluation call sites | `PolicyInputs.written` as step 8 (actions become step 9); `Decision(text_hold=True)`, off where the origin cap is off; the record's `written` |
+| A1. A text is handed only to a person | `core/decision.py`, the two places an answer carried texts | `DecisionResult.drafts()` and `written`: the draft goes back only with a decision that awaits a person. (The first build sent every decision carrying a text to a person; measured, it stopped the demo agent automating anything, and was replaced.) |
 | A2. Free-text arguments | `core/spec.py`, `core/policy.py`, the actions fixture | `ActionSpec.free_text` (already on the branch); `gate_of(free_text=...)`; `action_stops` |
 | A3. Kept texts and the review | `core/audit.py`, `core/actions.py`, `server/app.py` (review routes) | `output.held` with the text as its note; the review's verdict on each text, `output.resolved`; free text released by name; retention, erasure and `verify` |
 | B1. The console | `dashboard/review.js` and its tests | The held texts in the review, a verdict on each, free-text actions released by name |
