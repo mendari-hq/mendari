@@ -1,5 +1,30 @@
 # Lessons
 
+## 2026-11-28 - process
+
+### What happened
+ADR-0027 made a review of a decision that holds a text need a verdict on each. The whole
+suite passed on SQLite and Postgres, and the browser suite too. `mendari sandbox pilot-check`
+still resolved its review with a label alone, on the demo agent, whose every decision carries
+a text: HTTP 409. It runs whole only in a CI job (a real identity provider in a container),
+so no local run saw it. It was found by reading, before the pull request, and reproduced with
+the same container.
+
+### Root cause
+The contract of a route changed, and its callers were looked for in the server, the console
+and the tests, not in the product's own scripted flows (`sandbox/`, `scripts/`), which CI runs
+against a live server.
+
+### Rule
+When a route's or a store method's contract changes, grep `src/mendari/sandbox`, `scripts`,
+`examples`, `deploy` and `.github/workflows` for every caller, and run for real each CI job
+that calls it and that no local test runs whole (`pilot-check` needs only the mock identity
+provider's container and the engine's own settings, as the job lists them).
+
+### Verification
+The pull request's description names each such job and says it was run locally, or says why
+it could not be.
+
 ## 2026-10-06 - process
 
 ### What happened

@@ -44,8 +44,26 @@ in production.
     where its gate would be `auto`.
   - [x] A3: a held text is kept for its reviewer as an action's arguments are; the review
     gives each text a verdict; free text is released by name.
-  - [ ] B1: the console's review shows the texts and takes the verdicts.
-  - [ ] B2: the spec, the guides, the threat model, the Card and the packet say so.
+  - [x] B1: the console's review shows the texts and takes the verdicts. A free-text action
+    starts unticked, withholding a text unticks every action, a verdict or a release waits
+    five seconds for Undo, and what a review did is listed under the queue.
+  - [x] B2: the spec, the guides, the threat model, the Card and the packet say so.
+  - [x] Found while the combined change was checked (2026-11-28), each fixed with its test:
+    - **A review released an action its reviewer never saw.** A caller may ask for one more
+      action on a decision that waits; asked for after the queue was read, it was released by
+      the label. Reproduced, then closed: an action asked for after the decision (`source:
+      request`) is released only by name (`actions.by_name`; ADR-0027 point 5, spec 13.8,
+      threat model E26).
+    - **The count beside "Review queue" read the queue**, on every view: under PHI mode
+      `encrypt` the chain recorded a read of every waiting input, and now of every held text,
+      each time a reviewer changed view. It comes from the counts-only summary now. This
+      predates the wave.
+    - **The scripted pilot (`mendari sandbox pilot-check`, a CI job no local test runs whole)
+      resolved its review with a label alone**, which a decision that holds a text refuses.
+      Reproduced against the mock identity provider CI uses, fixed, and run again there.
+    - Small additions: the record of an automated decision says its text was handed to
+      nobody; `mendari demo` says what became of the acknowledgement; the changelog says what
+      an upgrade does to a decision that was already waiting.
   - [ ] Review by an engineer who built none of it; the whole suite; the pull request, which
     is also the release's: two event kinds join the FHIR audit code system, which is pinned
     to the released version, so the wave ships as 0.2.0.

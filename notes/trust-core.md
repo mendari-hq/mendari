@@ -110,3 +110,32 @@ combined, then the console and the words.
 
 Then one engineer who built none of it reviews the combined change, the whole suite runs on
 SQLite and Postgres with the browser suite, and it merges as one pull request.
+
+### Found while the combined change was checked (2026-11-28)
+
+- **A review released an action its reviewer never saw.** `POST …/actions` on a decision that
+  waits for review holds the action with the rest, and a label confirmed from a queue read a
+  moment earlier released it. The decision's own actions are chained with the decision, so a
+  reviewer who sees the decision sees them; one asked for afterwards (`source: request`) is
+  now released only by name. This is the same rule as for free text, for the same reason: a
+  label speaks only for what its reviewer was shown. What it leaves: a caller that asked for
+  an action knows its id and can name it for a reviewer it never showed it to (threat model
+  E26). A review that says what it was shown (the queue as of an event) was considered and
+  not built: the action's own record already tells the two cases apart.
+- **The count beside "Review queue" read the queue itself**, on every view, so under PHI mode
+  `encrypt` the chain recorded a read of up to 500 inputs (and now held texts) per page
+  change. The read log is only evidence if a read is a read: the count now comes from
+  `/api/review/summary`. Predates the wave; `server/origin.py` already named the cost of a
+  queue read.
+- **A CI job that no local test runs whole can break unseen.** `mendari sandbox pilot-check`
+  resolved its review with a label alone, on the demo agent, whose every decision carries a
+  text. The local suite passed; the job would have failed on the pull request. The lesson is
+  in `tasks/lessons.md`: before a pull request, grep the product for every caller of a route
+  or a store method whose contract changed, scripts and sandbox commands included, and run
+  the ones CI runs in a container.
+- **An upgrade does not reach back.** A decision recorded by 0.1.2 that still waits has no
+  held text and no `free_text` mark on its actions, so it is reviewed under 0.1.2's rules.
+  The record names no engine version, so nothing tells such a decision apart; the changelog
+  says to work the queue down first. If a real deployment ever upgrades with a queue that
+  matters, the stricter choice is to chain `free_text` on every proposal (true or false) and
+  to treat its absence as free text.
