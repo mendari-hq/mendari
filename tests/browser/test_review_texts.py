@@ -806,6 +806,7 @@ def test_a_text_named_as_a_built_in_still_waits_for_its_verdict(
 
     def sent_back(route: Route) -> None:
         body = route.request.post_data_json
+        assert isinstance(body, dict)
         asked.append(body)
         route.continue_(post_data={**body, "texts": {"reply_draft": body["texts"]["constructor"]}})
 

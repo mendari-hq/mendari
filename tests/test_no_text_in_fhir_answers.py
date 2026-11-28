@@ -84,7 +84,8 @@ def client(tmp_path: Path, served: Path) -> Iterator[TestClient]:
         yield opened
 
 
-def decided(answer: httpx.Response) -> Any:
+def decided(answer: Any) -> Any:
+    """What a route answered, once it answered 200."""
     assert answer.status_code == 200, answer.text
     return answer.json()
 
