@@ -431,3 +431,33 @@ def test_where_a_text_stands_follows_whether_a_person_awaits_the_decision(
 def test_the_manifest_of_every_agent_with_outputs_is_valid() -> None:
     manifest = load_agent(MINI).manifest
     assert AgentManifest.model_validate(manifest.model_dump(mode="json", by_alias=True)) == manifest
+
+
+def test_the_command_line_and_mcp_hand_no_text_with_an_automated_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every surface that serves a decision keeps the rule (ADR-0027), not `POST …/decide`
+    alone: `mendari decide` prints where an automated decision's text stands and not a word of
+    it, and an MCP `decide` answer never carries a text at all."""
+    from mendari import AuditStore
+    from mendari.cli import main
+    from mendari.mcp import McpServer
+
+    base = tmp_path / "agents"
+    shutil.copytree(MINI, base / "written-mini")
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(base))
+    assert main(["decide", AGENT, "--text", REFILL]) == 0
+    printed = capsys.readouterr().out
+    shown = json.loads(printed)
+    assert shown["outcome"] == "AUTO" and "outputs" not in shown
+    assert shown["written"] == {"reply_draft": {"state": "not_released"}}
+    assert "pharmacy team" not in printed
+    with AuditStore(":memory:") as store:
+        params = {"name": "decide", "arguments": {"agent": AGENT, "input": message(REFILL)}}
+        answer = McpServer(store).handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
+        )
+    assert answer is not None
+    told = json.dumps(answer)
+    assert "AUTO" in told  # the decision automated, and its answer holds no word of the text
+    assert "pharmacy team" not in told and "outputs" not in told
