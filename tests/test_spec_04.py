@@ -659,6 +659,32 @@ def test_free_text_is_found_without_recursion_in_a_schema_as_deep_as_one_may_be(
     assert action_schema_problems(deep) == [] and spec.holds_free_text(deep) is False
 
 
+@pytest.mark.parametrize("where", ["output", "action", "label", "question", "id", "version"])
+def test_a_name_that_ends_in_a_line_break_is_refused(where: str) -> None:
+    """A manifest is another party's file, and each name in it is matched whole: `$` alone
+    also matches before a final line break, so `reply_draft\n` loaded as an output's name, and
+    the review of a decision that held it could not be sent (the route takes names matched
+    whole). The same for an action, a label, a question, and the agent's id and version."""
+    raw = raw_manifest()
+    question = next(iter(raw["questions"]))
+    assert spec.is_agent_id(raw["id"]) and spec.is_version(raw["version"])
+    if where == "output":
+        raw["outputs"] = {"reply_draft\n": {"description": "A reply.", "slot": "reader"}}
+    elif where == "action":
+        raw["actions"]["send_more\n"] = {"description": "Sends more.", "effect": "read"}
+    elif where == "label":
+        raw["questions"][question]["criteria"]["later\n"] = "Anything later."
+    elif where == "question":
+        asked = dict(raw["questions"].pop(question))
+        raw["questions"] = {f"{question}\n": asked, **raw["questions"]}
+    else:
+        raw[where] = raw[where] + "\n"
+        assert not spec.is_agent_id(raw["id"]) or not spec.is_version(raw["version"])
+    with pytest.raises(ValidationError):
+        AgentManifest.model_validate(raw)
+    AgentManifest.model_validate(raw_manifest())  # as written, it loads
+
+
 # -- the request ----------------------------------------------------------------------------------
 
 

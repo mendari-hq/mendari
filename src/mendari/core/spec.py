@@ -70,6 +70,8 @@ MUST_PASS_RECALL_FLOOR = 0.80
 MAX_JUDGE_ERRORS = 0.05
 
 
+# An id, a version and a key of the manifest, each held with `fullmatch`: `$` alone also
+# matches before a final line break, and a manifest is another party's file.
 _AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -199,12 +201,14 @@ def readable(key: str) -> str:
 
 def is_agent_id(text: object) -> TypeGuard[str]:
     """`namespace/name`, lowercase letters, digits and dashes (the manifest's `id`)."""
-    return isinstance(text, str) and bool(_AGENT_ID.match(text))
+    return isinstance(text, str) and bool(_AGENT_ID.fullmatch(text))
 
 
 def is_version(text: object) -> TypeGuard[str]:
     """A semantic version (the manifest's `version`) of at most `MAX_VERSION_CHARS`."""
-    return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
+    return (
+        isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.fullmatch(text))
+    )
 
 
 def version_key(version: str) -> tuple[tuple[int, str], ...]:
@@ -380,7 +384,7 @@ class Question(_Strict):
         if not 2 <= len(criteria) <= 255:
             raise ValueError("a question needs between 2 and 255 labels")
         for label, description in criteria.items():
-            if not _KEY.match(label):
+            if not _KEY.fullmatch(label):
                 raise ValueError(f"label {label!r} must match {_KEY.pattern}")
             if not description.strip():
                 raise ValueError(f"label {label!r} needs a non-empty criterion")
@@ -1114,7 +1118,7 @@ def cross_reference_problems(m: AgentManifest) -> list[str]:
     """Consistency rules that a JSON-shape check cannot express."""
     problems: list[str] = []
     for key in m.questions:
-        if not _KEY.match(key):
+        if not _KEY.fullmatch(key):
             problems.append(f"question key {key!r} must match {_KEY.pattern}")
         elif key in BUILT_IN:
             # A template could not tell the question from the decision's own value: a card
@@ -1223,7 +1227,7 @@ def cross_reference_problems(m: AgentManifest) -> list[str]:
 
 def _named(kind: str, name: str) -> str | None:
     """Why `name` is no key of an output, a rubric or a criterion, or None."""
-    if _KEY.match(name) and len(name) <= MAX_ACTION_NAME_CHARS:
+    if _KEY.fullmatch(name) and len(name) <= MAX_ACTION_NAME_CHARS:
         return None
     return (
         f"{kind} {name[:40]!r} must match {_KEY.pattern}, at most {MAX_ACTION_NAME_CHARS} "
@@ -1297,7 +1301,7 @@ def action_problems(m: AgentManifest) -> list[str]:
         return []
     problems = []
     for name in m.actions:
-        if not _KEY.match(name) or len(name) > MAX_ACTION_NAME_CHARS:
+        if not _KEY.fullmatch(name) or len(name) > MAX_ACTION_NAME_CHARS:
             shown = name if len(name) <= MAX_ACTION_NAME_CHARS else name[:40] + "..."
             problems.append(
                 f"action name {shown!r} must match {_KEY.pattern}, at most "
