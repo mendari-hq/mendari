@@ -74,7 +74,7 @@
           "abusive": {"value": "no", "confidence": 0.97}
         },
         "actions": [
-          {"name": "assign_queue", "arguments": {"queue": "refill"}},
+          {"name": "assign_queue", "arguments": {"queue": "front_desk"}},
           {"name": "file_note", "arguments": {"note": "Asked for a refill of lisinopril."}},
           {"name": "send_reply", "arguments": {"message": "We received your refill request."}}
         ]

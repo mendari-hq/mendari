@@ -307,7 +307,17 @@ proposals = st.lists(
     st.builds(
         Proposed,
         name=st.sampled_from([*NAMES, "never_declared"]),
-        arguments=st.sampled_from([{}, {"message": "x"}, {"medication": "y"}, {"note": 3}]),
+        arguments=st.sampled_from(
+            [
+                {},
+                {"message": "x"},
+                {"medication": "y"},
+                {"note": 3},
+                {"note": "z"},
+                {"template": "received"},
+                {"queue": "refill"},
+            ]
+        ),
         refused=st.sampled_from([None, None, "composite_member"]),
         disputed=st.booleans(),
     ),
@@ -419,6 +429,7 @@ def test_no_manifest_proposal_or_run_raises_an_outcome(
             allow_auto=item.spec.allow_auto,
             vouched=vouched,
             agreed=not item.proposed.disputed,
+            free_text=item.spec.free_text,
         )
         return disposition(
             gate,
@@ -435,6 +446,7 @@ def test_no_manifest_proposal_or_run_raises_an_outcome(
             assert item.spec is not None and item.spec.allow_auto
             if item.spec.effect not in (Effect.READ, Effect.DRAFT) or not vouched:
                 assert full.outcome is plain.outcome is Outcome.AUTO and not stops and not caps
+                assert not item.spec.free_text  # free text is never released by AUTO alone
         if item.proposed.disputed or item.refusal is not None or item.spec is None:
             assert with_caps != "released" and without != "released"
         if with_caps == "held":

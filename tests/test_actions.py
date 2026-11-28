@@ -374,11 +374,16 @@ def test_risk_permits_auto_is_what_the_risk_cap_decides(level: RiskLevel) -> Non
 
 # -- the cap's reasons ----------------------------------------------------------------------------
 
+QUEUED = {"queue": "refill"}  # `assign_queue`'s arguments: enumerated, so no free text
+FREE_NOTE = "action 'file_note' can carry free text and is never released without a person"
+FREE_REPLY = "action 'send_reply' can carry free text and is never released without a person"
+
 
 def test_what_stops_a_decision_from_being_automated() -> None:
     assert action_stops([]) == ()
-    assert action_stops([check("look_up_medications"), check("file_note", {"note": "x"})]) == ()
-    assert action_stops([check("send_reply", {"message": "Received."})]) == ()
+    # A read, and a write and a contact of enumerated arguments: an AUTO decision releases each.
+    assert action_stops([check("look_up_medications"), check("assign_queue", QUEUED)]) == ()
+    assert action_stops([check("send_template", {"template": "received"})]) == ()
     assert action_stops([check("renew_prescription")]) == (
         "action 'renew_prescription' (order) is never released without a person",
     )
@@ -407,9 +412,61 @@ def test_what_stops_a_decision_from_being_automated() -> None:
     )
 
 
+def test_free_text_in_a_write_or_a_contact_stops_a_decision_from_being_automated() -> None:
+    """ADR-0027: a declared, well-formed proposal whose arguments can hold free text is never
+    released without a person where its gate would be `auto`, and its reason says so. A draft
+    and a read are no stop: their gate is `decision`. The manifest's own tightening, an order
+    and arguments the schema refuses keep their own words where free text applies too."""
+    assert action_stops([check("file_note", {"note": "x"})]) == (FREE_NOTE,)
+    assert action_stops([check("send_reply", {"message": "Received."})]) == (FREE_REPLY,)
+    # In order, each once, however often and with whatever arguments it is proposed.
+    several = [
+        check("send_reply", {"message": "Received."}),
+        check("assign_queue", QUEUED),
+        check("file_note", {"note": "x"}),
+        check("send_reply", {"message": "Again."}),
+    ]
+    assert action_stops(several) == (FREE_REPLY, FREE_NOTE)
+    # A draft and a read can hold free text and wait for nobody: a person sees a draft before
+    # it takes effect, and a read changes nothing.
+    assert MANIFEST.actions["draft_reply"].free_text and MANIFEST.actions["file_note"].free_text
+    assert (
+        action_stops([check("draft_reply", {"message": "x"}), check("look_up_medications")]) == ()
+    )
+    # Each of these can hold free text as well, and says what it always said.
+    assert action_stops([check("queue_refill", {"medication": "x"})]) == (
+        "action 'queue_refill' is never released without a person (allow_auto: false)",
+    )
+    assert action_stops([check("renew_prescription")]) == (
+        "action 'renew_prescription' (order) is never released without a person",
+    )
+    assert action_stops([check("send_reply", {"message": 5})]) == (
+        "action 'send_reply': its arguments do not match its schema",
+    )
+    # A reason names the declared action and holds no word of its arguments.
+    assert "Received" not in FREE_REPLY and "'send_reply'" in FREE_REPLY
+
+
 def test_an_unvouched_agents_read_is_no_stop_of_its_own() -> None:
-    """Its decision cannot be AUTO anyway; the stop is for what AUTO itself could not release."""
-    assert action_stops([check("look_up_medications")], vouched=False) == ()
+    """Its decision cannot be AUTO anyway; the stop is for what AUTO itself could not release.
+    A read whose arguments can hold free text is one of those (ADR-0027): for an agent nobody
+    vouched for its gate was `auto`, and is `person`. One that takes no arguments is still no
+    stop of its own."""
+    raw = raw_manifest()
+    raw["actions"]["count_refills"] = {
+        "description": "Count the refills left on the prescription.",
+        "effect": "read",
+        "schema": {"type": "object", "additionalProperties": False},
+    }
+    manifest = AgentManifest.model_validate(raw)
+    counted = actions.check(manifest, actions.validators(manifest), Proposed("count_refills", {}))
+    assert counted.spec is not None and not counted.spec.free_text
+    assert action_stops([counted], vouched=False) == ()
+    # No schema: its arguments are whatever the agent sends.
+    assert action_stops([check("look_up_medications")], vouched=False) == (
+        "action 'look_up_medications' can carry free text and is never released without a person",
+    )
+    assert action_stops([check("look_up_medications")]) == ()  # vouched for: with the decision
     assert action_stops([check("renew_prescription")], vouched=False) != ()
 
 
@@ -421,10 +478,20 @@ json_values = st.recursive(
     ),
     max_leaves=8,
 )
+# Arguments that fit a declared action, so that well-formed proposals are generated too.
+fitting = st.sampled_from(
+    [
+        QUEUED,
+        {"template": "received"},
+        {"message": "Received."},
+        {"note": "Asked."},
+        {"medication": "lisinopril 10 mg"},
+    ]
+)
 proposed = st.builds(
     Proposed,
     name=st.one_of(names, st.sampled_from(list(MANIFEST.actions))),
-    arguments=st.dictionaries(st.text(max_size=8), json_values, max_size=4),
+    arguments=st.one_of(st.dictionaries(st.text(max_size=8), json_values, max_size=4), fitting),
     refused=st.one_of(st.none(), st.sampled_from(["composite_member", "undeclared"])),
 )
 
@@ -443,7 +510,7 @@ def test_no_proposal_is_released_past_its_gate_and_a_reason_names_declared_actio
             assert item.refusal in REFUSALS  # what is not declared is refused, whatever it says
         if item.refusal is not None or declared is None or not declared.allow_auto:
             assert stops  # and it stops automation
-        elif gate_of(declared.effect, vouched=vouched) is PERSON:
+        elif gate_of(declared.effect, vouched=vouched, free_text=declared.free_text) is PERSON:
             assert stops
         for problem in item.problems:  # where and which rule: no key the agent wrote
             where = problem.split(": ", 1)[0]
@@ -456,10 +523,17 @@ def test_no_proposal_is_released_past_its_gate_and_a_reason_names_declared_actio
         assert not any(repr(name) in stop for name in undeclared)
         named = [name for name in MANIFEST.actions if repr(name) in stop]
         assert len(named) <= 1
+        if "can carry free text" in stop:  # said only of an action whose arguments can
+            assert len(named) == 1 and MANIFEST.actions[named[0]].free_text
     if not stops:  # everything proposed could be released with an AUTO decision
         for item in checked:
             assert item.refusal is None and item.spec is not None
-            gate = gate_of(item.spec.effect, allow_auto=item.spec.allow_auto, vouched=vouched)
+            gate = gate_of(
+                item.spec.effect,
+                allow_auto=item.spec.allow_auto,
+                vouched=vouched,
+                free_text=item.spec.free_text,
+            )
             assert gate is not PERSON
 
 

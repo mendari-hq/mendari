@@ -42,6 +42,7 @@ AGENT = "mendari-test/actions-mini"
 PLAIN = "mendari-test/triage"  # an agent that declares no actions
 BASE = f"/api/agents/{AGENT}"
 REFILL = "Could you refill my lisinopril?"
+REPLY = "Please reply about my lisinopril."  # confident, with a free-text note and reply
 VISIT = "I need to move my appointment."
 ORDER = "Please renew my prescription."
 UNCLEAR = "It is unclear what I want."
@@ -112,6 +113,31 @@ def test_a_decision_lists_each_proposed_action_with_its_disposition(client: Test
     assert plain.status_code == 200 and "actions" not in plain.json()
 
 
+def test_free_text_in_a_write_or_a_contact_sends_the_decision_to_a_person(
+    client: TestClient,
+) -> None:
+    """ADR-0027, over HTTP: an answer confident enough to automate, with a free-text note and
+    reply proposed. The decision goes to a person saying why, each action is held, and it is in
+    the review queue."""
+    decided = decide(client, REPLY)
+    assert (decided["outcome"], decided["recommendation"]) == ("HUMAN_REVIEW", "refill")
+    assert decided["reasons"] == [
+        "confidence 0.95 >= auto threshold 0.90",
+        "action 'file_note' can carry free text and is never released without a person; "
+        "a person decides",
+        "action 'send_reply' can carry free text and is never released without a person; "
+        "a person decides",
+    ]
+    assert [(a["name"], a["disposition"], a["reason"]) for a in decided["actions"]] == [
+        ("assign_queue", "held", "awaiting_review"),
+        ("file_note", "held", "awaiting_review"),
+        ("send_reply", "held", "awaiting_review"),
+    ]
+    queue = client.get("/api/review").json()
+    (item,) = [entry for entry in queue if entry["id"] == decided["id"]]
+    assert [a["disposition"] for a in item["actions"]] == ["held", "held", "held"]
+
+
 def test_the_stored_decision_shows_its_actions_and_their_events(client: TestClient) -> None:
     decided = decide(client, ORDER)
     record = client.get(f"/api/audit/{decided['id']}").json()
@@ -168,6 +194,8 @@ def test_a_blocked_action_is_a_200_and_every_disposition_is_answered(client: Tes
     table = [
         (automated, "look_up_medications", {}, "released", "with_decision"),
         (automated, "assign_queue", {"queue": "refill"}, "released", "automated"),
+        (automated, "file_note", {"note": "asked"}, "blocked", "no_reviewer"),  # free text
+        (automated, "send_reply", {"message": "asked"}, "blocked", "no_reviewer"),  # free text
         (automated, "renew_prescription", {}, "blocked", "no_reviewer"),
         (automated, "queue_refill", {"medication": "x"}, "blocked", "no_reviewer"),
         (pending, "draft_reply", {"message": "asked"}, "released", "with_decision"),

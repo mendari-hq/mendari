@@ -29,6 +29,7 @@ from tests.conftest import INPUT_HASH_KEY, PHI_KEY, ROOT, TRIAGE_DIR, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
+REPLY = "Please reply about my lisinopril."  # HUMAN_REVIEW: a free-text note and reply, held
 ORDER = "Please renew my prescription."  # HUMAN_REVIEW: a read released, an order held
 QUEUE = "Put it in the queue, please."  # HUMAN_REVIEW: a write the manifest tightens, held
 VISIT = "I need to move my appointment."  # HUMAN_REVIEW: a write and a contact held
@@ -446,6 +447,9 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     # for, and what reads is released as always.
     assert ask(decision, automated, "look_up_medications") == ("released", "with_decision")
     assert ask(decision, automated, "assign_queue", queue="refill") == ("released", "automated")
+    # A write or a contact that can hold free text is a person's (ADR-0027): as an order.
+    assert ask(decision, automated, "file_note", note="asked") == ("blocked", "no_reviewer")
+    assert ask(decision, automated, "send_reply", message="asked") == ("blocked", "no_reviewer")
     assert ask(decision, automated, "renew_prescription") == ("blocked", "no_reviewer")
     assert ask(decision, automated, "queue_refill", medication="x") == ("blocked", "no_reviewer")
     # A decision that awaits review: held, and released when its reviewer confirms it.
@@ -467,6 +471,67 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     assert ask(decision, abstained, "draft_reply", message="x") == ("released", "with_decision")
     blocked = decision(message(ABUSIVE)).id
     assert ask(decision, blocked, "look_up_medications", why="x") == ("blocked", "decision_blocked")
+    assert store.verify()["ok"] and store.verify(notes=True)["ok"]
+
+
+def test_free_text_asked_for_after_an_automated_decision_is_not_released(
+    store: AuditStore,
+) -> None:
+    """ADR-0027, the second way in. An automated decision has no reviewer, so a `write` or a
+    `contact` whose arguments can hold free text has nobody to wait for: it is `blocked`,
+    `no_reviewer`, as an order is (rule 6 of `policy.disposition`), and chained saying it can
+    hold free text. It is no refusal of the proposal: what an AUTO decision releases is
+    released after it as before."""
+    decision = agent(store)
+    result = decision(message(REFILL))
+    assert result.outcome.value == "AUTO"
+    for name, arguments in (
+        ("send_reply", {"message": "Sent later."}),
+        ("file_note", {"note": "Filed later."}),
+    ):
+        found = decision.authorize_action(result.id, name, arguments)
+        assert (found["disposition"], found["reason"]) == ("blocked", "no_reviewer")
+        assert (found["name"], found["repeated"]) == (name, False)
+        payload = chained(store)[-1]["payload"]
+        assert (payload["name"], payload["disposition"], payload["reason"]) == (
+            name,
+            "blocked",
+            "no_reviewer",
+        )
+        assert payload["free_text"] is True and payload["source"] == "request"
+        again = decision.authorize_action(result.id, name, arguments)  # as it stands
+        assert (again["disposition"], again["reason"], again["repeated"]) == (
+            "blocked",
+            "no_reviewer",
+            True,
+        )
+    # The same effects with enumerated arguments are released, and chain no such key.
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
+    assert "free_text" not in chained(store)[-1]["payload"]
+    assert ask(decision, result.id, "send_template", template="refill_queued") == (
+        "released",
+        "automated",
+    )
+    # A draft can hold free text and waits for nobody: a person sees it before it takes effect.
+    assert ask(decision, result.id, "draft_reply", message="A draft.") == (
+        "released",
+        "with_decision",
+    )
+    # What the answer proposed with enumerated arguments chained no such key either.
+    proposed = [e["payload"] for e in of(store, result.id, "action.proposed")][:2]
+    assert [(p["name"], p.get("free_text")) for p in proposed] == [
+        ("draft_reply", True),
+        ("send_template", None),
+    ]
+    # On a decision that awaits review, free text waits for the reviewer.
+    pending = decision(message(REPLY))
+    assert pending.outcome.value == "HUMAN_REVIEW"
+    assert [a["name"] for a in held_of(store, pending.id)] == [
+        "assign_queue",
+        "file_note",
+        "send_reply",
+    ]
+    assert ask(decision, pending.id, "send_reply", message="Later.") == ("held", "awaiting_review")
     assert store.verify()["ok"] and store.verify(notes=True)["ok"]
 
 
@@ -684,6 +749,7 @@ def test_two_identical_questions_chain_one_event_whatever_the_disposition(
     decision = agent(store)
     for body, name, arguments in (
         (REFILL, "assign_queue", {"queue": "refill"}),  # released
+        (REFILL, "file_note", {"note": "x"}),  # blocked: free text, and nobody to wait for
         (VISIT, "file_note", {"note": "y"}),  # held
         (UNCLEAR, "file_note", {"note": "z"}),  # blocked
         (REFILL, "send_reply", {"message": 5}),  # refused, declared

@@ -404,8 +404,11 @@ def action_stops(checked: Sequence[Checked], *, vouched: bool = True) -> tuple[s
     """Why each proposed action could not be released with an AUTO decision, in order and once
     each: what `apply_policy` takes as `actions`. An agent that proposes what it never declared,
     or arguments its own schema refuses, is not trusted to automate; an action never released
-    without a person gets one only if the decision goes to a person. A reason names a declared
-    action only: any other name is the agent's text."""
+    without a person gets one only if the decision goes to a person. That is one the manifest
+    tightens (`allow_auto: false`), one whose effect is a person's (an `order`), and one whose
+    arguments can carry free text where its gate would be `auto` (ADR-0027): each says which,
+    the first that applies in that order. A reason names a declared action only: any other name
+    is the agent's text."""
     stops: list[str] = []
     for item in checked:
         name = item.proposed.name
@@ -422,6 +425,12 @@ def action_stops(checked: Sequence[Checked], *, vouched: bool = True) -> tuple[s
         elif gate_of(item.spec.effect, vouched=vouched) is Gate.PERSON:
             effect = item.spec.effect.value
             stops.append(f"action {name!r} ({effect}) is never released without a person")
+        else:
+            gate = gate_of(item.spec.effect, vouched=vouched, free_text=item.spec.free_text)
+            if gate is Gate.PERSON:  # only its free text made it so: the effect alone did not
+                stops.append(
+                    f"action {name!r} can carry free text and is never released without a person"
+                )
     return tuple(dict.fromkeys(stops))
 
 
