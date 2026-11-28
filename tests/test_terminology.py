@@ -44,6 +44,21 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # its version is released). 0.1.0 is released: its fixed resources never change, and a change
 # needs a new version.
 PINNED = {
+    # ADR-0027: the audit events gain `output.held` and `output.resolved`, a text held for a
+    # decision's reviewer and that reviewer's verdict on it. Every other definition is 0.1.2's,
+    # each carrying the version.
+    "0.2.0": {
+        "CodeSystem/decision-outcome": "234bfafa73294aef",
+        "CodeSystem/audit-event": "1f7cea2ffd86c01d",
+        "CodeSystem/audit-administrative-event": "05a7fc2baaef72fb",
+        "CodeSystem/card-override-reasons": "5f8914430300cdab",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
+        "NamingSystem/agent-version": "1448a6d6492ce83f",
+        "CodeSystem/sandbox": "c0658e0c62246daf",
+        "CodeSystem/message-channel": "4eb874973e0ec2af",
+    },
     # The audit's fixes: the same definitions as 0.1.1, each carrying the version.
     "0.1.2": {
         "CodeSystem/decision-outcome": "669f25af27b85ce6",
@@ -116,13 +131,7 @@ PINNED = {
 # so this is a debt, not a pin: the release that ships these carries a new Mendari version,
 # whose own entry in PINNED takes them, and this goes back to empty. PINNED's released entries
 # stay what was released.
-UNRELEASED: dict[str, dict[str, str]] = {
-    "0.1.2": {
-        # ADR-0027: `output.held` and `output.resolved`, a text held for a decision's reviewer
-        # and that reviewer's verdict on it.
-        "CodeSystem/audit-event": "b58982d596318a85",
-    },
-}
+UNRELEASED: dict[str, dict[str, str]] = {}
 
 
 @pytest.fixture(scope="module")

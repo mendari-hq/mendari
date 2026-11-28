@@ -6,14 +6,15 @@ no section, or whose section is not the newest. What is merged and not yet relea
 `## Unreleased`, which the workflow does not read: it takes its version's name at the release.
 Changes to an agent are in the agent's own `CHANGELOG.md`.
 
-## Unreleased
+## 0.2.0
 
 No free text is released unread
 ([ADR-0027](docs/decisions/ADR-0027-no-free-text-is-released-unread.md)). Until now what an
 agent wrote came back with every decision, an action whose argument is free text was released
 with an automated one, and confirming a label released every held action. This changes what a
-decision returns and what a review takes, so it ships under a new version, never as 0.1.2. The
-spec version stays `"0.4"`: no manifest key is added, and a manifest that was valid is valid.
+decision returns and what a review takes, so it is a new minor version and not a patch to
+0.1.2. The spec version stays `"0.4"`: no manifest key is added, and a manifest that was valid
+is valid.
 
 - **A decision's answer.** What an agent wrote (`outputs`) comes back only with a decision
   that waits for a person (`HUMAN_REVIEW`, `ABSTAIN`), as that person's draft. An automated or
