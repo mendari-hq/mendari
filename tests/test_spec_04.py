@@ -148,6 +148,16 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
         "assign_queue": "write",
         "send_acknowledgement": "contact",
     }
+    # What its comments say of each is true (ADR-0027): the write it calls released with an
+    # AUTO decision takes an enumerated argument, and it says what a free string would change;
+    # the contact is the author's own `allow_auto: false`.
+    assert declared["assign_queue"].allow_auto and not declared["assign_queue"].free_text
+    assert not declared["send_acknowledgement"].allow_auto
+    assert (
+        "#     effect: write  # released with an AUTO decision; otherwise when a reviewer "
+        "confirms it\n"
+        "#     schema:  # enumerated: with a free string, it is never released without a person\n"
+    ) in template
 
 
 # -- what 0.4 has of what the spec documents of 0.2 and 0.3 ---------------------------------------
