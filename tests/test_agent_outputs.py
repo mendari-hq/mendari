@@ -482,6 +482,47 @@ def test_where_a_text_stands_follows_whether_a_person_awaits_the_decision(
     assert nothing.written == {} and nothing.drafts() == {} and "written" not in nothing.to_dict()
 
 
+def test_the_answers_schema_says_where_a_text_stands_and_what_a_draft_is(
+    agent: Agent, tmp_path: Path
+) -> None:
+    """The schema an agent's detail serves for its answers (`output_schema`) describes
+    `written` and `outputs` for an agent that declares outputs, and an answer of either kind
+    matches it: one that waits, with its draft, and one that automated, without. An agent that
+    writes nothing has a schema with neither, as it was."""
+    from jsonschema import Draft202012Validator
+
+    from mendari import AuditStore, Decision
+
+    schema = agent.output_schema
+    stands = {
+        "type": "object",
+        "required": ["state"],
+        "properties": {"state": {"enum": ["held", "not_released"]}},
+    }
+    assert schema["properties"]["written"]["properties"] == dict.fromkeys(
+        agent.manifest.outputs, stands
+    )
+    drafts = schema["properties"]["outputs"]
+    assert set(drafts["properties"]) == set(agent.manifest.outputs) >= {"reply_draft"}
+    assert drafts["properties"]["reply_draft"]["type"] == "string"
+    assert drafts["properties"]["reply_draft"]["maxLength"] == (
+        agent.manifest.outputs["reply_draft"].max_chars
+    )
+    assert "written" not in load_agent(ACTIONS_MINI).output_schema["properties"]
+    checker = Draft202012Validator(schema)
+    with AuditStore(str(tmp_path / "a.db")) as store:
+        automated = Decision(agent, store=store).decide(message(REFILL))
+        waiting = Decision(agent, store=store, hold_source=lambda agent: "a drill").decide(
+            message(REFILL)
+        )
+    assert (automated.outcome, waiting.outcome) == (Outcome.AUTO, Outcome.HUMAN_REVIEW)
+    checker.validate(automated.to_dict())
+    checker.validate({**waiting.to_dict(), "outputs": waiting.drafts()})
+    assert waiting.drafts()  # the draft is there, and the schema takes it
+    wrong = {**waiting.to_dict(), "written": {"reply_draft": {"state": "released"}}}
+    assert list(checker.iter_errors(wrong))  # a record says held or not released, no more
+
+
 def test_the_manifest_of_every_agent_with_outputs_is_valid() -> None:
     manifest = load_agent(MINI).manifest
     assert AgentManifest.model_validate(manifest.model_dump(mode="json", by_alias=True)) == manifest

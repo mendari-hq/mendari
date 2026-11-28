@@ -586,27 +586,35 @@ def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() ->
         f"`{name}`" for name in load_agent(MINI).manifest.actions
     ]
     by_name = {row.split("|")[1].strip().strip("`"): row for row in rows}
+    free, listed = "can hold free text", "listed values only"
     assert (
-        "| `read` | With any decision that is not blocked. | not checked |"
+        f"| `read` | With any decision that is not blocked. | not checked: {free} |"
         in by_name["look_up_medications"]
     )
     # A contact and a write whose argument is a free string: the tightened gate, saying why
     # (ADR-0027). The same effects with enumerated arguments are released with AUTO.
-    assert f"| `contact` | {FREE_TEXT_GATE} | checked: `message` |" in by_name["send_reply"]
-    assert f"| `write` | {FREE_TEXT_GATE} | checked: `note` |" in by_name["file_note"]
+    assert f"| `contact` | {FREE_TEXT_GATE} | checked: `message`; {free} |" in by_name["send_reply"]
+    assert f"| `write` | {FREE_TEXT_GATE} | checked: `note`; {free} |" in by_name["file_note"]
     assert "`contact` | Only with an automated decision" in by_name["send_template"]
-    assert "checked: `template`" in by_name["send_template"]
+    assert f"checked: `template`; {listed} |" in by_name["send_template"]
     assert "`write` | Only with an automated decision" in by_name["assign_queue"]
+    assert f"checked: `queue`; {listed} |" in by_name["assign_queue"]
     # A draft can hold free text and is released with the decision: a person sees it first.
-    assert "`draft` | With any decision that is not blocked." in by_name["draft_reply"]
+    # Its row says that its argument is free text, whatever its gate.
+    assert (
+        f"`draft` | With any decision that is not blocked. | checked: `message`; {free} |"
+        in by_name["draft_reply"]
+    )
     # What the manifest tightened, and an order, can hold free text here too: released by name.
     assert f"| `write` | {FREE_TEXT_GATE} |" in by_name["queue_refill"]
-    assert "checked: `medication`, `days_supply`" in by_name["queue_refill"]
-    assert f"| `order` | {FREE_TEXT_GATE} | not checked |" in by_name["renew_prescription"]
+    assert f"checked: `medication`, `days_supply`; {free} |" in by_name["queue_refill"]
+    assert f"| `order` | {FREE_TEXT_GATE} | not checked: {free} |" in by_name["renew_prescription"]
     assert "when a reviewer confirms the decision. |" not in section
+    # What makes arguments free text is said once, above the table.
+    assert "unless every value they take is one the manifest lists" in section
     # The bundled agent's card lists its two; an agent that declares none has no such section.
     # Its contact takes one enumerated template: a confirmation releases it.
     demo = render_card(load_agent(DEMO_AGENT_DIR))
     assert "| `assign_queue` |" in demo and "| `send_acknowledgement` |" in demo
-    assert f"`contact` | {GATE_TEXT[Gate.PERSON]} | checked: `template` |" in demo
+    assert f"`contact` | {GATE_TEXT[Gate.PERSON]} | checked: `template`; {listed} |" in demo
     assert "## Actions" not in render_card(load_agent(TRIAGE_DIR))

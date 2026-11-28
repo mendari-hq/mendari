@@ -1063,8 +1063,8 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
         "What the agent may ask to have done",
         "This software authorizes each one and runs none",
         "Never without a person: when a reviewer confirms the decision. tightened by the agent",
-        "checked: queue",
-        "checked: template",
+        "checked: queue; listed values only",
+        "checked: template; listed values only",
         "Whether the agent's confidence was checked",
         "reader / agent: not calibrated. Its confidence is the agent's own report",
         "Not stated: no part of this agent is asked a case more than once, and none is checked "
@@ -1101,6 +1101,22 @@ def test_the_packet_shows_the_tightened_gate_of_an_action_that_can_hold_free_tex
     # The runtime's rule, not the agent's own tightening: the label is on `queue_refill` alone.
     assert said.count("tightened by the agent") == 1
     assert f"{FREE_TEXT_GATE} tightened by the agent" in said
+    # Each action says whether its arguments can hold free text, whatever its gate: the draft
+    # and the read too, which are released with the decision.
+    assert {name: action["free_text"] for name, action in by_name.items()} == {
+        "look_up_medications": True,
+        "draft_reply": True,
+        "send_reply": True,
+        "queue_refill": True,
+        "file_note": True,
+        "renew_prescription": True,
+        "send_template": False,
+        "assign_queue": False,
+    }
+    assert "checked: message; can hold free text" in said
+    assert "not checked: can hold free text" in said
+    assert said.count("listed values only") == 2
+    assert "unless every value they take is one the agent's files list" in said
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:

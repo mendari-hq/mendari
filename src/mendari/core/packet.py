@@ -504,9 +504,23 @@ def _actions(agent: Agent) -> list[dict[str, Any]]:
                 "tightened": not spec.allow_auto,
                 # None: no schema, so its arguments are not checked; else the fields it takes.
                 "arguments": None if schema is None else list(schema.get("properties") or {}),
+                # Whether they can hold free text (ADR-0027): anything but listed values.
+                "free_text": spec.free_text,
             }
         )
     return declared
+
+
+def _html_arguments(action: Mapping[str, Any]) -> str:
+    """What an action's arguments are checked for, and whether they can hold free text, as
+    the Decision Card says it (`card._actions`)."""
+    named = action["arguments"]
+    if named is None:
+        return "not checked: can hold free text"
+    if not named:
+        return "checked: none taken"
+    holds = "can hold free text" if action.get("free_text") else "listed values only"
+    return "checked: " + ", ".join(_code(name) for name in named) + f"; {holds}"
 
 
 def _written(agent: Agent) -> list[dict[str, Any]]:
@@ -2162,9 +2176,10 @@ def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
         "and every proposal and its release or denial is in the audit trail. What an action "
         "needs before it is released is the runtime's rule for its effect, which the agent's "
         "files can only tighten. An action that is not listed here is blocked. Arguments can "
-        "hold free text when they take a text that is not one of a list of values, or when "
-        "nothing checks them: an action that writes or contacts with such arguments is never "
-        "released without a person.</p>"
+        "hold free text unless every value they take is one the agent's files list: a text or "
+        "a number that is not one of a list of values, a list, or arguments nothing checks, "
+        "can. An action that writes or contacts with such arguments is never released without "
+        "a person.</p>"
     )
     return out + _table(
         ["Action", "What it does, in the publisher's words", "Effect", "Released", "Arguments"],
@@ -2175,10 +2190,7 @@ def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
                 _code(action["effect"]),
                 _e(action["released"])
                 + (" " + _label("tightened by the agent") if action["tightened"] else ""),
-                "not checked"
-                if action["arguments"] is None
-                else "checked: "
-                + (", ".join(_code(n) for n in action["arguments"]) or "none taken"),
+                _html_arguments(action),
             ]
             for action in actions
         ],

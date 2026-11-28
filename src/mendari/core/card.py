@@ -390,8 +390,9 @@ def _actions(agent: Agent) -> list[str]:
     """The card's Actions section (spec §13): each action the agent may propose, what it does,
     its effect and how the runtime gates it (`policy.gate_of`, in `policy.gate_words`' words:
     the tightened gate of an action whose arguments can hold free text, saying why, and that a
-    reviewer releases it only by naming it). Nothing for an agent that declares none, so its
-    card is what it always was."""
+    reviewer releases it only by naming it), and whether its arguments can hold free text,
+    whatever its gate. Nothing for an agent that declares none, so its card is what it always
+    was."""
     declared = agent.manifest.actions
     if not declared:
         return []
@@ -404,9 +405,10 @@ def _actions(agent: Agent) -> list[str]:
         "proposes that is not listed here is blocked, and its decision goes to a person. "
         "Where the deployment has not vouched for the agent (one from a registry before its "
         "organization approves its digest), nothing it proposes is released without a person. "
-        "Arguments can hold free text when they take a text that is not one of a list of "
-        "values, or when nothing checks them: an action that writes or contacts with such "
-        "arguments is never released without a person.",
+        "Arguments can hold free text unless every value they take is one the manifest "
+        "lists: a text or a number that is not one of a list of values, a list, or arguments "
+        "nothing checks, can. An action that writes or contacts with such arguments is never "
+        "released without a person.",
         "",
         "| Action | Does | Effect | Released | Arguments |",
         "|---|---|---|---|---|",
@@ -416,9 +418,10 @@ def _actions(agent: Agent) -> list[str]:
         schema = spec.json_schema
         named = list((schema or {}).get("properties") or {})
         if schema is None:
-            arguments = "not checked"
+            arguments = "not checked: can hold free text"
         elif named:
-            arguments = "checked: " + ", ".join(_c(key) for key in named)
+            holds = "can hold free text" if spec.free_text else "listed values only"
+            arguments = "checked: " + ", ".join(_c(key) for key in named) + f"; {holds}"
         else:
             arguments = "checked: none taken"
         out.append(
