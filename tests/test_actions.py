@@ -448,7 +448,8 @@ def test_no_proposal_is_released_past_its_gate_and_a_reason_names_declared_actio
         for problem in item.problems:  # where and which rule: no key the agent wrote
             where = problem.split(": ", 1)[0]
             assert set(where.split("/")) <= {"(root)", "*", "message", "medication",
-                                             "days_supply", "note"}  # fmt: skip
+                                             "days_supply", "note", "template",
+                                             "queue"}  # fmt: skip
     # No reason holds a name the manifest does not declare, nor any argument.
     undeclared = {p.name for p in proposals if p.name not in MANIFEST.actions and len(p.name) > 3}
     for stop in stops:

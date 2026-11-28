@@ -1825,7 +1825,7 @@ def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> N
     plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
     order = decision({"message": {"body": "Please renew my prescription."}})
     undeclared = decision({"message": {"body": "Try an undeclared thing."}})
-    visit = decision({"message": {"body": "I need to move my appointment."}})
+    visit = decision({"message": {"body": "Please reschedule my visit."}})
     results = [plain, order, undeclared, visit]
     assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 3]
     assert plain.policy_inputs is not None and plain.policy_inputs.actions == ()

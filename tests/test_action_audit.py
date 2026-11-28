@@ -445,7 +445,7 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     # An automated decision: what writes or contacts is released, an order has nobody to wait
     # for, and what reads is released as always.
     assert ask(decision, automated, "look_up_medications") == ("released", "with_decision")
-    assert ask(decision, automated, "file_note", note="asked") == ("released", "automated")
+    assert ask(decision, automated, "assign_queue", queue="refill") == ("released", "automated")
     assert ask(decision, automated, "renew_prescription") == ("blocked", "no_reviewer")
     assert ask(decision, automated, "queue_refill", medication="x") == ("blocked", "no_reviewer")
     # A decision that awaits review: held, and released when its reviewer confirms it.
@@ -525,14 +525,17 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
 ) -> None:
     decision = agent(store)
     result = decision(message(REFILL))  # AUTO
-    assert ask(decision, result.id, "file_note", note="first") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
     assert ask(decision, result.id, "send_reply", message=5) == ("blocked", "invalid_arguments")
     refused = chained(store)[-1]["payload"]
     assert (refused["name"], refused["effect"]) == ("send_reply", "contact")  # declared: named
     # An agent that asked for what it may not is not trusted to automate more on this decision.
-    assert ask(decision, result.id, "file_note", note="second") == ("blocked", "earlier_refusal")
+    assert ask(decision, result.id, "assign_queue", queue="scheduling") == (
+        "blocked",
+        "earlier_refusal",
+    )
     assert ask(decision, result.id, "look_up_medications") == ("released", "with_decision")
-    assert ask(decision, result.id, "file_note", note="first") == (
+    assert ask(decision, result.id, "assign_queue", queue="refill") == (
         "released",
         "automated",
     )  # stands
@@ -551,19 +554,22 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
     repeated = decision.authorize_action(other.id, "wipe_the_chart", {"why": "SENTINEL-ASKED"})
     assert repeated["repeated"] is True and repeated["id"] == unknown["id"]
     assert len(chained(store)) == count
-    assert ask(decision, other.id, "file_note", note="x") == ("blocked", "earlier_refusal")
+    assert ask(decision, other.id, "assign_queue", queue="refill") == ("blocked", "earlier_refusal")
 
 
 def test_a_hold_set_after_an_automated_decision_stops_new_releases(store: AuditStore) -> None:
     holds: list[str] = []
     decision = agent(store, hold_source=lambda agent: holds[0] if holds else None)
     result = decision(message(REFILL))
-    assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
     holds.append("an operator's hold")
-    assert ask(decision, result.id, "file_note", note="after") == ("blocked", "not_automated")
+    assert ask(decision, result.id, "assign_queue", queue="scheduling") == (
+        "blocked",
+        "not_automated",
+    )
     assert ask(decision, result.id, "look_up_medications") == ("released", "with_decision")
     # A release is final: what was released before the hold still reads as released.
-    assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
+    assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
 
 
 def test_a_decision_of_another_version_of_the_agent_gets_nothing(
@@ -677,7 +683,7 @@ def test_two_identical_questions_chain_one_event_whatever_the_disposition(
 ) -> None:
     decision = agent(store)
     for body, name, arguments in (
-        (REFILL, "file_note", {"note": "x"}),  # released
+        (REFILL, "assign_queue", {"queue": "refill"}),  # released
         (VISIT, "file_note", {"note": "y"}),  # held
         (UNCLEAR, "file_note", {"note": "z"}),  # blocked
         (REFILL, "send_reply", {"message": 5}),  # refused, declared

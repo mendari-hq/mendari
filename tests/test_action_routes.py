@@ -140,6 +140,8 @@ def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestC
         ("queue_refill", "write", "person", False),
         ("file_note", "write", "auto", True),
         ("renew_prescription", "order", "person", True),
+        ("send_template", "contact", "auto", True),
+        ("assign_queue", "write", "auto", True),
     ]
     by_name = {a["name"]: a for a in detail["actions"]}
     assert by_name["look_up_medications"]["released"] == "With any decision that is not blocked."
@@ -165,7 +167,7 @@ def test_a_blocked_action_is_a_200_and_every_disposition_is_answered(client: Tes
     blocked = decide(client, ABUSIVE)["id"]
     table = [
         (automated, "look_up_medications", {}, "released", "with_decision"),
-        (automated, "file_note", {"note": "asked"}, "released", "automated"),
+        (automated, "assign_queue", {"queue": "refill"}, "released", "automated"),
         (automated, "renew_prescription", {}, "blocked", "no_reviewer"),
         (automated, "queue_refill", {"medication": "x"}, "blocked", "no_reviewer"),
         (pending, "draft_reply", {"message": "asked"}, "released", "with_decision"),
@@ -282,7 +284,7 @@ def test_an_undeclared_or_malformed_action_is_blocked_and_never_named_in_the_tra
     assert unknown["name"] is None and unknown["effect"] is None
     wrong = ask(client, decided["id"], "send_reply", {"message": 5})
     assert (wrong["disposition"], wrong["reason"]) == ("blocked", "invalid_arguments")
-    after = ask(client, decided["id"], "file_note", {"note": "x"})
+    after = ask(client, decided["id"], "assign_queue", {"queue": "refill"})
     assert (after["disposition"], after["reason"]) == ("blocked", "earlier_refusal")
     listed = client.get("/api/audit", params={"limit": 50}).text
     exported = client.get("/api/audit/export/fhir").text
@@ -372,10 +374,11 @@ def test_a_decision_of_an_earlier_digest_is_agent_changed(tmp_path: Path) -> Non
 
 def test_a_hold_set_after_an_automated_decision_is_not_automated(client: TestClient) -> None:
     decided = decide(client, REFILL)
-    assert ask(client, decided["id"], "file_note", {"note": "before"})["reason"] == "automated"
+    before = ask(client, decided["id"], "assign_queue", {"queue": "refill"})
+    assert before["reason"] == "automated"
     held = client.post("/api/holds", json={"agent_id": AGENT, "reason": "a drill"})
     assert held.status_code in (200, 201), held.text
-    after = ask(client, decided["id"], "file_note", {"note": "after"})
+    after = ask(client, decided["id"], "assign_queue", {"queue": "scheduling"})
     assert (after["disposition"], after["reason"]) == ("blocked", "not_automated")
     assert ask(client, decided["id"], "look_up_medications", {})["disposition"] == "released"
     # And a decision made under the hold goes to a person: its write is held.

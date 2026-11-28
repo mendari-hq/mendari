@@ -1,5 +1,9 @@
 # Test fixture for actions (spec §13): the five actions of the spec's example, one of each
-# effect, and an `agent` variant whose canned answers propose them. Not a real agent.
+# effect, a note filed in the chart, and an `agent` variant whose canned answers propose them.
+# Each of those six can hold free text in its arguments (a string that is not enumerated, or no
+# schema at all). The last two, `send_template` and `assign_queue`, take enumerated arguments
+# only: they are the `contact` and the `write` an AUTO decision releases (ADR-0027).
+# Not a real agent.
 spec_version: "0.4"
 id: mendari-test/actions-mini
 version: 0.1.0
@@ -94,3 +98,21 @@ actions:
   renew_prescription:
     description: Renew the prescription as it was last written.
     effect: order
+  send_template:
+    description: Send the patient one of the clinic's standard replies through the portal.
+    effect: contact
+    schema:
+      type: object
+      additionalProperties: false
+      required: [template]
+      properties:
+        template: {type: string, enum: [received, refill_queued]}
+  assign_queue:
+    description: Put the message in the refill, scheduling or front-desk queue.
+    effect: write
+    schema:
+      type: object
+      additionalProperties: false
+      required: [queue]
+      properties:
+        queue: {type: string, enum: [refill, scheduling, front_desk]}

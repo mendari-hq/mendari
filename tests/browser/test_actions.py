@@ -201,7 +201,7 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     section = console.locator("#card-actions")
     expect(section).to_contain_text("Mendari authorizes each action and runs none")
     rows = section.locator("tbody tr")
-    expect(rows).to_have_count(6)
+    expect(rows).to_have_count(8)
     expect(rows.nth(0)).to_contain_text("look_up_medications")
     expect(rows.nth(0)).to_contain_text("With any decision that is not blocked.")
     expect(rows.nth(0)).to_contain_text("not checked")

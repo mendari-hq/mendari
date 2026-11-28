@@ -96,11 +96,13 @@ def answers(request: str = "refill", confidence: float = 0.95, **more: Any) -> d
 def test_an_automated_decision_releases_what_reads_drafts_writes_and_contacts(
     agent: Decision,
 ) -> None:
+    """The contact it releases takes an enumerated argument (`send_template`): one whose
+    argument is the message itself is never released without a person (ADR-0027, below)."""
     result = agent(message("Could you refill my lisinopril?"))
     assert (result.outcome, result.recommendation) == (Outcome.AUTO, "refill")
     assert shown(result) == [  # two proposals with the same name and arguments are one
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "released", "automated"),
+        ("send_template", "contact", "released", "automated"),
     ]
     assert result.reasons == ("confidence 0.95 >= auto threshold 0.90",)  # nothing stopped it
     first, second = result.actions or ()
@@ -140,12 +142,14 @@ def test_an_action_the_manifest_tightens_is_never_released_without_a_person(
 
 
 def test_a_decision_that_awaits_review_holds_what_writes_and_contacts(agent: Decision) -> None:
-    result = agent(message("I need to move my appointment."))
+    """A write and a contact of enumerated arguments, which an AUTO decision would release:
+    here they wait for the reviewer, and say nothing in the reasons."""
+    result = agent(message("Please reschedule my visit."))
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "appointment")
     assert shown(result) == [
         ("look_up_medications", "read", "released", "with_decision"),
-        ("file_note", "write", "held", "awaiting_review"),
-        ("send_reply", "contact", "held", "awaiting_review"),
+        ("assign_queue", "write", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
     ]
     # Nothing proposed here stops automation: the confidence alone sent it to a person.
     assert result.reasons == ("confidence 0.70 is below the auto threshold 0.90 for 'appointment'",)
@@ -307,14 +311,14 @@ def test_a_well_formed_live_response_is_gated_as_a_canned_one_is(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     proposed = [
-        {"name": "file_note", "arguments": {"note": "Asked for a refill."}},
+        {"name": "assign_queue", "arguments": {"queue": "refill"}},
         {"name": "look_up_medications"},
     ]
     seen = live(monkeypatch, lambda _: answers(actions=proposed))
     result = Decision.from_path(MINI)(message("Could you refill my lisinopril?"))
     assert result.outcome is Outcome.AUTO
     assert shown(result) == [
-        ("file_note", "write", "released", "automated"),
+        ("assign_queue", "write", "released", "automated"),
         ("look_up_medications", "read", "released", "with_decision"),
     ]
     # The request carried the declared actions, in the manifest's order, each as declared.
@@ -397,11 +401,11 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     plain, governed = Decision(agent)(body), Decision(agent, governance=approval)(body)
     automated = [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "released", "automated"),
+        ("send_template", "contact", "released", "automated"),
     ]
     held = [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
     ]
     assert shown(plain) == (automated if level <= 1 else held)
     # A recorded approval that lets a level 2 or 3 agent automate releases its actions too;
@@ -425,12 +429,12 @@ def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert shown(result) == [
         ("draft_reply", "draft", "released", "with_decision"),
-        ("send_reply", "contact", "held", "awaiting_review"),
+        ("send_template", "contact", "held", "awaiting_review"),
     ]
     assert held.automation_stopped() == "automation is on hold: an operator's hold"
     shadow = agent.decide(message("Could you refill my lisinopril?"), shadow=True)
     assert shadow.outcome is Outcome.HUMAN_REVIEW
-    assert shown(shadow)[1] == ("send_reply", "contact", "held", "awaiting_review")
+    assert shown(shadow)[1] == ("send_template", "contact", "held", "awaiting_review")
 
 
 # -- an agent that declares no action ----------------------------------------------------------
@@ -515,4 +519,4 @@ def test_a_store_keys_the_arguments_hash_and_the_record_holds_no_actions() -> No
         assert first.arguments_hash == store.phi.arguments_hash(first.arguments)
         kept = store.get(result.id)
         assert kept is not None and "actions" not in kept["record"]
-        assert [a["name"] for a in kept["actions"]] == ["draft_reply", "send_reply"]
+        assert [a["name"] for a in kept["actions"]] == ["draft_reply", "send_template"]
