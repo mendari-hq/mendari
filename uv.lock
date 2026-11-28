@@ -1190,6 +1190,7 @@ name = "mendari"
 version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-re2" },
     { name = "httpx" },
@@ -1226,6 +1227,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=50.0.0" },
     { name = "fastapi", specifier = ">=0.132" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
     { name = "httpx", specifier = ">=0.27" },
