@@ -123,22 +123,20 @@ export const wire = (root) => {
 
 let reviewCountSeq = 0;
 
+// The count beside "Review queue", on every view: from the summary, which holds counts and
+// nothing else. Never from the queue itself: reading that shows this reader every waiting input
+// and every held text, and under PHI mode `encrypt` the chain records each as read.
 export async function refreshReviewCount() {
   if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) return; // no review queue for these
   const agentId = state.agentId;
   const seq = ++reviewCountSeq;
   try {
-    const [pending, summary] = await Promise.all([
-      api(`/api/review?agent_id=${encodeURIComponent(agentId)}&limit=500`),
-      state.agents.length > 1 ? api("/api/review/summary").catch(() => null) : Promise.resolve(null),
-    ]);
+    const summary = await api("/api/review/summary");
     if (seq !== reviewCountSeq || state.agentId !== agentId) return;
-    $("#review-count").textContent = pending.length || "";
+    $("#review-count").textContent = summary.find((row) => row.agent_id === agentId)?.pending || "";
     keepActiveSectionInView(); // the count changes the strip's width
-    if (Array.isArray(summary)) {
-      state.agentQueue = new Map(summary.map((row) => [row.agent_id, row]));
-      updateCrossAgentStat(summary, agentId);
-    }
+    state.agentQueue = new Map(summary.map((row) => [row.agent_id, row]));
+    updateCrossAgentStat(summary, agentId);
   } catch { /* the badge is optional */ }
 }
 

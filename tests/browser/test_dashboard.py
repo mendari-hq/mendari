@@ -2057,6 +2057,28 @@ def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -
     assert json.loads(request.value.post_data or "{}")["final_label"] == "billing"
 
 
+def test_the_review_count_in_the_navigation_reads_no_queue(page: Page, live_server: str) -> None:
+    """The count beside "Review queue" is on every view, so it comes from the summary, which
+    holds counts and nothing else. Reading the queue for it showed this reader every waiting
+    input and every held text: under PHI mode `encrypt` the chain recorded each as read, in the
+    name of someone who had opened none of them."""
+    decide_triage(live_server, "Crushing chest pain, sweating, short of breath since noon")
+    queue: list[str] = []
+    page.on("request", lambda r: queue.append(r.url) if "/api/review?" in r.url else None)
+    open_agent(page, TRIAGE)
+    summary = httpx.get(f"{live_server}/api/review/summary").json()
+    waiting = next(row["pending"] for row in summary if row["agent_id"] == TRIAGE)
+    count = page.locator("#review-count")
+    expect(count).to_have_text(str(waiting))
+    show(page, "audit")
+    expect(count).to_have_text(str(waiting))
+    assert queue == []
+    show(page, "review")  # whoever opens the queue reads it, once
+    expect(page.locator(".review-card").first).to_be_visible()
+    expect(count).to_have_text(str(waiting))
+    assert len(queue) == 1
+
+
 # -- Phase B3: chart finish and Overview trends ---------------------------------------------------
 
 
