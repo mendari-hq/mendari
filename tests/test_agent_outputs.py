@@ -2,9 +2,10 @@
 """What an agent writes with its answers (spec section 15.2): the request names the outputs the
 manifest declares for the slot, the response's `outputs` are held to them (an undeclared name, a
 value that is not text or a text over its length fails the slot closed), the agent kit builds
-and refuses the same, and `POST …/decide` returns the texts without keeping them: the stored
-record has the shape, and holds no word, of what was written. Every message and reply here is
-synthetic."""
+and refuses the same, and `POST …/decide` returns the texts: the stored record has the shape,
+and holds no word, of what was written. A text is kept only for a decision that waits for a
+person, and then as a note, apart from the record (ADR-0027; tests/test_held_texts.py). Every
+message and reply here is synthetic."""
 
 from __future__ import annotations
 
@@ -339,26 +340,55 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         yield opened
 
 
-def test_decide_returns_what_was_written_and_keeps_none_of_it(
+def test_decide_returns_what_was_written_and_keeps_it_only_for_a_decision_that_waits(
     client: TestClient, tmp_path: Path
 ) -> None:
-    answer = client.post(f"/api/agents/{AGENT}/decide", json=message(REFILL))
-    assert answer.status_code == 200, answer.text
-    decided = answer.json()
-    reply = decided["outputs"]["reply_draft"]
-    assert reply.startswith("Thank you for your message. The pharmacy team")
-    # The stored record is what it would be for an agent that wrote nothing: no `outputs` key.
-    stored = client.get(f"/api/audit/{decided['id']}").json()
-    record = stored.get("decision", stored)
-    assert "outputs" not in record and "outputs" not in stored
-    assert reply not in json.dumps(stored)
-    # No table of the database holds a word of the reply.
+    """`POST …/decide` returns what the agent wrote under every outcome, and no stored record
+    or chained event holds a word of it. A text is kept exactly when its decision waits for a
+    person, and then only as a note (ADR-0027): the trail shows it, where the decision's input
+    is shown, under `outputs`. Open mode, under no PHI mode: a note is in clear there."""
+
+    def decide(body: str) -> dict[str, Any]:
+        answer = client.post(f"/api/agents/{AGENT}/decide", json=message(body))
+        assert answer.status_code == 200, answer.text
+        decided: dict[str, Any] = answer.json()
+        return decided
+
+    # One decision as the policy serves it, then one that waits for a person whatever the
+    # policy: the agent's automation is put on hold.
+    served = decide(REFILL)
+    assert served["outputs"]["reply_draft"].startswith(
+        "Thank you for your message. The pharmacy team"
+    )
+    hold = client.post("/api/holds", json={"agent_id": AGENT, "reason": "a drill"})
+    assert hold.status_code == 201, hold.text
+    waiting = decide("I need to move my appointment.")
+    assert waiting["outcome"] == "HUMAN_REVIEW"
+    assert waiting["outputs"]["reply_draft"].endswith("The scheduling team will contact you.")
     with sqlite3.connect(tmp_path / "open.db") as db:
-        tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        kept = json.dumps(
-            [db.execute(f'SELECT * FROM "{table}"').fetchall() for table in tables], default=str
-        )
-    assert "pharmacy team will review" not in kept and decided["id"] in kept
+        names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        tables = {
+            name: json.dumps(db.execute(f'SELECT * FROM "{name}"').fetchall(), default=str)
+            for name in names
+        }
+    assert served["id"] in tables["decisions"] and waiting["id"] in tables["decisions"]
+    for decided, words in ((served, "pharmacy team will review"), (waiting, "scheduling team")):
+        reply = decided["outputs"]["reply_draft"]
+        waits = decided["outcome"] in ("HUMAN_REVIEW", "ABSTAIN")
+        stored = client.get(f"/api/audit/{decided['id']}").json()
+        # The stored record is what it would be for an agent that wrote nothing: no `outputs`
+        # key, and no word of the reply in it or in an event.
+        assert "outputs" not in stored["record"]
+        assert words not in json.dumps([stored["record"], [e["payload"] for e in stored["events"]]])
+        holding = sorted(name for name, text in tables.items() if words in text)
+        if waits:  # held for its reviewer: a note, and what the trail shows of it
+            assert holding == ["notes"], holding
+            assert stored["outputs"] == [
+                {"name": "reply_draft", "state": "held", "text_status": "open", "text": reply}
+            ]
+        else:  # nobody waits to read it: no table holds a word of it, and no answer
+            assert holding == [], holding
+            assert "outputs" not in stored and reply not in json.dumps(stored)
     # A case with no output, and an agent that declares none: no `outputs` key at all.
     nothing = client.post(f"/api/agents/{AGENT}/decide", json=message("I have nothing to say."))
     assert "outputs" not in nothing.json()

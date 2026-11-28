@@ -8,7 +8,9 @@ One story, in six numbered sections and an ending:
    actions and its canned answers propose them. A write is released with an AUTO decision, a
    message to the patient is held until a reviewer confirms the decision, and an action the
    agent never declared is blocked. Mendari authorizes each and runs none.
-3. It fills a review queue, has simulated reviewers work it, and verifies the audit chain.
+3. It fills a review queue, has simulated reviewers work it, and verifies the audit chain. A
+   decision that waits holds the acknowledgement the agent wrote, and its reviewer says what
+   becomes of it (ADR-0027): released with a label they confirm, withheld with one they correct.
 4. It evaluates the agent on its 600-case set the way a site would before going live. The demo
    agent answers from canned responses (its `mock_file`) and does not detect urgent messages
    that are worded as a patient might say them: the evaluation is there to catch exactly that.
@@ -139,7 +141,10 @@ def _run(store: AuditStore) -> None:
     print(f"{len(pending)} decisions wait for a person (urgent first). Simulating reviewers…")
     for item in pending:
         if item["id"] in truth:
-            store.resolve_review(item["id"], final_label=truth[item["id"]], reviewer="demo-nurse")
+            label = truth[item["id"]]
+            store.resolve_review(
+                item["id"], final_label=label, reviewer="demo-nurse", texts=_verdicts(item, label)
+            )
     stats = store.stats()
     outcomes = "  ".join(f"{k} {v}" for k, v in stats["outcomes"].items())
     print(f"decisions: {stats['decisions']}   {outcomes}")
@@ -214,12 +219,23 @@ def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResul
     waits = f"message {position} waits for a reviewer"
     _line(contact.disposition, contact.name, contact.effect, waits)
     confirmed = store.resolve_review(
-        reviewed.id, final_label=str(reviewed.recommendation), reviewer="demo-nurse"
+        reviewed.id,
+        final_label=str(reviewed.recommendation),
+        reviewer="demo-nurse",
+        # The acknowledgement the agent wrote waits with the decision: the reviewer read it.
+        texts=dict.fromkeys(reviewed.outputs, "release"),
     )
     after = next(a for a in confirmed["actions"] if a["id"] == contact.id)
     _line(after["disposition"], after["name"], after["effect"], "the reviewer confirmed it")
     asked = agent.authorize_action(automated.id, *UNDECLARED)
     _line(asked["disposition"], "an action the agent never declared", None, "asked for message 1")
+
+
+def _verdicts(item: Mapping[str, Any], label: str) -> dict[str, str]:
+    """A simulated reviewer's verdict on each text a decision in the queue holds (ADR-0027):
+    released with a label they confirm, withheld with one they correct."""
+    verdict = "release" if item["recommendation"] == label else "withhold"
+    return {text["name"]: verdict for text in item.get("outputs", ())}
 
 
 def _written(agent: Any) -> None:

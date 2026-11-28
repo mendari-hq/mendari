@@ -539,8 +539,12 @@ def test_an_action_only_some_runs_proposed_is_held_and_never_released(
         assert result.policy_inputs is not None
         assert result.policy_inputs.caps == ("2 of 3 runs proposed action 'look_up_medications'",)
         assert result.policy_inputs.actions == ()  # the cap is the second signal's
-        # The reviewer confirms the decision, and with it what waited.
-        confirmed = store.resolve_review(result.id, final_label="refill", reviewer="rn-1")
+        # The reviewer confirms the decision, and with it what waited: the read by name, since
+        # nothing checks its arguments (ADR-0027).
+        named = [a.id for a in result.actions or () if a.free_text]
+        confirmed = store.resolve_review(
+            result.id, final_label="refill", reviewer="rn-1", release_actions=named
+        )
         assert [(a["name"], a["disposition"], a["reason"]) for a in confirmed["actions"]] == [
             ("look_up_medications", "released", "confirmed"),
             ("assign_queue", "released", "confirmed"),

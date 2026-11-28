@@ -109,6 +109,11 @@ PORTAL = "mendari/portal-message-agent"
 # The agent the deployment's registry lists (`server/hub_routes.py`): each organization finds
 # it there, and in memberships mode adds it to its own store.
 LISTED = "listed/portal-agent"
+# The agent that writes (the written fixture, served as a copy: `writing`). For a message that
+# carries an organization's marker its reply carries it too; with sign-in on its canned answers
+# never automate, so the decision waits for a reviewer and the reply is held for them
+# (ADR-0027): a text of that organization's, which the other never reads.
+WRITER = "mendari-test/written-mini"
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
 PEOPLE = ("admin", "reviewer", "governance", "viewer")
 ASKED = ("admin", "reviewer")  # the roles that may decide or review: asked to acknowledge
@@ -501,6 +506,27 @@ def automated(base: Path) -> Path:
     return base
 
 
+def writing(base: Path) -> Path:
+    """`base` holding the written fixture as `WRITER`: a copy whose canned agent answers a
+    message that carries an organization's marker with a reply that carries it."""
+    root = base / "written-mini"
+    shutil.copytree(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini", root)
+    canned = root / "fixtures" / "mock_agent.json"
+    fixture = json.loads(canned.read_text())
+    fixture["cases"][:0] = [
+        {
+            "match": marker,
+            "response": {
+                "answers": {"request": {"value": "refill", "confidence": 0.95}},
+                "outputs": {"reply_draft": f"Thank you {marker}. The pharmacy team will reply."},
+            },
+        }
+        for marker in (org.removeprefix("clinic-") for org in ORGS)
+    ]
+    canned.write_text(json.dumps(fixture))
+    return base
+
+
 # -- a registry served over HTTP, to find agents in and add them from ---------------------------
 
 
@@ -582,8 +608,9 @@ def world(
 ) -> Iterator[World]:
     accounts = request.param
     # The agent whose connection each organization sets (ADR-0021), served beside the others;
-    # what a connection leads to is never called here. And the agent each decides with.
-    served = (DEMO_AGENT_DIR.parent, automated(tmp_path / "agents"))
+    # what a connection leads to is never called here. And the agent each decides with, and
+    # the one whose reply each holds for its reviewer.
+    served = (DEMO_AGENT_DIR.parent, writing(automated(tmp_path / "agents")))
     monkeypatch.setenv("MENDARI_AGENTS_PATH", os.pathsep.join(str(path) for path in served))
     monkeypatch.setattr(reach, "public_client", no_call)
     # A registry to find agents in and add them from (`server/hub_routes.py`), listing one.
@@ -806,6 +833,19 @@ def seed(world: World, org: Org) -> None:
         expect=200,
     ).json()
     org.made("decision", smart["decision"]["id"])
+    # A decision that holds a text its agent wrote (ADR-0027): the reply carries the marker,
+    # and is kept for the decision's reviewer as a sealed note.
+    wrote = world.call(
+        org,
+        service,
+        ("POST", "/api/agents/{namespace}/{name}/decide"),
+        f"/api/agents/{WRITER}/decide",
+        json=message(f"Can I get a refill {m}?"),
+        expect=200,
+    ).json()
+    assert wrote["outcome"] == "HUMAN_REVIEW" and m in wrote["outputs"]["reply_draft"]
+    org.made("decision", org.made("held", wrote["id"]))  # read and refused as every decision
+    org.made("held text", wrote["outputs"]["reply_draft"])
     # A review, an outcome and a rating, with notes.
     world.call(
         org,
@@ -1142,6 +1182,24 @@ def refusals(world: World, x: Org, o: Org) -> None:
             409,
             json={"final_label": "nurse", "reviewer": "x"},
         )
+    # Their decision that holds a text (ADR-0027): unknown to those who may read inputs here,
+    # and no verdict on its text is taken.
+    theirs = o.one("held")
+    refused(reviewer, ("GET", "/api/audit/{decision_id}"), f"/api/audit/{theirs}", theirs, 404)
+    refused(
+        reviewer,
+        ("POST", "/api/review/{decision_id}"),
+        f"/api/review/{theirs}",
+        theirs,
+        409,
+        json={"final_label": "refill", "reviewer": "x", "texts": {"reply_draft": "release"}},
+    )
+    for who in (admin, reviewer):  # nor is it in the queue of anyone here
+        queue = world.call(
+            x, who, ("GET", "/api/review"), "/api/review", params={"limit": 500}, expect=200
+        ).json()
+        assert theirs not in {entry["id"] for entry in queue}
+        assert x.one("held") in {entry["id"] for entry in queue}
     # Read as FHIR (a person and a client): two of theirs, the first and the last made.
     own = x.one("decision")
     own_seq = first_seq(world.store, own)
@@ -1766,6 +1824,7 @@ def served(world: World, x: Org) -> None:
         expect=200,
     )
     deployment_wide(world, x)
+    served_held_text(world, x)
     # What changes things: an outcome on the reviewed decision, then the spares.
     world.call(
         x,
@@ -1839,6 +1898,56 @@ def served(world: World, x: Org) -> None:
         served_written(world, x)
         served_store(world, x)
     served_agents(world, x)
+
+
+def served_held_text(world: World, x: Org) -> None:
+    """`x`'s decision that holds a text its agent wrote (ADR-0027): those who may read inputs
+    read the text, in the queue and in the decision's record; a viewer and a key are told one
+    is held, never what it says; and the reviewer's verdict on it is chained as `x`'s."""
+    own, text = x.one("held"), x.one("held text")
+    assert x.marker in text
+    held = [{"name": "reply_draft", "state": "held", "text_status": "open", "text": text}]
+    sealed = [{"name": "reply_draft", "state": "held", "text_status": "sealed"}]
+    record = ("GET", "/api/audit/{decision_id}")
+    for who, shown in (
+        (x.people["reviewer"], held),
+        (x.people["admin"], held),
+        (x.people["viewer"], sealed),
+        (x.keys["viewer"], sealed),
+        (x.keys["service"], sealed),
+    ):
+        found = world.call(x, who, record, f"/api/audit/{own}", expect=200).json()
+        assert found["outputs"] == shown
+    for who, shown in ((x.people["reviewer"], held), (x.people["viewer"], sealed)):
+        queue = world.call(
+            x, who, ("GET", "/api/review"), "/api/review", params={"limit": 500}, expect=200
+        ).json()
+        assert [entry["outputs"] for entry in queue if entry["id"] == own] == [shown]
+        assert world.other(x).one("held") not in {entry["id"] for entry in queue}
+    review = ("POST", "/api/review/{decision_id}")
+    world.call(  # no verdict: refused, and nothing written
+        x,
+        x.people["reviewer"],
+        review,
+        f"/api/review/{own}",
+        json={"final_label": "refill", "reviewer": "x"},
+        expect=409,
+    )
+    answer = world.call(
+        x,
+        x.people["reviewer"],
+        review,
+        f"/api/review/{own}",
+        json={"final_label": "refill", "reviewer": "x", "texts": {"reply_draft": "withhold"}},
+        expect=200,
+    ).json()
+    assert answer["outputs"] == [{"name": "reply_draft", "verdict": "withheld"}]
+    after = world.call(x, x.people["viewer"], record, f"/api/audit/{own}", expect=200).json()
+    assert after["outputs"] == [
+        {"name": "reply_draft", "state": "withheld", "text_status": "sealed"}
+    ]
+    kinds = [event["event"] for event in after["events"]]
+    assert kinds.count("output.held") == 1 and kinds.count("output.resolved") == 1
 
 
 def connection_of(x: Org, path: str) -> dict[str, str]:

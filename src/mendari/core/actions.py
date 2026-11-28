@@ -69,6 +69,10 @@ Reason = Literal[
     # denied
     "overridden",  # the reviewer overrode the decision's recommendation
     "reviewer_denied",  # the reviewer confirmed the recommendation and refused this action
+    # The reviewer confirmed the recommendation and did not name this action, which a review
+    # releases only by name: its arguments can hold free text, or a text of the decision was
+    # withheld (ADR-0027).
+    "not_named",
 ]
 # The reasons that refuse a proposal for what it is, whatever its decision: each also stops the
 # decision from being automated (`policy.action_stops`).
@@ -354,7 +358,8 @@ def state(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     each `action.proposed`, updated by its `action.resolved`. `arguments_status` is the
     proposal's note as `AuditStore.reveal_inputs` showed it (`open`, `sealed`, `erased` or
     `missing`; `not_kept` when nothing was kept); `arguments`, and for an undeclared action
-    `proposed_name`, only when it is open."""
+    `proposed_name`, only when it is open. `free_text` only when the proposal chained it: an
+    action whose arguments can hold free text, which a review releases by name (ADR-0027)."""
     found: dict[str, dict[str, Any]] = {}
     for event in events:
         payload = event.get("payload")
@@ -377,6 +382,8 @@ def state(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "arguments_status": "not_kept",
                 "arguments": None,
             }
+            if payload.get("free_text") is True:  # only then: every other item is as it was
+                item["free_text"] = True
             if isinstance(payload.get("note_ref"), Mapping):
                 item["arguments_status"] = event.get("note_status") or "sealed"
                 kept = _kept(event.get("note")) if item["arguments_status"] == "open" else None

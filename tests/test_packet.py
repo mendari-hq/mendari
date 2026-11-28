@@ -40,6 +40,7 @@ from tests.conftest import (
     encrypt_mode,
     encrypted_store,
     member,
+    releasing,
 )
 from tests.support.confidence_agents import calibration_file, live_member, scaffold, variant
 
@@ -259,7 +260,12 @@ def test_no_case_text_and_no_reviewers_name_reaches_the_packet(open_client: Test
     assert SENTINEL in json.dumps(kept)  # the deployment does hold it
     reviewed = open_client.post(
         f"/api/review/{held['id']}",
-        json={"final_label": "other", "reviewer": f"rn-{SENTINEL}", "note": f"called {SENTINEL}"},
+        json={
+            "final_label": "other",
+            "reviewer": f"rn-{SENTINEL}",
+            "note": f"called {SENTINEL}",
+            "texts": releasing(kept),  # the acknowledgement the agent wrote waits too
+        },
     )
     assert reviewed.status_code == 200 and reviewed.json()["human_override"] is True
     automated = decide(open_client, {"message": {"body": f"Please refill my inhaler {SENTINEL}"}})

@@ -919,6 +919,27 @@ def test_state_folds_a_decisions_events_into_its_actions() -> None:
     assert actions.state([]) == [] and actions.state(events[:1]) == []
 
 
+def test_state_says_which_actions_a_review_releases_by_name() -> None:
+    """An item has `free_text` only when its proposal chained it (ADR-0027): an action whose
+    arguments can hold free text, which a review names to release. Every other item is as it
+    was, and anything but `true` is no flag."""
+    plain, free = result().chained(), result(free_text=True).chained()
+    assert "free_text" not in plain and free["free_text"] is True
+    first, second, odd = actions.state(
+        [
+            event("action.proposed", {**plain, "note_ref": None}),
+            event("action.proposed", {**free, "action_id": "a-2", "note_ref": None}),
+            event(
+                "action.proposed",
+                {**plain, "action_id": "a-3", "free_text": "yes", "note_ref": None},
+            ),
+        ]
+    )
+    assert "free_text" not in first and "free_text" not in odd
+    assert second["free_text"] is True
+    assert [a["id"] for a in actions.held([first, second, odd])] == ["a-1", "a-2", "a-3"]
+
+
 def test_state_reads_only_a_note_that_is_a_kept_proposal() -> None:
     payload = {**result().chained(), "note_ref": {"id": "n", "sha256": "c"}}
     for note in ("not json", "[1, 2]", json.dumps({"name": "x"}), json.dumps({"arguments": 5})):

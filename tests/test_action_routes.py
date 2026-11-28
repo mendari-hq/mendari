@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Actions over HTTP (spec section 13.8): a decision's `actions` in `POST …/decide`, the
 authorization route `POST /api/agents/{namespace}/{name}/actions`, and the review that releases
-or denies (`POST /api/review/{id}` with `deny_actions`).
+or denies (`POST /api/review/{id}` with `deny_actions` and `release_actions`).
 
 The route answers `200` whatever the disposition (a blocked action is not an HTTP error, as a
 BLOCK decision is not), is idempotent, needs the permission and the scope that deciding needs,
@@ -258,7 +258,13 @@ def test_review_releases_what_was_held_and_the_caller_learns_by_asking_again(
     assert later["disposition"] == "held"
     resolved = client.post(
         f"/api/review/{decided['id']}",
-        json={"final_label": "appointment", "reviewer": "rn-1", "deny_actions": [reply["id"]]},
+        json={
+            "final_label": "appointment",
+            "reviewer": "rn-1",
+            "deny_actions": [reply["id"]],
+            # Each takes free text, or no schema at all: released by name (ADR-0027).
+            "release_actions": [note["id"], later["id"]],
+        },
     )
     assert resolved.status_code == 200, resolved.text
     body = resolved.json()
@@ -519,10 +525,12 @@ def test_keys_and_people_reach_it_by_role_and_scope(
         opened = client.get(f"/api/audit/{decided['id']}", headers=reviewer).json()
         assert opened["actions"][1]["arguments"] == {"note": "Asked to move a visit."}
         assert opened["events"][-1]["event"] == "input.read"
-        # A reviewer confirms; under PHI mode encrypt the trail still verifies with its notes.
+        # A reviewer confirms and names what they read; under PHI mode encrypt the trail
+        # still verifies with its notes.
+        held = [a["id"] for a in opened["actions"] if a["disposition"] == "held"]
         confirmed = client.post(
             f"/api/review/{decided['id']}",
-            json={"final_label": "appointment", "reviewer": "ignored"},
+            json={"final_label": "appointment", "reviewer": "ignored", "release_actions": held},
             headers=reviewer,
         )
         assert confirmed.status_code == 200
@@ -563,6 +571,7 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
     assert request["properties"]["name"]["pattern"] == actions.NAME_PATTERN
     review = described["components"]["schemas"]["ReviewRequest"]["properties"]
     assert "deny_actions" in review and review["deny_actions"]["default"] == []
+    assert review["release_actions"]["default"] == [] and review["texts"]["default"] == {}
 
 
 def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() -> None:
