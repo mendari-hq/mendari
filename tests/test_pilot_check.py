@@ -88,6 +88,34 @@ def test_a_step_that_answers_the_wrong_status_stops_the_pilot() -> None:
             pilot.expect(http.get(ENGINE), 403, "the viewer may not resolve a review")
 
 
+def test_the_pilots_reviewer_gives_a_verdict_on_each_text_the_decision_holds() -> None:
+    """The demo agent drafts an acknowledgement with every message, so the decision the pilot's
+    reviewer resolves holds one (ADR-0027): a review that leaves it out is refused. The
+    reviewer releases it with a label they confirm, withholds it with one they correct, and
+    has to have been shown it."""
+    text = {"name": "acknowledgement", "state": "held", "text_status": "open", "text": "Thanks."}
+    item = {"id": "d1", "recommendation": "other", "outputs": [text]}
+    assert pilot_check.review_of(item, "other") == {
+        "final_label": "other",
+        "reviewer": "someone else",
+        "texts": {"acknowledgement": "release"},
+    }
+    assert pilot_check.review_of(item, "refill")["texts"] == {"acknowledgement": "withhold"}
+    # A decision that holds no text is reviewed with its label, as it was.
+    plain = {"id": "d2", "recommendation": "other"}
+    assert pilot_check.review_of(plain, "other") == {
+        "final_label": "other",
+        "reviewer": "someone else",
+    }
+    # A text the queue did not open for the reviewer stops the pilot, naming the output only.
+    sealed = {
+        **item,
+        "outputs": [{"name": "acknowledgement", "state": "held", "text_status": "sealed"}],
+    }
+    with pytest.raises(MendariError, match="the reviewer can't read 'acknowledgement'"):
+        pilot_check.review_of(sealed, "other")
+
+
 def test_the_cli_reports_the_steps_or_the_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

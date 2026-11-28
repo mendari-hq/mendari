@@ -14,8 +14,11 @@ Then:
 1. an admin creates an API key for the message worker (role `service`);
 2. the worker decides synthetic portal messages with the key;
 3. a reviewer reads the queue (inputs decrypted, each read chained) and resolves a review, which
-   is recorded under the reviewer's verified email;
-4. a viewer can read a decision but not its input, and can't resolve a review;
+   is recorded under the reviewer's verified email. The decision holds what the agent wrote
+   (the demo agent drafts an acknowledgement with every message, ADR-0027): the reviewer is
+   shown each text and gives it a verdict, without which the review is refused;
+4. a viewer can read a decision but not its input, nor a text it holds, and can't resolve a
+   review;
 5. someone on the AI committee (role `governance`) approves automation of a risk level 2 or 3
    agent, and its next decision carries the approval. The demo agent is level 0 and needs no
    approval, so this step runs when such an agent is named (`approve`), and is reported as
@@ -26,6 +29,7 @@ Then:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -100,6 +104,23 @@ def acknowledge(pilot: Pilot, person: dict[str, str], who: str) -> None:
     )
 
 
+def review_of(item: Mapping[str, Any], label: str) -> dict[str, Any]:
+    """The review the pilot's reviewer sends for a decision in the queue: its label and, for
+    each text the decision holds (ADR-0027), a verdict: released with a label they confirm,
+    withheld with one they correct. A reviewer gives a verdict on what they were shown: a held
+    text the queue did not open for them stops the pilot (the failure names the output, never
+    its text)."""
+    review: dict[str, Any] = {"final_label": label, "reviewer": "someone else"}
+    held = [text for text in item.get("outputs") or () if text.get("state") == "held"]
+    for text in held:
+        if text.get("text_status") != "open" or not text.get("text"):
+            raise MendariError(f"the reviewer can't read {text.get('name')!r} in the queue")
+    if held:
+        verdict = "release" if item.get("recommendation") == label else "withhold"
+        review["texts"] = {text["name"]: verdict for text in held}
+    return review
+
+
 def run(
     *,
     engine: str,
@@ -162,15 +183,12 @@ def run(
         first = queue[0]
         # The reviewer's label is one of the question's own: the recommendation, or its first.
         label = first["recommendation"] or next(iter(primary.criteria))
+        review = review_of(first, label)
         resolved = pilot.expect(
-            pilot.call(
-                "POST",
-                f"/api/review/{first['id']}",
-                reviewer,
-                json={"final_label": label, "reviewer": "someone else"},
-            ),
+            pilot.call("POST", f"/api/review/{first['id']}", reviewer, json=review),
             200,
-            "the reviewer resolves a review",
+            "the reviewer resolves a review"
+            + (", with a verdict on each text the agent wrote" if "texts" in review else ""),
         )
 
         viewer = pilot.sign_in("viewer")
@@ -181,6 +199,8 @@ def run(
         )
         if seen["record"]["input"] is not None or not seen.get("input_restricted"):
             raise MendariError("the viewer could read an input")
+        if any("text" in text for text in seen.get("outputs") or ()):
+            raise MendariError("the viewer could read a text the agent wrote")
         if seen["reviewer"] != email("reviewer"):
             raise MendariError(f"the review is recorded for {seen['reviewer']!r}")
         pilot.expect(
