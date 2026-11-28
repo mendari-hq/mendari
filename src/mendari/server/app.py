@@ -1683,9 +1683,10 @@ def create_app(
         only the status code. The gate is the one that judged the actions the agent proposed
         with its answer: an effect that reads or drafts is released with any decision that is
         not `BLOCK`; one that writes or contacts a patient only with an `AUTO` decision, or
-        once the decision's reviewer confirms it; an order never without a person. An action
-        the agent's manifest does not declare, or whose arguments do not match its schema, is
-        blocked.
+        once the decision's reviewer confirms it; an order never without a person, nor an
+        action that writes or contacts a patient with arguments that can hold free text (a
+        string that is not enumerated, or no schema). An action the agent's manifest does not
+        declare, or whose arguments do not match its schema, is blocked.
 
         **Asking again is safe.** The same action with the same arguments for the same
         decision answers how it stands now, with `repeated: true`, and records nothing new: so

@@ -552,6 +552,12 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
     operation = described["paths"]["/api/agents/{namespace}/{name}/actions"]["post"]
     assert operation["summary"] == "Authorize an action" and operation["tags"] == ["Decisions"]
     assert "runs nothing" in operation["description"]
+    # The gate it describes is the one that is applied: free text is a person's (ADR-0027).
+    described_gate = " ".join(operation["description"].split())
+    assert (
+        "an order never without a person, nor an action that writes or contacts a patient with "
+        "arguments that can hold free text"
+    ) in described_gate
     request = described["components"]["schemas"]["ActionRequest"]
     assert request["required"] == ["decision_id", "name"]
     assert request["properties"]["name"]["pattern"] == actions.NAME_PATTERN
