@@ -378,12 +378,12 @@ def gate_of(
     do is not left to do it.
 
     A fourth way a gate tightens (ADR-0027): arguments that can hold free text (`free_text`:
-    `ActionSpec.free_text`) are never released without a person where the gate would be
-    `auto`, after the two steps above: an automated decision would send words nobody read to a
-    chart or a patient. So a `write` or a `contact` with them is a person's, as is a `read` or a
-    `draft` of an agent nobody vouched for. A `read` or a `draft` of an agent the deployment
-    vouches for keeps the gate `decision`: neither takes effect before a person sees it. An
-    `order` was a person's already."""
+    `ActionSpec.free_text`). Where the gate would be `auto`, by the action's effect or because
+    nobody vouched for the agent, it is `person`: an automated decision would send words nobody
+    read to a chart or a patient. So a `write` or a `contact` with them is a person's, as is a
+    `read` or a `draft` of an agent nobody vouched for. A `read` or a `draft` of an agent the
+    deployment vouches for keeps the gate `decision` (a read changes nothing, and a person sees
+    a draft before it takes effect), and an `order` was a person's already."""
     gate = EFFECT_GATES[effect]
     if not vouched:
         gate = stricter(gate, Gate.AUTO)
