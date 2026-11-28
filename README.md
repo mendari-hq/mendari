@@ -19,7 +19,7 @@ It is built for two groups, and for the loop between them:
   engine records what the agent would have automated), then share their results back as signed
   counts, never cases.
 
-> **Status: research preview** (0.1.1). Everything here runs on synthetic
+> **Status: research preview** (0.1.2). Everything here runs on synthetic
 > data. Mendari is not a medical device, and it must not be used with real PHI or real patients:
 > its external security review has not happened yet ([Status and limits](#status-and-limits)).
 

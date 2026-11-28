@@ -44,6 +44,19 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # its version is released). 0.1.0 is released: its fixed resources never change, and a change
 # needs a new version.
 PINNED = {
+    # The audit's fixes: the same definitions as 0.1.1, each carrying the version.
+    "0.1.2": {
+        "CodeSystem/decision-outcome": "669f25af27b85ce6",
+        "CodeSystem/audit-event": "f7c893d403adcb1d",
+        "CodeSystem/audit-administrative-event": "2311127d0cf28548",
+        "CodeSystem/card-override-reasons": "6e362f2c81756e6d",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
+        "NamingSystem/agent-version": "1448a6d6492ce83f",
+        "CodeSystem/sandbox": "944aa6cb7aeac255",
+        "CodeSystem/message-channel": "0a62997c6aabf08b",
+    },
     # A security fix: the same definitions as 0.1.0, each carrying the version.
     "0.1.1": {
         "CodeSystem/decision-outcome": "a5a28ba2fbf3cc46",

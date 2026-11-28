@@ -15,7 +15,7 @@ from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import resolve_agent
 from mendari.core.spec import Outcome, Priority, RiskLevel
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "Agent",

@@ -5,7 +5,7 @@ Notable changes to Mendari, newest first. Each release has a section named by it
 no section, or whose section is not the newest. Changes to an agent are in the agent's own
 `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.2
 
 Fixes from a bug and dead-code audit of the whole source tree (the details, and what was
 removed, are in `notes/bug-audit-2026-11-27.md`). None raised automation or released an action.
@@ -40,6 +40,8 @@ removed, are in `notes/bug-audit-2026-11-27.md`). None raised automation or rele
   `all`: `calibrate --limit 0` is now `--limit all`. Options a run would have ignored are
   refused (on `eval`, `leaderboard` and `sandbox smart-launch`). The agent kit refuses an id
   ending in a newline, as the engine does.
+- **Packaging.** `cryptography`, which Mendari imports directly, is declared at 50.0.0 or later:
+  the first release with no known advisory (it came only through `pyjwt[crypto]`, from 3.4).
 - **The console and the Hub.** The audit trail says it lists the newest decisions, of how many,
   and pages to older ones; a whole decision id searched for opens it. Another agent's record is
   shown in its own codes and not offered for replay. A failed read of the holds is said, never
