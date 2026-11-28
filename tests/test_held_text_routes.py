@@ -11,6 +11,7 @@ synthetic."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -202,12 +203,16 @@ def test_a_review_over_http_that_is_not_well_formed_echoes_nothing_it_was_sent(
 
 
 def test_a_reviewer_reads_a_sealed_held_text_and_a_key_or_a_viewer_does_not(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """With sign-in on (PHI mode `encrypt`), a held text is shown by the same permission as the
     input: to a reviewer, in the queue and in the record, each read chained (`input.read`) and
     logged; to a service key or a viewer never, and their reading chains nothing. No log line
-    holds a text."""
+    holds a text, printed or kept as a record."""
+    caplog.set_level(logging.DEBUG)
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -270,8 +275,9 @@ def test_a_reviewer_reads_a_sealed_held_text_and_a_key_or_a_viewer_does_not(
     logged = capsys.readouterr()
     read = [line for line in security_lines(logged.out) if line["event"] == "phi.inputs.read"]
     assert len(read) == 2 and all(line["ids"] == [decided["id"]] for line in read)
+    records = caplog.text + " ".join(repr(record.args) for record in caplog.records)
     for mark in (*HELD_MARKS, ARGUMENT):
-        assert mark not in logged.out + logged.err, mark
+        assert mark not in logged.out + logged.err + records, mark
 
 
 def test_the_api_description_says_what_a_review_now_takes(client: TestClient) -> None:

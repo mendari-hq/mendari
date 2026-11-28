@@ -15,6 +15,7 @@ PHI mode. Every message and text here is synthetic. SQLite and Postgres."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import uuid
@@ -318,12 +319,13 @@ def test_a_text_event_names_its_organization_as_its_decision_s_events_do(
 @pytest.mark.parametrize("mode", list(MODES))
 @pytest.mark.parametrize("keeps", ["full", "hash"])
 def test_no_text_is_in_the_chain_or_a_record_and_a_held_one_is_only_a_note(
-    db_target: str, tmp_path: Path, mode: str, keeps: str
+    db_target: str, tmp_path: Path, mode: str, keeps: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Under every PHI mode, for an agent that keeps its input and one that keeps its hash: a
     held text is in the `notes` table only (in clear under `off`, sealed under `encrypt`, not
     at all where the input is not kept), a text of a blocked or an automated decision is
-    nowhere, and no text is in an event, reviewed or not."""
+    nowhere, and no text is in an event, reviewed or not. Nor in a log record, at any level."""
+    caplog.set_level(logging.DEBUG)
     folder = writing(tmp_path, store_input=keeps)
     with AuditStore(db_target, phi=MODES[mode]) as store:
         decision = held(store, folder)
@@ -384,6 +386,11 @@ def test_no_text_is_in_the_chain_or_a_record_and_a_held_one_is_only_a_note(
             assert NOTE in reader["outputs"][0]["text"] and REPLY in reader["outputs"][1]["text"]
         else:
             assert NOTE in plain["outputs"][0]["text"] and REPLY in plain["outputs"][1]["text"]
+    # Nothing the engine logged while it decided, kept, reviewed and showed them holds a text
+    # or a free-text argument: neither a record's words nor what it was made of.
+    logged = caplog.text + " ".join(repr(record.args) for record in caplog.records)
+    for mark in (*HELD_MARKS, *NEVER_KEPT, ARGUMENT):
+        assert mark not in logged, mark
 
 
 # -- reading: as the input and an action's arguments are read ------------------------------------
