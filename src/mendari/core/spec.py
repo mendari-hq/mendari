@@ -15,6 +15,7 @@ effect needs before it is released is the runtime's (`core/policy.py`). Written 
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterator, Mapping
 from enum import IntEnum, StrEnum
@@ -42,6 +43,9 @@ MAX_ACTION_SCHEMA_DEPTH = 4  # objects inside objects
 MAX_ACTION_PROPERTIES = 32
 MAX_ACTION_ENUM = 100
 MAX_ACTION_ENUM_CHARS = 200
+# The most different arguments a schema may admit and still be a menu (ADR-0027,
+# `holds_free_text`): three full lists of options. Past it, enumerated pieces spell a text.
+MAX_ACTION_MENU = 1_000_000
 MAX_ACTIONS_CHARS = 32_000  # the declared actions as one request sends them, as JSON
 
 # Written output (spec sections 15.1 to 15.6): the texts an agent writes and the rubrics they
@@ -577,35 +581,83 @@ def _scalar(value: Any) -> bool:
 
 
 def holds_free_text(schema: Mapping[str, Any] | None) -> bool:
-    """Whether arguments `schema` allows can hold free text (ADR-0027): it admits a string that
-    is not limited to an `enum` or a `const`, or a list of anything (an array with no `items`),
-    or there is no schema at all (arguments nothing checks). The closed keyword set
-    (`ACTION_SCHEMA_KEYWORDS`) makes this decidable from the manifest alone: no pattern or format
-    narrows a string, and a length does not (a dose fits in a few characters). `schema` is one
-    `action_schema_problems` accepts; walked with a stack, never by recursion."""
-    if schema is None:
-        return True
-    stack: list[Any] = [schema]
+    """Whether the arguments `schema` allows can hold free text (ADR-0027): anything but a
+    menu, a fixed set of values the manifest lists (`_menu`). No schema at all is free text:
+    nothing checks the arguments. The closed keyword set (`ACTION_SCHEMA_KEYWORDS`) makes this
+    decidable from the manifest alone. `schema` is one `action_schema_problems` accepts."""
+    return schema is None or _menu(schema) is None
+
+
+def _menu(schema: Any) -> int | None:
+    """How many different arguments `schema` admits when they are a menu, else None. A menu:
+
+    - every string is limited to an `enum` or a `const`: no pattern or format narrows one, and
+      a length does not, since a dose fits in a few characters;
+    - every number is limited to an `enum` or a `const`, or is an integer between two bounds:
+      a number nothing lists can be any dose;
+    - there is no array: a list puts a text together out of its items, however each is limited;
+    - it admits at most `MAX_ACTION_MENU` arguments in all (each property's values multiplied
+      together, one that is not required counting once more for its absence): past that, the
+      properties spell a text a character at a time.
+
+    Walked with a stack, never by recursion: each schema after the one that holds it, so that
+    going back over them meets every property before its object."""
+    found: list[tuple[int | None, int, bool]] = []  # values it lists, its object, optional
+    stack: list[tuple[Any, int, bool]] = [(schema, -1, False)]
     while stack:
-        node = stack.pop()
+        node, parent, optional = stack.pop()
         if not isinstance(node, Mapping):
-            return True  # not a schema this engine checks arguments by
-        kind = node.get("type")
-        if kind == "string":
-            if "enum" not in node and "const" not in node:
-                return True
-        elif kind == "array":
-            if "items" not in node:
-                return True
-            stack.append(node["items"])
-        elif kind == "object":
+            return None  # not a schema this engine checks arguments by
+        listed = _listed(node)
+        if listed is None:
+            kind = node.get("type")
             properties = node.get("properties", {})
-            if not isinstance(properties, Mapping):
-                return True
-            stack.extend(properties.values())
-        elif kind not in ("integer", "number", "boolean"):
-            return True
-    return False
+            if kind != "object" or not isinstance(properties, Mapping):
+                return None  # a string or a number nothing lists, a list, a type not known
+            if node.get("additionalProperties") is not False:
+                return None  # an object that takes properties nothing names
+            required = node.get("required")
+            required = required if isinstance(required, list) else []
+            stack.extend(
+                (child, len(found), key not in required) for key, child in properties.items()
+            )
+        found.append((listed, parent, optional))
+    admitted = [1 if listed is None else listed for listed, _, _ in found]
+    for index in range(len(found) - 1, 0, -1):
+        _, parent, optional = found[index]
+        admitted[parent] *= admitted[index] + optional
+        if admitted[parent] > MAX_ACTION_MENU:
+            return None
+    return admitted[0] if admitted[0] <= MAX_ACTION_MENU else None
+
+
+def _listed(node: Mapping[str, Any]) -> int | None:
+    """How many values one schema lists by itself, or None when it lists none: an `enum`'s, a
+    `const`'s one, a boolean's two, or the integers between a lower and an upper bound."""
+    if "const" in node:
+        return 1
+    if "enum" in node:
+        return len(node["enum"]) if isinstance(node["enum"], list) else None
+    kind = node.get("type")
+    if kind == "boolean":
+        return 2
+    if kind != "integer":
+        return None
+    bounds = {key: node[key] for key in _ACTION_BOUNDS if key in node}
+    if any(
+        isinstance(bound, bool) or not isinstance(bound, int | float) for bound in bounds.values()
+    ):
+        return None
+    try:
+        low = [math.ceil(bounds["minimum"])] if "minimum" in bounds else []
+        low += [math.floor(bounds["exclusiveMinimum"]) + 1] if "exclusiveMinimum" in bounds else []
+        high = [math.floor(bounds["maximum"])] if "maximum" in bounds else []
+        high += [math.ceil(bounds["exclusiveMaximum"]) - 1] if "exclusiveMaximum" in bounds else []
+    except (OverflowError, ValueError):  # a bound that is no finite number
+        return None
+    if not low or not high:
+        return None  # open at one end: any number
+    return max(0, min(high) - max(low) + 1)
 
 
 def action_schema_problems(schema: Any) -> list[str]:

@@ -9,7 +9,9 @@ documents (the card keys, the FHIR mapping's)."""
 
 from __future__ import annotations
 
+import copy
 import json
+import random
 import re
 import shutil
 from pathlib import Path
@@ -20,7 +22,7 @@ import yaml
 from pydantic import ValidationError
 
 from mendari import load_agent
-from mendari.core import spec
+from mendari.core import input_schema, spec
 from mendari.core.agent import manifest_name
 from mendari.core.spec import (
     MAX_ACTION_DESCRIPTION,
@@ -412,42 +414,218 @@ def _taking(properties: dict[str, Any]) -> dict[str, Any]:
     return {**OBJECT, "properties": properties}
 
 
+def _listed(count: int) -> dict[str, Any]:
+    """A string limited to `count` values."""
+    return {"type": "string", "enum": [f"v{n}" for n in range(count)]}
+
+
+LETTER = {"type": "string", "enum": list("abcdefghijklmnopqrstuvwxyz")}
+DIGIT = {"type": "integer", "enum": list(range(10))}
+
+
 @pytest.mark.parametrize(
     ("schema", "free"),
     [
         (None, True),  # no schema: the arguments are whatever the agent sends
         (_taking({"message": {"type": "string", "maxLength": 2000}}), True),
         (_taking({"code": {"type": "string", "maxLength": 8}}), True),  # a dose fits in 8
-        (_taking({"tags": {"type": "array", "items": {"type": "string"}}}), True),
-        (_taking({"anything": {"type": "array"}}), True),  # a list of anything
         (_taking({"who": _taking({"note": {"type": "string"}})}), True),  # however deep
-        (_taking({"rows": {"type": "array", "items": _taking({"n": {"type": "string"}})}}), True),
         ({"type": "string"}, True),  # a root that is a string
+        # A list puts a text together out of its items, however each item is limited.
+        (_taking({"tags": {"type": "array", "items": {"type": "string"}}}), True),
+        (_taking({"anything": {"type": "array"}}), True),
+        (_taking({"rows": {"type": "array", "items": _taking({"n": {"type": "string"}})}}), True),
+        (_taking({"picked": {"type": "array", "items": {"type": "integer"}}}), True),
+        (_taking({"spelled": {"type": "array", "items": LETTER, "maxItems": 200}}), True),
+        (_taking({"routes": {"type": "array", "items": _listed(1), "maxItems": 1}}), True),
+        # A number nothing lists can be any dose; an integer between two bounds is a range the
+        # manifest states.
+        (_taking({"days": {"type": "integer"}}), True),
+        (_taking({"dose": {"type": "number"}}), True),
+        (_taking({"dose": {"type": "number", "minimum": 0, "maximum": 10}}), True),
+        (_taking({"days": {"type": "integer", "minimum": 1}}), True),
+        (_taking({"days": {"type": "integer", "maximum": 90}}), True),
+        (_taking({"days": {"type": "integer", "minimum": 1, "maximum": 90}}), False),
+        (_taking({"n": {"type": "integer", "exclusiveMinimum": 0, "exclusiveMaximum": 4}}), False),
+        (_taking({"dose": {"type": "number", "enum": [0.5, 1, 2.5]}}), False),
+        (
+            {
+                **_taking({"n": {"type": "integer", "minimum": 1, "maximum": 1_000_000}}),
+                "required": ["n"],
+            },
+            False,  # a million values, and no more
+        ),
+        (
+            {
+                **_taking({"n": {"type": "integer", "minimum": 0, "maximum": 1_000_000}}),
+                "required": ["n"],
+            },
+            True,
+        ),
+        # A menu: every value is one the manifest lists.
         (_taking({}), False),  # no arguments at all
         (_taking({"queue": {"type": "string", "enum": ["refill", "front_desk"]}}), False),
         (_taking({"kind": {"type": "string", "const": "refill"}}), False),
-        (_taking({"days": {"type": "integer"}, "dose": {"type": "number"}}), False),
         (_taking({"urgent": {"type": "boolean"}}), False),
-        (_taking({"picked": {"type": "array", "items": {"type": "integer"}}}), False),
         (
-            _taking({"routes": {"type": "array", "items": {"type": "string", "enum": ["oral"]}}}),
+            {
+                **_taking({"a": _listed(100), "b": _listed(100), "c": _listed(100)}),
+                "required": ["a", "b", "c"],
+            },
             False,
+        ),
+        # Past a million arguments in all, the properties spell a text a character at a time.
+        (_taking({f"c{n}": LETTER for n in range(22)}), True),
+        (_taking({f"d{n}": DIGIT for n in range(32)}), True),
+        (
+            {
+                **_taking({f"c{n}": LETTER for n in range(5)}),
+                "required": [f"c{n}" for n in range(5)],
+            },
+            True,
+        ),
+        (
+            {
+                **_taking(
+                    {"a": _listed(100), "b": _listed(100), "c": _listed(100), "d": _listed(2)}
+                ),
+                "required": ["a", "b", "c", "d"],
+            },
+            True,
+        ),
+        (
+            _taking({"inner": _taking({"a": _listed(100), "b": _listed(100)}), "c": _listed(100)}),
+            True,  # 101 * 101 + 1, times 101: a property left out counts once more
         ),
     ],
 )
-def test_arguments_hold_free_text_unless_every_string_is_enumerated(
+def test_arguments_hold_free_text_unless_they_are_a_menu(
     schema: dict[str, Any] | None, free: bool
 ) -> None:
-    """ADR-0027: an action's arguments can hold free text when their schema admits a string not
-    limited to an `enum` or a `const`, or a list of anything, or when there is no schema. The
-    closed keyword set makes it decidable from the manifest: no pattern can narrow a string, and
-    a short one still holds a dose."""
+    """ADR-0027: an action's arguments can hold free text unless they are a menu, a fixed set of
+    values the manifest lists. Every string is an `enum` or a `const` (no pattern narrows one,
+    and a short one still holds a dose); every number is listed, or an integer between two
+    bounds; there is no list; and the schema admits at most a million arguments in all, so that
+    no text is spelled out of enumerated pieces, a list of letters or a property a character.
+    Decided from the manifest alone."""
     declared: dict[str, Any] = {"description": "Does something.", "effect": "write"}
     if schema is not None:
+        assert action_schema_problems(schema) == []  # each is a schema a manifest may declare
         declared["schema"] = schema
     action = ActionSpec.model_validate(declared)
     assert action.free_text is free
     assert spec.holds_free_text(schema) is free
+
+
+def test_what_is_no_schema_a_manifest_may_declare_is_free_text_and_never_a_crash() -> None:
+    """`holds_free_text` reads schemas a manifest's load accepted. Given anything else it says
+    free text, the strict answer: an object open to properties nothing names, a bound that is
+    no number, a schema that is no mapping."""
+    open_object = {"type": "object", "properties": {"queue": _listed(2)}}
+    assert action_schema_problems(open_object) != []
+    for odd in (
+        open_object,
+        {**open_object, "additionalProperties": True},
+        _taking({"n": {"type": "integer", "minimum": True, "maximum": 4}}),
+        _taking({"n": {"type": "integer", "minimum": float("-inf"), "maximum": 4}}),
+        _taking({"n": {"type": "integer", "minimum": 0, "maximum": float("nan")}}),
+        _taking({"n": {"type": "string", "enum": "abc"}}),
+        _taking({"n": []}),
+        {"type": "object", "additionalProperties": False, "properties": []},
+        {"type": "null"},
+    ):
+        assert spec.holds_free_text(odd) is True, odd
+    # Bounds that leave no integer at all admit nothing: no text either.
+    empty = _taking({"n": {"type": "integer", "minimum": 5, "maximum": 4}})
+    assert action_schema_problems(empty) == [] and spec.holds_free_text(empty) is False
+
+
+def _random_menu(rng: random.Random, depth: int = 1) -> dict[str, Any]:
+    """An object schema whose every value is listed: enums, a const, booleans, bounded
+    integers, and objects of the same, to the depth a schema may nest."""
+
+    def leaf() -> dict[str, Any]:
+        kind = rng.choice(("texts", "const", "boolean", "range", "numbers"))
+        if kind == "texts":
+            return {"type": "string", "enum": [f"v{n}" for n in range(rng.randint(1, 4))]}
+        if kind == "const":
+            return {"type": "string", "const": "only"}
+        if kind == "boolean":
+            return {"type": "boolean"}
+        if kind == "range":
+            low = rng.randint(-3, 3)
+            return {"type": "integer", "minimum": low, "maximum": low + rng.randint(0, 3)}
+        return {"type": "number", "enum": [0.5, 1, 2.5][: rng.randint(1, 3)]}
+
+    properties = {
+        f"p{n}": _random_menu(rng, depth + 1) if depth < 3 and rng.random() < 0.25 else leaf()
+        for n in range(rng.randint(0, 4))
+    }
+    required = [key for key in properties if rng.random() < 0.6]
+    return {**_taking(properties), "required": required}
+
+
+def _one_of(rng: random.Random, schema: dict[str, Any]) -> Any:
+    """One value `schema` lists (`_random_menu`'s kinds)."""
+    if schema["type"] == "object":
+        return {
+            key: _one_of(rng, child)
+            for key, child in schema["properties"].items()
+            if key in schema["required"] or rng.random() < 0.5
+        }
+    if "const" in schema:
+        return schema["const"]
+    if "enum" in schema:
+        return rng.choice(schema["enum"])
+    if schema["type"] == "boolean":
+        return rng.random() < 0.5
+    return rng.randint(schema["minimum"], schema["maximum"])
+
+
+def test_a_menu_takes_no_value_its_manifest_does_not_list() -> None:
+    """Held against the validator that checks an action's arguments (`actions.validators`):
+    for random schemas the manifest's load accepts and `holds_free_text` judges a menu, an
+    argument made of listed values is accepted, and the same argument is refused once any one
+    value in it is a text, a fraction or a list nothing lists, or a property nothing names is
+    added anywhere. So what such an action is released with is a value the manifest lists."""
+    rng = random.Random(27)
+    unlisted: tuple[Any, ...] = ("ZQ free text", 1_000_000.25, ["ZQ", "free"], {"zq": 1}, None)
+    for _ in range(300):
+        schema = _random_menu(rng)
+        assert action_schema_problems(schema) == []
+        assert spec.holds_free_text(schema) is False
+        checker = input_schema.validator(schema, formats=False)
+        argument = _one_of(rng, schema)
+        assert list(checker.iter_errors(argument)) == [], (schema, argument)
+        # Every place a value sits in the argument: the path to it from the root.
+        places: list[tuple[str, ...]] = []
+        stack: list[tuple[tuple[str, ...], Any]] = [((), argument)]
+        while stack:
+            path, value = stack.pop()
+            if isinstance(value, dict):
+                places.append((*path, "zq_unnamed"))  # a property nothing names, here
+                stack.extend(((*path, key), inner) for key, inner in value.items())
+            else:
+                places.append(path)
+        for path in places:
+            for other in unlisted:
+                changed = copy.deepcopy(argument)
+                at = changed
+                for key in path[:-1]:
+                    at = at[key]
+                at[path[-1]] = other
+                assert list(checker.iter_errors(changed)), (schema, path, other)
+
+
+def test_three_full_lists_of_options_are_a_menu_and_a_property_left_out_counts() -> None:
+    """The bound is a million arguments: three required properties of a hundred values each
+    are exactly that many, and a menu. Not required, each may also be left out, which is one
+    more value: 101 x 101 x 101 is past the bound."""
+    full = _taking({"a": _listed(100), "b": _listed(100), "c": _listed(100)})
+    assert spec.holds_free_text({**full, "required": ["a", "b", "c"]}) is False
+    assert spec.holds_free_text({**full, "required": ["a", "b"]}) is True
+    assert spec.holds_free_text(full) is True
+    assert spec.MAX_ACTION_MENU == 1_000_000
 
 
 def test_the_fixture_declares_two_actions_whose_arguments_hold_no_free_text() -> None:
