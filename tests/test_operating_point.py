@@ -1497,7 +1497,7 @@ def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
     first = out.split("\n== 1. ")[1].splitlines()[1]
     assert first.split()[0] == "AUTO"
     asked = out.split("\n== 2. ")[1].split("\n== 3. ")[0]
-    assert [line.split()[0] for line in asked.splitlines()[2:] if line.strip()] == [
+    assert [line.split()[0] for line in asked.splitlines()[2:6]] == [
         "released",
         "held",
         "released",
@@ -1533,13 +1533,22 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
     # What the agent asked to do with the messages above: each line a disposition, the action
     # with its effect, and why.
     asked = before.split("\n== 2. What the agent asks to do ")[1].split("\n== 3. ")[0]
-    assert [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()] == [
+    section = [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()]
+    assert section[:5] == [
         "Mendari authorizes each action and runs none: your caller runs what is released.",
         "released assign_queue (write) with the AUTO decision on message 1",
         "held send_acknowledgement (contact) message 3 waits for a reviewer",
         "released send_acknowledgement (contact) the reviewer confirmed it",
         "blocked an action the agent never declared asked for message 1",
     ]
+    # Then what became of what the agent wrote for those two messages (ADR-0027): the text of
+    # the automated one went to nobody, and the other's waited for its reviewer.
+    assert " ".join(section[5:]) == (
+        "What the agent wrote is handed only to a person. Message 1 automated, so the "
+        "acknowledgement it drafted there was returned to nobody and is kept nowhere; message "
+        "3's waited for the reviewer, who read it and released it."
+    )
+    assert max(map(len, asked.splitlines())) <= 100
     # The README and the guide show those four lines as the demo prints them.
     shown = [line for line in asked.splitlines() if line.split(" ")[0] in DISPOSITIONS]
     assert len(shown) == 4

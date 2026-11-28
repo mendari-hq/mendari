@@ -33,7 +33,10 @@ blocked   an action the agent never declared   asked for message 1
 ```
 
 A write was released with an automated decision. A message to the patient was held until a
-reviewer confirmed the decision. An action the agent never declared was blocked.
+reviewer confirmed the decision. An action the agent never declared was blocked. The demo then
+says what became of the acknowledgement the agent drafted with each message: the automated
+decision returned it to nobody, and the other's waited for the reviewer, who read it and
+released it.
 
 ## 1. Declare what the agent may do
 

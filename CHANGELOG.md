@@ -24,7 +24,9 @@ is valid.
   change: a text stops no label, and no action of enumerated arguments, from automating. **If
   your caller sent the text of an automated decision, it has nothing to send for those now.**
   Send a text through an action a person releases, as the demo agent's `send_acknowledgement`
-  is. A judge that clears a text when the decision is made is not built.
+  is. A judge that clears a text when the decision is made is not built. `mendari demo` says
+  what became of the acknowledgement its agent drafted: returned to nobody with the automated
+  decision, read and released by the reviewer of the one that waited.
 - **Actions.** An action whose arguments can hold free text (a string that is not an `enum` or
   a `const`, an array with no `items`, or no schema) is never released without a person where
   its gate would be `auto`: a `write` or a `contact`, and a `read` or a `draft` of an agent
