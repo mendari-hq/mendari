@@ -597,8 +597,9 @@ def _menu(schema: Any) -> int | None:
 
     - every string is limited to an `enum` or a `const`: no pattern or format narrows one, and
       a length does not, since a dose fits in a few characters;
-    - every number is limited to an `enum` or a `const`, or is an integer between two bounds:
-      a number nothing lists can be any dose;
+    - every number is limited to an `enum` or a `const`, or is an integer between two bounds
+      that admit no more values than an `enum` may list (`MAX_ACTION_ENUM`): a list the
+      manifest could have written out. A number nothing lists can be any dose;
     - there is no array: a list puts a text together out of its items, however each is limited;
     - it admits at most `MAX_ACTION_MENU` arguments in all (each property's values multiplied
       together, one that is not required counting once more for its absence): past that, the
@@ -626,18 +627,21 @@ def _menu(schema: Any) -> int | None:
                 (child, len(found), key not in required) for key, child in properties.items()
             )
         found.append((listed, parent, optional))
+    # Every product is taken whole before any is held to the bound, so that the answer does
+    # not depend on the order of the properties (one that admits nothing makes the whole admit
+    # nothing). A schema is at most `MAX_ACTION_SCHEMA_CHARS` long: the numbers stay small.
     admitted = [1 if listed is None else listed for listed, _, _ in found]
     for index in range(len(found) - 1, 0, -1):
         _, parent, optional = found[index]
         admitted[parent] *= admitted[index] + optional
-        if admitted[parent] > MAX_ACTION_MENU:
-            return None
     return admitted[0] if admitted[0] <= MAX_ACTION_MENU else None
 
 
 def _listed(node: Mapping[str, Any]) -> int | None:
     """How many values one schema lists by itself, or None when it lists none: an `enum`'s, a
-    `const`'s one, a boolean's two, or the integers between a lower and an upper bound."""
+    `const`'s one, a boolean's two, or the integers between a lower and an upper bound, when
+    they are no more than an `enum` may list. A longer range is a number nothing lists: one
+    of a million doses is not a choice from a list."""
     if "const" in node:
         return 1
     if "enum" in node:
@@ -661,7 +665,8 @@ def _listed(node: Mapping[str, Any]) -> int | None:
         return None
     if not low or not high:
         return None  # open at one end: any number
-    return max(0, min(high) - max(low) + 1)
+    between = max(0, min(high) - max(low) + 1)
+    return between if between <= MAX_ACTION_ENUM else None
 
 
 def action_schema_problems(schema: Any) -> list[str]:

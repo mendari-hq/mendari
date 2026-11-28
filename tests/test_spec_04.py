@@ -438,8 +438,8 @@ DIGIT = {"type": "integer", "enum": list(range(10))}
         (_taking({"picked": {"type": "array", "items": {"type": "integer"}}}), True),
         (_taking({"spelled": {"type": "array", "items": LETTER, "maxItems": 200}}), True),
         (_taking({"routes": {"type": "array", "items": _listed(1), "maxItems": 1}}), True),
-        # A number nothing lists can be any dose; an integer between two bounds is a range the
-        # manifest states.
+        # A number nothing lists can be any dose. An integer between two bounds is a list the
+        # manifest could have written out, when it is no longer than an `enum` may be.
         (_taking({"days": {"type": "integer"}}), True),
         (_taking({"dose": {"type": "number"}}), True),
         (_taking({"dose": {"type": "number", "minimum": 0, "maximum": 10}}), True),
@@ -448,20 +448,7 @@ DIGIT = {"type": "integer", "enum": list(range(10))}
         (_taking({"days": {"type": "integer", "minimum": 1, "maximum": 90}}), False),
         (_taking({"n": {"type": "integer", "exclusiveMinimum": 0, "exclusiveMaximum": 4}}), False),
         (_taking({"dose": {"type": "number", "enum": [0.5, 1, 2.5]}}), False),
-        (
-            {
-                **_taking({"n": {"type": "integer", "minimum": 1, "maximum": 1_000_000}}),
-                "required": ["n"],
-            },
-            False,  # a million values, and no more
-        ),
-        (
-            {
-                **_taking({"n": {"type": "integer", "minimum": 0, "maximum": 1_000_000}}),
-                "required": ["n"],
-            },
-            True,
-        ),
+        (_taking({"dose_mcg": {"type": "integer", "minimum": 1, "maximum": 1_000_000}}), True),
         # A menu: every value is one the manifest lists.
         (_taking({}), False),  # no arguments at all
         (_taking({"queue": {"type": "string", "enum": ["refill", "front_desk"]}}), False),
@@ -615,6 +602,67 @@ def test_a_menu_takes_no_value_its_manifest_does_not_list() -> None:
                     at = at[key]
                 at[path[-1]] = other
                 assert list(checker.iter_errors(changed)), (schema, path, other)
+
+
+@pytest.mark.parametrize(
+    ("bounds", "values"),
+    [
+        ({"minimum": 1, "maximum": 100}, 100),
+        ({"minimum": 1, "maximum": 101}, 101),
+        ({"minimum": 0, "maximum": 100}, 101),
+        ({"minimum": 0, "maximum": 99}, 100),
+        # A bound that is no whole number: the integers inside it.
+        ({"minimum": 0.5, "maximum": 100.5}, 100),
+        ({"minimum": 0.5, "maximum": 101.5}, 101),
+        ({"minimum": -0.5, "maximum": 99.5}, 100),
+        ({"minimum": -0.5, "maximum": 100.5}, 101),
+        # A bound that is itself left out.
+        ({"exclusiveMinimum": 0, "exclusiveMaximum": 101}, 100),
+        ({"exclusiveMinimum": 0, "exclusiveMaximum": 102}, 101),
+        ({"exclusiveMinimum": -1, "exclusiveMaximum": 101}, 101),
+        ({"exclusiveMinimum": 0.5, "exclusiveMaximum": 100.5}, 100),
+        ({"exclusiveMinimum": 0.5, "exclusiveMaximum": 101.5}, 101),
+        ({"exclusiveMinimum": -0.5, "exclusiveMaximum": 100.5}, 101),
+        # One of each, and both kinds at one end: the stricter one holds.
+        ({"minimum": 1, "exclusiveMaximum": 101}, 100),
+        ({"minimum": 1, "exclusiveMaximum": 102}, 101),
+        ({"exclusiveMinimum": 0, "maximum": 100}, 100),
+        ({"exclusiveMinimum": 0, "maximum": 101}, 101),
+        ({"minimum": 1, "exclusiveMinimum": 5, "maximum": 105}, 100),
+        ({"minimum": 1, "exclusiveMinimum": 4, "maximum": 105}, 101),
+        ({"minimum": 1, "maximum": 200, "exclusiveMaximum": 101}, 100),
+        ({"minimum": 1, "maximum": 200, "exclusiveMaximum": 102}, 101),
+    ],
+)
+def test_a_range_of_integers_is_a_list_of_at_most_a_hundred(
+    bounds: dict[str, float], values: int
+) -> None:
+    """An integer between two bounds is a menu when the bounds admit no more values than an
+    `enum` may list, a hundred: the manifest could have written them out. One more, and it is a
+    number nothing lists. Counted as the validator counts: the whole numbers inside the bounds,
+    whichever way each bound is given. Checked against the validator, value by value."""
+    assert values in (100, 101)
+    schema = {**_taking({"n": {"type": "integer", **bounds}}), "required": ["n"]}
+    assert action_schema_problems(schema) == []
+    assert spec.holds_free_text(schema) is (values == 101), bounds
+    checker = input_schema.validator(schema, formats=False)
+    admitted = [n for n in range(-5, 210) if not list(checker.iter_errors({"n": n}))]
+    assert len(admitted) == values, (bounds, admitted[:3], admitted[-3:])
+    assert spec.MAX_ACTION_ENUM == 100
+
+
+def test_what_a_menu_is_does_not_depend_on_the_order_of_its_properties() -> None:
+    """A property that admits nothing (bounds that cross) makes arguments nothing can match:
+    no text either. Wherever it stands among properties that would pass the bound together."""
+    empty = {"type": "integer", "minimum": 5, "maximum": 4}
+    lists = {f"p{n}": _listed(100) for n in range(4)}
+    first = {**_taking({"none": empty, **lists}), "required": ["none", *lists]}
+    last = {**_taking({**lists, "none": empty}), "required": [*lists, "none"]}
+    for schema in (first, last):
+        assert action_schema_problems(schema) == []
+        assert spec.holds_free_text(schema) is False
+    # Without it, four full lists are far past the bound, in either order.
+    assert spec.holds_free_text({**_taking(lists), "required": list(lists)}) is True
 
 
 def test_three_full_lists_of_options_are_a_menu_and_a_property_left_out_counts() -> None:
