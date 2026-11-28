@@ -1665,13 +1665,16 @@ def create_app(
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`.
 
-        An agent whose manifest declares written outputs (spec §15) answers with `outputs` too:
-        what it wrote, by name. They are returned here and are not kept with the decision."""
+        A text is handed only to a person (ADR-0027). Where an agent whose manifest declares
+        written outputs (spec §15) wrote one, `written` says where each stands, by name: `held`
+        when the decision waits for a person, and then `outputs` carries the text as that
+        person's draft (the review queue keeps it for them); `not_released` with an automated
+        or a blocked decision, which returns none of what the agent wrote and keeps none."""
         decided = decision_for(f"{namespace}/{name}").decide(
             payload, shadow=_is_shadow(request, shadow)
         )
-        written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
-        return {**decided.to_dict(), **written, **NOTICE}
+        drafts = decided.drafts()
+        return {**decided.to_dict(), **({"outputs": drafts} if drafts else {}), **NOTICE}
 
     @app.post(
         "/api/agents/{namespace}/{name}/fhir/decide",

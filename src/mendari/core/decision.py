@@ -142,9 +142,10 @@ class DecisionResult:
     # agent changed since its confidence was calibrated, a second signal disagreed), with what
     # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
     signals: Signals = field(default_factory=Signals, compare=False, repr=False)
-    # What the agent wrote with its answers (spec section 15.2), by the output's name. In
-    # memory only, like `rejected`: not in `to_dict` or `to_record`, so the audit record keeps
-    # its shape and no stored record holds a written text. The caller's answer carries it.
+    # What the agent wrote with its answers (spec section 15.2), by the output's name: every
+    # text, in memory only, like `rejected`. It is in neither `to_dict` nor `to_record`, so no
+    # stored record holds a written text. An evaluation grades these; nothing else hands them
+    # on: an answer carries `drafts()`, and says where each text stands (`written`).
     outputs: Mapping[str, str] = field(default_factory=dict, compare=False, repr=False)
 
     @property
@@ -157,6 +158,21 @@ class DecisionResult:
     def confidence(self) -> float | None:
         answer = self.answers.get(self.primary)
         return answer.confidence if answer else None
+
+    @property
+    def written(self) -> dict[str, dict[str, str]]:
+        """Where each text the agent wrote stands (ADR-0027), by the output's name: `held` when
+        the decision awaits a person, who is handed it as a draft (`drafts`); `not_released`
+        otherwise: an automated or a blocked decision hands what its agent wrote to nobody.
+        Empty for a decision whose agent wrote nothing. Never a text."""
+        state = "held" if self.outcome in _REVIEWED else "not_released"
+        return {name: {"state": state} for name in sorted(self.outputs)}
+
+    def drafts(self) -> dict[str, str]:
+        """The texts an answer may carry (ADR-0027): what the agent wrote, when the decision
+        awaits a person; none otherwise. A text is handed only to a person: with an automated
+        decision nobody would read it before it was used, and a blocked one is not to be used."""
+        return dict(self.outputs) if self.outcome in _REVIEWED else {}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,6 +208,9 @@ class DecisionResult:
                 if self.actions is not None
                 else {}
             ),
+            # Where each text stands, only for a decision whose agent wrote one: every other
+            # record keeps the shape it had. The texts themselves are in neither.
+            **({"written": self.written} if self.outputs else {}),
         }
 
     def to_record(self) -> dict[str, Any]:

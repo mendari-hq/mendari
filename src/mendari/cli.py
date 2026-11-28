@@ -256,9 +256,10 @@ def cmd_decide(args: argparse.Namespace) -> int:
         _print_json({"decision": result.to_dict(), "task": task})
     else:
         decided = decision.decide(payload)
-        # What the agent wrote (spec §15), shown to whoever ran the command; never recorded.
-        written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
-        _print_json({**decided.to_dict(), **written})
+        # What the agent wrote (spec §15) is handed only to a person (ADR-0027): shown here as
+        # a draft when the decision waits for one, and not at all when it automated or blocked.
+        drafts = decided.drafts()
+        _print_json({**decided.to_dict(), **({"outputs": drafts} if drafts else {})})
     return 0
 
 

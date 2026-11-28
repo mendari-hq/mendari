@@ -9,6 +9,7 @@ message and reply here is synthetic."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
 import sqlite3
@@ -340,13 +341,15 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         yield opened
 
 
-def test_decide_returns_what_was_written_and_keeps_it_only_for_a_decision_that_waits(
+def test_a_text_is_handed_only_to_a_person_and_kept_only_for_a_decision_that_waits(
     client: TestClient, tmp_path: Path
 ) -> None:
-    """`POST …/decide` returns what the agent wrote under every outcome, and no stored record
-    or chained event holds a word of it. A text is kept exactly when its decision waits for a
-    person, and then only as a note (ADR-0027): the trail shows it, where the decision's input
-    is shown, under `outputs`. Open mode, under no PHI mode: a note is in clear there."""
+    """A text is handed only to a person (ADR-0027): `POST …/decide` returns what the agent
+    wrote only with a decision that waits for one, as its draft. An automated decision returns
+    none of it and keeps none of it, and still automates. Either way the answer and the stored
+    record say where each text stands (`written`), and no record or chained event holds a word
+    of it. A held text is kept only as a note: the trail shows it, where the decision's input is
+    shown, under `outputs`. Open mode, under no PHI mode: a note is in clear there."""
 
     def decide(body: str) -> dict[str, Any]:
         answer = client.post(f"/api/agents/{AGENT}/decide", json=message(body))
@@ -357,14 +360,15 @@ def test_decide_returns_what_was_written_and_keeps_it_only_for_a_decision_that_w
     # One decision as the policy serves it, then one that waits for a person whatever the
     # policy: the agent's automation is put on hold.
     served = decide(REFILL)
-    assert served["outputs"]["reply_draft"].startswith(
-        "Thank you for your message. The pharmacy team"
-    )
+    assert served["outcome"] == "AUTO"  # the text changes nothing about the decision
+    assert "outputs" not in served and "pharmacy team" not in json.dumps(served)
+    assert served["written"] == {"reply_draft": {"state": "not_released"}}
     hold = client.post("/api/holds", json={"agent_id": AGENT, "reason": "a drill"})
     assert hold.status_code == 201, hold.text
     waiting = decide("I need to move my appointment.")
     assert waiting["outcome"] == "HUMAN_REVIEW"
     assert waiting["outputs"]["reply_draft"].endswith("The scheduling team will contact you.")
+    assert waiting["written"] == {"reply_draft": {"state": "held"}}
     with sqlite3.connect(tmp_path / "open.db") as db:
         names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
         tables = {
@@ -373,27 +377,55 @@ def test_decide_returns_what_was_written_and_keeps_it_only_for_a_decision_that_w
         }
     assert served["id"] in tables["decisions"] and waiting["id"] in tables["decisions"]
     for decided, words in ((served, "pharmacy team will review"), (waiting, "scheduling team")):
-        reply = decided["outputs"]["reply_draft"]
         waits = decided["outcome"] in ("HUMAN_REVIEW", "ABSTAIN")
         stored = client.get(f"/api/audit/{decided['id']}").json()
-        # The stored record is what it would be for an agent that wrote nothing: no `outputs`
-        # key, and no word of the reply in it or in an event.
+        # The stored record says where the text stands and holds no word of it: no `outputs`
+        # key, and nothing of the reply in it or in an event.
         assert "outputs" not in stored["record"]
+        assert stored["record"]["written"] == decided["written"]
         assert words not in json.dumps([stored["record"], [e["payload"] for e in stored["events"]]])
         holding = sorted(name for name, text in tables.items() if words in text)
         if waits:  # held for its reviewer: a note, and what the trail shows of it
+            reply = decided["outputs"]["reply_draft"]
             assert holding == ["notes"], holding
             assert stored["outputs"] == [
                 {"name": "reply_draft", "state": "held", "text_status": "open", "text": reply}
             ]
         else:  # nobody waits to read it: no table holds a word of it, and no answer
             assert holding == [], holding
-            assert "outputs" not in stored and reply not in json.dumps(stored)
-    # A case with no output, and an agent that declares none: no `outputs` key at all.
+            assert "outputs" not in stored and words not in json.dumps(stored)
+    # A case with no output, and an agent that declares none: neither key at all.
     nothing = client.post(f"/api/agents/{AGENT}/decide", json=message("I have nothing to say."))
-    assert "outputs" not in nothing.json()
+    assert "outputs" not in nothing.json() and "written" not in nothing.json()
     other = client.post("/api/agents/mendari-test/actions-mini/decide", json=message(REFILL)).json()
-    assert "outputs" not in other
+    assert "outputs" not in other and "written" not in other
+
+
+@pytest.mark.parametrize(
+    ("outcome", "state", "handed"),
+    [
+        (Outcome.AUTO, "not_released", False),
+        (Outcome.HUMAN_REVIEW, "held", True),
+        (Outcome.ABSTAIN, "held", True),
+        (Outcome.BLOCK, "not_released", False),
+    ],
+)
+def test_where_a_text_stands_follows_whether_a_person_awaits_the_decision(
+    agent: Agent, outcome: Outcome, state: str, handed: bool
+) -> None:
+    """`DecisionResult.written` and `drafts()` (ADR-0027): a text is `held`, and handed over as
+    a draft, exactly when the decision awaits a person; with an automated or a blocked decision
+    it is `not_released` and `drafts()` is empty, whatever the agent wrote. `outputs` still holds
+    every text in memory: an evaluation grades them, and nothing else may hand them on."""
+    decided = Decision(agent).decide(message(REFILL))
+    assert decided.outputs and decided.outcome is Outcome.AUTO
+    result = dataclasses.replace(decided, outcome=outcome)
+    assert result.written == {"reply_draft": {"state": state}}
+    assert result.drafts() == (dict(decided.outputs) if handed else {})
+    assert result.to_dict()["written"] == result.written == result.to_record()["written"]
+    assert "outputs" not in result.to_dict() and "outputs" not in result.to_record()
+    nothing = dataclasses.replace(result, outputs={})
+    assert nothing.written == {} and nothing.drafts() == {} and "written" not in nothing.to_dict()
 
 
 def test_the_manifest_of_every_agent_with_outputs_is_valid() -> None:
