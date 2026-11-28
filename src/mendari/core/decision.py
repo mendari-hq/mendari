@@ -467,6 +467,7 @@ class Decision:
                     source="answer",
                     slot=item.proposed.slot,
                     problems=item.problems,
+                    free_text=spec is not None and spec.free_text,
                 )
             )
         return tuple(acted)
@@ -511,7 +512,9 @@ class Decision:
             if spec is None:
                 return Asked(None, None, "blocked", "undeclared")
             if checked.refusal is not None:
-                return Asked(name, spec.effect.value, "blocked", checked.refusal)
+                return Asked(
+                    name, spec.effect.value, "blocked", checked.refusal, free_text=spec.free_text
+                )
             refused_before = any(
                 event.get("event") == actions.PROPOSED
                 and event["payload"].get("reason") in actions.REFUSALS
@@ -525,7 +528,7 @@ class Decision:
                 automating=automating,
                 refused_before=refused_before,
             )
-            return Asked(name, spec.effect.value, found[0], found[1])
+            return Asked(name, spec.effect.value, found[0], found[1], free_text=spec.free_text)
 
         keep = manifest.audit.store_input == "full"
         return self.store.propose_action(

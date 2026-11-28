@@ -121,6 +121,9 @@ class ActionResult:
     source: Source = "answer"
     slot: str | None = None
     problems: tuple[str, ...] = ()
+    # Whether the declared action's arguments can hold free text (`ActionSpec.free_text`,
+    # ADR-0027): chained, so a review knows it must name the action to release it.
+    free_text: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """The action as its caller gets it back, arguments included: the caller sent them, or
@@ -141,7 +144,7 @@ class ActionResult:
     def chained(self) -> dict[str, Any]:
         """The action as the audit chain keeps it: ids, codes and a hash. Never the arguments,
         and never a name the manifest does not declare."""
-        return {
+        chained: dict[str, Any] = {
             "action_id": self.id,
             "name": self.name if self.declared else None,
             "effect": None if self.effect is None or not self.declared else self.effect.value,
@@ -151,6 +154,9 @@ class ActionResult:
             "source": self.source,
             "slot": self.slot,
         }
+        if self.free_text and self.declared:  # only then: every other payload is as it was
+            chained["free_text"] = True
+        return chained
 
     def kept(self) -> str:
         """What is kept apart from the chain, as a decision's input is: the name as proposed and
@@ -168,6 +174,7 @@ class Asked:
     effect: str | None
     disposition: Disposition
     reason: Reason
+    free_text: bool = False  # as `ActionResult.free_text`: only for a declared action
 
 
 def new_id() -> str:

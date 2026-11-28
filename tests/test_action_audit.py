@@ -116,8 +116,12 @@ def test_each_proposal_is_chained_after_its_decision_in_order(store: AuditStore)
         ("file_note", "write", "held", "awaiting_review"),
         ("send_reply", "contact", "held", "awaiting_review"),
     ]
+    # An action whose arguments can hold free text says so in the chain (ADR-0027), and a
+    # review names it to release it: all three here (one declares no schema, two take a
+    # string). An action of enumerated arguments chains no such key.
+    assert [p.get("free_text") for p in proposed] == [True, True, True]
     for payload, action in zip(proposed, result.actions or (), strict=True):
-        assert set(payload) == {
+        assert set(payload) - {"free_text"} == {
             "action_id", "name", "effect", "disposition", "reason", "arguments_hash",
             "source", "slot", "note_ref", "org",
         }  # fmt: skip
@@ -193,8 +197,9 @@ def test_no_argument_and_no_undeclared_name_is_in_the_chain_or_a_record(
             payload = event["payload"]
             assert set(payload) <= {
                 "action_id", "name", "effect", "disposition", "reason", "arguments_hash",
-                "source", "slot", "note_ref", "org", "requested_by", "reviewer",
+                "source", "slot", "note_ref", "org", "requested_by", "reviewer", "free_text",
             }, event  # fmt: skip
+            assert payload.get("free_text", True) is True, event  # a flag, never a text
             if event["event"] == "action.proposed":
                 assert (payload["note_ref"] is not None) is kept, event
                 keyed = payload["arguments_hash"].startswith("hmac-sha256:")
