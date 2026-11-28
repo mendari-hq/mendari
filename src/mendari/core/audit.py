@@ -1543,8 +1543,8 @@ class AuditStore(RateBuckets):
                 "source": "request",
                 "slot": None,
             }
-            if asked.free_text:  # as `ActionResult.chained`: only then
-                payload["free_text"] = True
+            if asked.name is not None:  # as `ActionResult.chained`: a declared action says
+                payload["free_text"] = asked.free_text
             requester = tenancy.requester()
             if requester is not None:
                 payload["requested_by"] = requester

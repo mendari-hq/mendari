@@ -810,7 +810,9 @@ def test_the_chains_half_holds_no_argument_and_no_undeclared_name() -> None:
         "arguments_hash": "sha256:abc",
         "source": "answer",
         "slot": "reader",
+        "free_text": False,  # a declared action says which it is (ADR-0027)
     }
+    assert result(free_text=True).chained()["free_text"] is True
     undeclared = result(
         name="SENTINEL_NAME",
         effect=None,
@@ -820,6 +822,7 @@ def test_the_chains_half_holds_no_argument_and_no_undeclared_name() -> None:
     )
     chained = undeclared.chained()
     assert chained["name"] is None and chained["effect"] is None
+    assert "free_text" not in chained  # blocked, whatever its arguments are
     for kept in (declared.chained(), chained):
         assert "SENTINEL" not in json.dumps(kept)
     # The other half is the note: the name as proposed and the arguments.
@@ -932,12 +935,15 @@ def test_state_folds_a_decisions_events_into_its_actions() -> None:
 
 
 def test_state_says_which_actions_a_review_releases_by_name() -> None:
-    """An item has `free_text` only when its proposal chained it (ADR-0027): an action whose
-    arguments can hold free text, which a review names to release. Every other item is as it
-    was, and anything but `true` is no flag."""
+    """A declared proposal chains whether its arguments can hold free text (ADR-0027), and an
+    item has `free_text` when it says they can: a review names that action to release it. One
+    that says they cannot has no flag, as every item had none before. A proposal that says
+    neither was chained before the rule: while it waits it is read as one whose can, since
+    nothing says otherwise, and once it is resolved nothing depends on it."""
     plain, free = result().chained(), result(free_text=True).chained()
-    assert "free_text" not in plain and free["free_text"] is True
-    first, second, odd = actions.state(
+    assert plain["free_text"] is False and free["free_text"] is True
+    unsaid = {key: value for key, value in plain.items() if key != "free_text"}
+    first, second, odd, older, done, never = actions.state(
         [
             event("action.proposed", {**plain, "note_ref": None}),
             event("action.proposed", {**free, "action_id": "a-2", "note_ref": None}),
@@ -945,11 +951,24 @@ def test_state_says_which_actions_a_review_releases_by_name() -> None:
                 "action.proposed",
                 {**plain, "action_id": "a-3", "free_text": "yes", "note_ref": None},
             ),
+            event("action.proposed", {**unsaid, "action_id": "a-4", "note_ref": None}),
+            event("action.proposed", {**unsaid, "action_id": "a-5", "note_ref": None}),
+            event(
+                "action.proposed",
+                {**unsaid, "action_id": "a-6", "name": None, "effect": None, "note_ref": None},
+            ),
+            event("action.resolved", {"action_id": "a-5", "disposition": "released"}),
         ]
     )
-    assert "free_text" not in first and "free_text" not in odd
+    assert "free_text" not in first
     assert second["free_text"] is True
-    assert [a["id"] for a in actions.held([first, second, odd])] == ["a-1", "a-2", "a-3"]
+    assert odd["free_text"] is True  # anything but `false` does not say they cannot
+    assert older["free_text"] is True  # it waits, and its proposal says nothing
+    assert "free_text" not in done  # resolved: nothing depends on it any more
+    assert "free_text" not in never  # undeclared: blocked, and not a review's to release
+    held = actions.held([first, second, odd, older, done, never])
+    assert [a["id"] for a in held] == ["a-1", "a-2", "a-3", "a-4", "a-6"]
+    assert [actions.by_name(a) for a in held] == [False, True, True, True, False]
 
 
 def test_state_reads_only_a_note_that_is_a_kept_proposal() -> None:

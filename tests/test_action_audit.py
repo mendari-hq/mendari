@@ -200,7 +200,9 @@ def test_no_argument_and_no_undeclared_name_is_in_the_chain_or_a_record(
                 "action_id", "name", "effect", "disposition", "reason", "arguments_hash",
                 "source", "slot", "note_ref", "org", "requested_by", "reviewer", "free_text",
             }, event  # fmt: skip
-            assert payload.get("free_text", True) is True, event  # a flag, never a text
+            assert isinstance(payload.get("free_text", False), bool), event  # never a text
+            if event["event"] == "action.proposed":  # a declared action says which it is
+                assert ("free_text" in payload) is (payload["name"] is not None), event
             if event["event"] == "action.proposed":
                 assert (payload["note_ref"] is not None) is kept, event
                 keyed = payload["arguments_hash"].startswith("hmac-sha256:")
@@ -551,9 +553,9 @@ def test_free_text_asked_for_after_an_automated_decision_is_not_released(
             "no_reviewer",
             True,
         )
-    # The same effects with enumerated arguments are released, and chain no such key.
+    # The same effects with enumerated arguments are released, and chain that they hold none.
     assert ask(decision, result.id, "assign_queue", queue="refill") == ("released", "automated")
-    assert "free_text" not in chained(store)[-1]["payload"]
+    assert chained(store)[-1]["payload"]["free_text"] is False
     assert ask(decision, result.id, "send_template", template="refill_queued") == (
         "released",
         "automated",
@@ -563,11 +565,11 @@ def test_free_text_asked_for_after_an_automated_decision_is_not_released(
         "released",
         "with_decision",
     )
-    # What the answer proposed with enumerated arguments chained no such key either.
+    # What the answer proposed says which it is too: its enumerated arguments hold none.
     proposed = [e["payload"] for e in of(store, result.id, "action.proposed")][:2]
     assert [(p["name"], p.get("free_text")) for p in proposed] == [
         ("draft_reply", True),
-        ("send_template", None),
+        ("send_template", False),
     ]
     # On a decision that awaits review, free text waits for the reviewer.
     pending = decision(message(REPLY))

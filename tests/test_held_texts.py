@@ -28,6 +28,7 @@ import yaml
 
 from mendari import AuditStore, Decision, load_agent
 from mendari.core import tenancy
+from mendari.core.actions import ActionResult
 from mendari.core.audit import DECISION_KINDS
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy, key_id
@@ -696,6 +697,67 @@ def test_a_reviewer_denies_one_action_and_names_another(store: AuditStore, write
         ("assign_queue", "denied", "reviewer_denied"),
         ("send_reply", "released", "confirmed"),
     ]
+
+
+def test_a_proposal_that_does_not_say_whether_it_holds_free_text_is_released_only_by_name(
+    store: AuditStore, writer: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A decision recorded before this rule (by 0.1.2) and still waiting when the engine is
+    upgraded: its proposals do not say whether their arguments can hold free text. Nothing says
+    they cannot, so a held one is read as one that can: the queue marks it, and the label alone
+    releases none of them. Every proposal chained since says which it is."""
+    said = ActionResult.chained
+    monkeypatch.setattr(
+        ActionResult,
+        "chained",
+        lambda self: {key: value for key, value in said(self).items() if key != "free_text"},
+    )
+    decision = held(store, writer)
+    result, other = decision(message(LETTER)), decision(message(LETTER))
+    monkeypatch.undo()
+    for old in (result, other):
+        assert all("free_text" not in e["payload"] for e in of(store, old.id, "action.proposed"))
+    read, queue, reply = shown(store, result.id)["actions"]
+    assert (read["disposition"], queue["disposition"], reply["disposition"]) == (
+        "released",
+        "held",
+        "held",
+    )
+    assert "free_text" not in read  # released with the decision: nothing waits on it
+    assert queue["free_text"] is True and reply["free_text"] is True
+    answer = store.resolve_review(
+        result.id, final_label="refill", reviewer="rn-1", texts=dict(RELEASE)
+    )
+    assert resolved(answer) == [
+        ("assign_queue", "denied", "not_named"),
+        ("send_reply", "denied", "not_named"),
+    ]
+    queue, reply = held_actions(store, other.id)
+    named = store.resolve_review(
+        other.id,
+        final_label="refill",
+        reviewer="rn-1",
+        texts=dict(RELEASE),
+        release_actions=[queue["id"], reply["id"]],
+    )
+    assert resolved(named) == [
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "released", "confirmed"),
+    ]
+    # A proposal chained now says which it is, whatever its gate; an undeclared one says nothing.
+    now = decision(message(LETTER))
+    decision.authorize_action(now.id, "no_such_action", {"note": "x"})
+    assert [
+        (e["payload"]["name"], e["payload"].get("free_text"))
+        for e in of(store, now.id, "action.proposed")
+    ] == [
+        ("look_up_medications", True),  # no schema: nothing checks its arguments
+        ("assign_queue", False),
+        ("send_reply", True),
+        (None, None),
+    ]
+    assert "free_text" not in held_actions(store, now.id)[0]  # said: no free text
+    assert store.verify()["ok"]
 
 
 def test_an_action_asked_for_after_the_decision_is_released_only_by_name(
