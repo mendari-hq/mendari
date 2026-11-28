@@ -88,6 +88,10 @@ _EVENTS = {
     # decision's reviewer (spec §13.9): authorized and recorded here, run elsewhere.
     "action.proposed": ("C", "Action proposed"),
     "action.resolved": ("U", "Action released or denied by review"),
+    # A text an agent wrote, held for the decision's reviewer, and that reviewer's verdict on
+    # it (ADR-0027): kept and recorded here, sent or filed elsewhere.
+    "output.held": ("C", "Written output held for review"),
+    "output.resolved": ("U", "Written output released or withheld by review"),
 }
 # The activities that create or change a decision's result: each gets a Provenance and makes a
 # new version of the decision's Task (task_fhir.py). Other events change neither. The store's
@@ -115,6 +119,10 @@ _DETAILS = {
         "source",
     ),
     "action.resolved": ("action_id", "name", "effect", "disposition", "reason"),
+    # A held text: the output's name as the manifest declares it, and the reviewer's verdict.
+    # The text is a note: never in an export.
+    "output.held": ("output",),
+    "output.resolved": ("output", "verdict"),
 }
 
 
@@ -283,6 +291,8 @@ def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, An
         return {"who": engine(event), "requestor": False}  # the retention policy
     if event["event"] == "action.proposed" and payload.get("source") == "answer":
         return {"who": engine(event), "requestor": False}  # proposed with the agent's answer
+    if event["event"] == "output.held":
+        return {"who": engine(event), "requestor": False}  # written with the agent's answer
     if event["event"] == "outcome.recorded":
         return {
             "who": {"display": str(payload.get("recorded_by") or NOT_RECORDED)},

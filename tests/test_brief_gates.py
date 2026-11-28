@@ -20,7 +20,7 @@ from mendari import AuditStore, Decision, load_agent
 from mendari.core import validation_brief
 from mendari.core.agent import Agent
 from mendari.evals.monitoring import MIN_FOR_OPERATIONS, monitor
-from tests.conftest import DEMO_AGENT_DIR
+from tests.conftest import DEMO_AGENT_DIR, releasing
 
 # Part of the edit loop (`-m core`), beside the brief's other tests: fast, and on the decision
 # path's own counts.
@@ -156,7 +156,12 @@ def test_the_agreement_gate_needs_a_label(store: AuditStore, agent: Agent) -> No
     held = Decision(agent, store=store).decide(URGENT)
     assert held.outcome.value == "HUMAN_REVIEW" and held.recommendation
     assert gate(brief(store, agent), "agreement")["status"] == "no_data"
-    store.resolve_review(held.id, final_label=held.recommendation, reviewer="rn-1")
+    store.resolve_review(
+        held.id,
+        final_label=held.recommendation,
+        reviewer="rn-1",
+        texts=releasing(store.get(held.id)),  # its acknowledgement waits for a person too
+    )
     agreed = gate(brief(store, agent), "agreement")
     assert agreed["status"] == "pass"
     assert agreed["detail"].startswith("1 of 1 [")  # what it is out of, with its interval

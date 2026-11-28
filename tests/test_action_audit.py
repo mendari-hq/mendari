@@ -5,8 +5,8 @@ The chain records every proposal and its resolution: ids, the declared name, the
 disposition, a reason code and a hash of the arguments. It never holds the arguments, nor a name
 the manifest does not declare: both are the agent's text and are kept apart, as a decision's
 input is. Recognizable text is seeded in both and searched for in every table, under each PHI
-mode. A review releases or denies the held actions, and a caller may ask again. SQLite and
-Postgres."""
+mode. A review releases or denies the held actions, one whose arguments can hold free text only
+by name (ADR-0027), and a caller may ask again. SQLite and Postgres."""
 
 from __future__ import annotations
 
@@ -317,11 +317,20 @@ def test_retention_removes_the_arguments_with_the_inputs(store: AuditStore) -> N
 # -- review: held actions are released or denied ------------------------------------------------
 
 
-def test_confirming_the_recommendation_releases_each_held_action(store: AuditStore) -> None:
+def test_confirming_the_recommendation_releases_each_held_action_it_names(
+    store: AuditStore,
+) -> None:
+    """Both held actions take a string, so each is released by name (ADR-0027)."""
     result = agent(store)(message(VISIT))
     held = held_of(store, result.id)
     assert [a["name"] for a in held] == ["file_note", "send_reply"]
-    answer = store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    assert [a["free_text"] for a in held] == [True, True]
+    answer = store.resolve_review(
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held],
+    )
     assert answer["human_override"] is False
     assert answer["actions"] == [
         {"id": a["id"], "name": a["name"], "effect": a["effect"], "disposition": "released",
@@ -354,6 +363,33 @@ def test_confirming_the_recommendation_releases_each_held_action(store: AuditSto
     assert held_of(store, result.id) == [] and store.verify()["ok"]
 
 
+def test_confirming_the_label_alone_releases_no_action_that_can_hold_free_text(
+    store: AuditStore,
+) -> None:
+    """A confirmation that names no action denies each held one whose arguments can hold free
+    text (`not_named`): nobody said they read what it would send or file. It is no override,
+    and an action named is released beside one left out."""
+    result = agent(store)(message(VISIT))
+    note, reply = held_of(store, result.id)
+    answer = store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    assert answer["human_override"] is False
+    assert [(a["id"], a["disposition"], a["reason"]) for a in answer["actions"]] == [
+        (note["id"], "denied", "not_named"),
+        (reply["id"], "denied", "not_named"),
+    ]
+    assert store.stats()["human_override_rate"] == 0.0
+    other = agent(store)(message(VISIT))
+    note, reply = held_of(store, other.id)
+    one = store.resolve_review(
+        other.id, final_label="appointment", reviewer="rn-1", release_actions=[note["id"]]
+    )
+    assert [(a["id"], a["disposition"], a["reason"]) for a in one["actions"]] == [
+        (note["id"], "released", "confirmed"),
+        (reply["id"], "denied", "not_named"),
+    ]
+    assert store.verify()["ok"]
+
+
 def test_overriding_the_recommendation_denies_each_held_action(store: AuditStore) -> None:
     result = agent(store)(message(VISIT))
     answer = store.resolve_review(result.id, final_label="refill", reviewer="rn-1")
@@ -380,7 +416,11 @@ def test_a_reviewer_denies_one_action_without_recording_a_false_override(
     result = agent(store)(message(VISIT))
     note, reply = held_of(store, result.id)
     answer = store.resolve_review(
-        result.id, final_label="appointment", reviewer="rn-1", deny_actions=[reply["id"]]
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        deny_actions=[reply["id"]],
+        release_actions=[note["id"]],
     )
     assert answer["human_override"] is False  # the label was confirmed: monitoring counts that
     assert [(a["id"], a["disposition"], a["reason"]) for a in answer["actions"]] == [
@@ -453,7 +493,13 @@ def test_asking_is_gated_by_the_decision_as_it_stands(store: AuditStore) -> None
     assert ask(decision, pending, "look_up_medications") == ("released", "with_decision")
     assert ask(decision, pending, "queue_refill", medication="x") == ("held", "awaiting_review")
     assert ask(decision, pending, "renew_prescription") == ("held", "awaiting_review")
-    store.resolve_review(pending, final_label="appointment", reviewer="rn-1")
+    held = held_of(store, pending)  # each takes free text or no schema: released by name
+    store.resolve_review(
+        pending,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held],
+    )
     assert ask(decision, pending, "renew_prescription") == ("released", "confirmed")  # as it stands
     # After the review a new action is not released: the reviewer never saw it.
     assert ask(decision, pending, "file_note", note="later") == ("blocked", "review_closed")
@@ -496,9 +542,14 @@ def test_asking_again_answers_how_it_stands_and_chains_nothing_new(store: AuditS
     assert len(chained(store)) == len(before) + 1
     asked = chained(store)[-1]["payload"]
     assert (asked["source"], asked["slot"], asked["name"]) == ("request", None, "send_reply")
-    # The reviewer confirms: the caller that asks again learns the action was released, and a
-    # caller about to run it checks that these are the arguments that were.
-    store.resolve_review(result.id, final_label="appointment", reviewer="rn-1")
+    # The reviewer confirms and names them: the caller that asks again learns the action was
+    # released, and a caller about to run it checks that these are the arguments that were.
+    store.resolve_review(
+        result.id,
+        final_label="appointment",
+        reviewer="rn-1",
+        release_actions=[a["id"] for a in held_of(store, result.id)],
+    )
     for arguments in (dict(proposed.arguments), {"message": "Another."}):
         released = decision.authorize_action(result.id, "send_reply", arguments)
         assert (released["disposition"], released["reason"], released["repeated"]) == (
@@ -631,7 +682,10 @@ def test_the_fhir_export_names_both_kinds_and_holds_no_argument(store: AuditStor
     result = decision(message(UNDECLARED))
     with tenancy.acting_for(None, "key service-1"):
         decision.authorize_action(result.id, "send_reply", {"message": "SENTINEL-ASKED-TEXT"})
-    store.resolve_review(result.id, final_label="refill", reviewer="rn-1")
+    (asked_for,) = held_of(store, result.id)
+    store.resolve_review(
+        result.id, final_label="refill", reviewer="rn-1", release_actions=[asked_for["id"]]
+    )
     item = store.get(result.id)
     assert item is not None
     exported = list(audit_fhir.resources(audit_fhir.joined(item)))

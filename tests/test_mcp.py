@@ -24,6 +24,7 @@ from mendari.hub.client import agents_cache
 from mendari.mcp import PROTOCOL_VERSIONS, QUEUE_FIELDS, McpServer, serve
 from mendari.server import recalls
 from mendari.server.recalls import RecallWatch
+from tests.conftest import releasing
 from tests.support.registry import BILL, OUTSIDE_ID
 from tests.test_registry_engine import outside_sorter
 
@@ -319,8 +320,14 @@ def test_decide_then_authorize_is_the_same_gate_and_asking_again_records_nothing
     events = len(server.store.get(waiting["id"])["events"])  # type: ignore[index]
     authorize(waiting["id"], "send_acknowledgement", template="received")
     assert len(server.store.get(waiting["id"])["events"]) == events  # type: ignore[index]
-    # A reviewer confirms; asking again says it was released.
-    server.store.resolve_review(waiting["id"], final_label="other", reviewer="rn-1")
+    # A reviewer confirms, and releases the acknowledgement they read; asking again says the
+    # action was released.
+    server.store.resolve_review(
+        waiting["id"],
+        final_label="other",
+        reviewer="rn-1",
+        texts=releasing(server.store.get(waiting["id"])),
+    )
     released = authorize(waiting["id"], "send_acknowledgement", template="received")
     assert (released["disposition"], released["reason"]) == ("released", "confirmed")
     # Undeclared, and arguments its schema refuses: blocked, as tool results, never errors.
