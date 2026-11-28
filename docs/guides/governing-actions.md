@@ -74,7 +74,7 @@ Each action has:
 - optionally a **schema** for its arguments: JSON Schema, from a small closed set of keywords
   (types, `properties`, `required`, `enum`, `const` and bounds; every object sets
   `additionalProperties: false`). Give one to anything that writes, contacts or orders, and
-  make every string an `enum` or a `const` wherever the choices are known: an action that
+  make it a menu wherever the choices are known, every value one of a list: an action that
   takes free text is never released without a person ([section 3](#3-the-gate));
 - optionally **`allow_auto: false`**: the action is then never released without a person.
 
@@ -130,10 +130,23 @@ Four things follow from the table:
 - **An abstention blocks side effects at once.** With no recommendation there is nothing for a
   reviewer to confirm.
 
-**What counts as free text.** An action's arguments can hold free text when its schema takes a
-string that is not limited to an `enum` or a `const`, or a list with no `items`, or when the
-action has no schema at all. A length limit does not help: a dose fits in a few characters.
-The schema has no pattern keyword, so an identifier that is not enumerated counts too. A `read`
+**What counts as free text.** Anything but a menu: a fixed set of values your manifest
+lists. An action's arguments are a menu when:
+
+- it has a schema;
+- every string is an `enum` or a `const`. A length limit does not help: a dose fits in a few
+  characters. The schema has no pattern keyword, so an identifier that is not enumerated
+  counts as free text;
+- every number is an `enum` or a `const`, or an `integer` with a `minimum` and a `maximum`:
+  a number nothing lists can be any dose, and a number of days between 1 and 90 is a menu of
+  ninety;
+- it takes no list. A list puts a text together out of its items, however each is limited. For
+  several of a set of options, declare a yes or no for each;
+- it admits at most 1,000,000 different arguments in all (each property's values multiplied
+  together, one that is not `required` counting once more): three full lists of options, and
+  far fewer than a text spelled a property per character.
+
+`mendari card` says which of your actions can hold free text, in its Actions section. A `read`
 or a `draft` with such arguments is still released with the decision: a read changes nothing,
 and a person sees a draft before it takes effect.
 
@@ -142,8 +155,8 @@ and a person sees a draft before it takes effect.
 name of a template. The words themselves are a written output
 ([Evaluating written output](written-output.md#2-who-gets-the-text)): the reviewer reads the
 draft, releases it or withholds it, and your caller sends it only once the action is
-released. An action that should go without a person takes enumerated arguments only, as the
-demo agent's `assign_queue` does.
+released. An action that should go without a person takes a menu, as the demo agent's
+`assign_queue` does: one string, one of three queues.
 
 Two more rules:
 
@@ -337,18 +350,25 @@ labels wait until every text has its verdict. Each held action has a tick. One w
 can hold free text starts unticked, and withholding a text unticks every action, the
 reviewer's own ticks too: what is released after that is what they ticked after that. An
 action asked for after the decision says so, and its tick names it; one asked for after the
-card was read is not on the card, and no review from that card releases it. Because
-a verdict and a release cannot be taken back, the console waits five seconds, with Undo, before
-it sends a review that gives either. A release is final: a hold set afterwards stops new
-releases, not one already given.
+card was read is not on the card, and no review from that card releases it. A character that
+is not seen in an argument (a right-to-left override, a zero-width space) is shown by its code
+point, so the reviewer reads what would be sent. Because a verdict and a release cannot be
+taken back, the console waits five seconds, with Undo, before it sends a review that gives
+either, and only those five seconds passing send it: leaving the queue or closing the page
+before then sends nothing, and the decision still waits. A release is final: a hold set
+afterwards stops new releases, not one already given.
+
+If you show reviews on a screen of your own, do the same two things: show such characters, and
+send no release the reviewer did not see through.
 
 ## 7. What the audit trail shows
 
 Every proposal is an event on its decision, `action.proposed`, chained with the decision
 itself; every held action's resolution is an `action.resolved`. Each holds ids, the declared
 name, the effect, the disposition, a reason code, a hash of the arguments, and who asked or
-who reviewed. A proposal whose arguments can hold free text also says so (`free_text`), which
-is how a review knows it must name the action.
+who reviewed. A proposal of a declared action also says whether its arguments can hold free
+text (`free_text`, true or false), which is how a review knows it must name the action. One
+that says neither was recorded by an engine older than 0.2.0, and is named too while it waits.
 
 The chain never holds the arguments, and never a name the manifest does not declare: both are
 the agent's text and can hold patient data. They are kept apart from the chain, exactly as the
@@ -369,11 +389,11 @@ FHIR export carries both event kinds, as codes only.
 
 An agent that declares actions has an **Actions** section on its Decision Card: each action,
 what it does, its effect, how it is released for an agent your deployment vouches for, and the
-arguments that are checked. An action whose arguments can hold free text says so there, and
-that a reviewer has to name it. Read the section before you approve an agent: an approval
-names the digest that card describes, and at risk levels 2 and 3 the approval that lets the
-agent automate also lets its `write` and `contact` actions of enumerated arguments go without
-a person.
+arguments that are checked. Each action says there whether its arguments can hold free text
+or take listed values only, and one that can and writes or contacts says that a reviewer has
+to name it. Read the section before you approve an agent: an approval names the digest that
+card describes, and at risk levels 2 and 3 the approval that lets the agent automate also lets
+its `write` and `contact` actions whose arguments are a menu go without a person.
 
 ## What comes next
 

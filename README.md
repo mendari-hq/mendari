@@ -79,9 +79,9 @@ and nothing loosens it. An action the agent never declared is blocked.
 
 **No free text is released unread**
 ([ADR-0027](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0027-no-free-text-is-released-unread.md)).
-An action whose arguments can hold free text (a string that is not enumerated, or no schema
-at all) is never released without a person when it writes or contacts, and a reviewer
-releases it only by naming it. A text the agent writes (a draft reply, a note) is handed only
+An action whose arguments can hold free text (anything but a menu of listed values: a string
+or a number that is not enumerated, a list, or no schema at all) is never released without a
+person when it writes or contacts, and a reviewer releases it only by naming it. A text the agent writes (a draft reply, a note) is handed only
 to a person: a decision that waits for a reviewer returns it as that reviewer's draft, and
 the reviewer releases it or withholds it; an automated or a blocked decision returns none of
 it and keeps none. To send a text, declare an action a person releases

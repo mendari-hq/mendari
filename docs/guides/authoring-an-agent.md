@@ -303,14 +303,17 @@ actions, and the response may propose some:
 {"answers": {"...": "..."}, "actions": [{"name": "assign_queue", "arguments": {"queue": "refill"}}]}
 ```
 
-**A free string in an action's arguments needs a person.** An action's arguments can hold free
-text when its schema takes a string that is not an `enum` or a `const`, or a list with no
-`items`, or when it has no schema. An action that writes or contacts with such arguments is
-never released without a person, whatever else your manifest says, and a reviewer releases it
-only by naming it. So:
+**Free text in an action's arguments needs a person.** An action's arguments can hold free
+text unless they are a menu, a fixed set of values your manifest lists: every string an `enum`
+or a `const`, every number listed or an integer between two bounds, no list, and at most a
+million different arguments in all ([what counts](governing-actions.md#3-the-gate)). An action
+with no schema is free text. An action that writes or contacts with such arguments is never
+released without a person, whatever else your manifest says, and a reviewer releases it only
+by naming it. So:
 
-- an action meant to go without a person takes enumerated arguments only, an identifier too:
-  the schema has no pattern keyword, and a string that is not enumerated is free text;
+- an action meant to go without a person takes a menu, an identifier too: the schema has no
+  pattern keyword, and a string that is not enumerated is free text. So is a dose given as a
+  number, and any list;
 - **to send a text, declare an action a person releases**, as the demo agent's
   `send_acknowledgement` is: `allow_auto: false`, one enumerated argument (the template's
   name), and the words as a written output. The reviewer reads the draft, releases it or
@@ -727,7 +730,7 @@ stronger evidence.
 - [ ] Whatever the agent does besides answer is declared as an action with the effect that
       fits, and your caller runs only what was released
       ([Governing actions](governing-actions.md)).
-- [ ] An action meant to go without a person takes enumerated arguments only, and your caller
+- [ ] An action meant to go without a person takes a menu of listed values, and your caller
       sends a patient no text the agent wrote until a person released it
       ([who gets the text](written-output.md#2-who-gets-the-text)).
 - [ ] A clinician other than the author reviewed the criteria.

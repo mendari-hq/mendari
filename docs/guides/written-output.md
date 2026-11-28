@@ -98,6 +98,10 @@ rubrics:
 - A grader, and the judge, read the text and the `context_fields`. Nothing else of the input.
 - An output may instead be `input: <field>`: a text the input already holds, such as a reply
   another system drafted. No agent is called for it.
+- What your agent writes is read as plain characters. A control character becomes a space, and
+  so does a character that is not seen and changes what is: a right-to-left override, a
+  zero-width space, a tag character. With one, a reviewer would read one text and release
+  another. Line breaks and tabs stay, and so do the joiners a script or an emoji needs.
 
 The agent returns the text with its answers. With the
 [agent kit](authoring-an-agent.md#starters):
@@ -182,7 +186,9 @@ text when the decision is made, so that some texts could go without a person, is
 
 **A rationale is not a text.** An answer's `rationale` (at most 500 characters) and the names
 of the tools the agent called still come back with every decision, as evidence for a
-reviewer. Do not send them to a patient or file them in a chart.
+reviewer. Do not send them to a patient or file them in a chart. A `draft` action's arguments
+come back too, with any decision that is not blocked: a draft is for staff to read and send
+themselves.
 
 ## 3. Choose the judge
 

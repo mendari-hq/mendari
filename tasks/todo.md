@@ -64,9 +64,19 @@ in production.
     - Small additions: the record of an automated decision says its text was handed to
       nobody; `mendari demo` says what became of the acknowledgement; the changelog says what
       an upgrade does to a decision that was already waiting.
-  - [ ] Review by an engineer who built none of it; the whole suite; the pull request, which
-    is also the release's: two event kinds join the FHIR audit code system, which is pinned
-    to the released version, so the wave ships as 0.2.0.
+  - [x] Review by an engineer who built none of it (2026-11-28). On fresh data it found no
+    way for a text or a free-text argument to leave unnamed, and ten findings, two of them
+    major, each fixed with its test (the table is in `notes/trust-core.md`):
+    - a decision 0.1.2 left waiting released free text on a plain confirmation: a proposal
+      now says whether it can hold free text, and one that says nothing is named;
+    - enumerated pieces spelled a text, and a number nothing lists automated: arguments are
+      free text unless they are a menu (every value listed, no list, at most a million);
+    - leaving the page sent a release; a text kept characters that are not seen; a name
+      ending in a line break; tests that held nothing for the FHIR answers, the escaping of
+      arguments and the log records.
+  - [ ] The whole suite on SQLite and Postgres and the browser suite on the final code; the
+    pull request, which is also the release's: two event kinds join the FHIR audit code
+    system, which is pinned to the released version, so the wave ships as 0.2.0.
 - [ ] **Wave T2. A judge clears a text, kept honest by spot checks.** A round the server runs
   on the organization's own connection, on cases like those that would automate; the writer,
   the judge and their settings bound; a design fixed before grades exist; three graders; an

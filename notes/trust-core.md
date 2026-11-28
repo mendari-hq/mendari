@@ -133,9 +133,43 @@ SQLite and Postgres with the browser suite, and it merges as one pull request.
   in `tasks/lessons.md`: before a pull request, grep the product for every caller of a route
   or a store method whose contract changed, scripts and sandbox commands included, and run
   the ones CI runs in a container.
-- **An upgrade does not reach back.** A decision recorded by 0.1.2 that still waits has no
-  held text and no `free_text` mark on its actions, so it is reviewed under 0.1.2's rules.
-  The record names no engine version, so nothing tells such a decision apart; the changelog
-  says to work the queue down first. If a real deployment ever upgrades with a queue that
-  matters, the stricter choice is to chain `free_text` on every proposal (true or false) and
-  to treat its absence as free text.
+
+### What the independent review found (2026-11-28)
+
+One engineer who built none of it read the whole change at `3fc9c95e` (the brief and the report
+are in the thread; the reviewer ran 50 mutations of the source, of which 40 failed a test). On
+fresh data, with a manifest of plain or enumerated strings, it found no way for a text or a
+free-text argument to leave without a person naming it. What it did find, and what was done:
+
+| # | Finding | Done |
+|---|---|---|
+| 1 | **Major.** A review that 0.1.2 left pending released free text with no name: `free_text` was chained only when true, so a proposal with no mark read as "no free text" | A declared proposal chains `free_text` either way, and a held one that says nothing is read as one that can: named. Reproduced with a 0.1.2-shaped event |
+| 2 | **Major.** "Every string is enumerated" is true of each piece and not of the value: a list of one-letter enums, or a property a character, spells any text; and a number nothing lists (a dose) automated | Arguments are free text unless they are a **menu**: every string an enum or a const, every number listed or an integer between two bounds, no array, at most 1,000,000 arguments in all. Held against the real validator on random schemas |
+| 3 | An action asked for after the reviewer read the queue was released unseen | Already closed when the report came (above): `source: request` is released only by name |
+| 4 | No test held that the FHIR, SMART, CDS Hooks and `$decide` answers carry no text | `tests/test_no_text_in_fhir_answers.py`: a mark in every text of a copy of the demo agent, searched for in each answer; each of the six places was checked by putting the text into it |
+| 5 | A manifest took an output named `reply_draft\n` (`$` matches before a final line break), and the review route refused it | The manifest's keys, id and version are held with `fullmatch` |
+| 6 | A BLOCK decision returns and keeps the arguments of what its agent proposed | Said: ADR-0027's consequences and threat model E22. They are the record of what the agent tried; a blocked action is not to be run |
+| 7 | Leaving the queue or closing the page inside the five seconds sent a release | It is dropped, the decision still waits, and a reviewer who left the view is told. A label that lets nothing out is still sent on leaving |
+| 8 | No test held the escaping of an action's arguments, a kept note or an undeclared name, and the leak tests never read log records | Browser tests for each, checked by taking each escape out; `caplog` at every level in the leak tests, checked by logging a held text |
+| 9 | A text kept a right-to-left override, a zero-width space, a tag character: the reviewer reads "Take 10" and releases "01" | Each becomes a space on arrival (texts, rationales, tool names); the console shows any in an action's arguments by its code point |
+| 10 | Release mechanics: the version, and a 0.1.2 engine on a 0.2.0 database | 0.2.0 everywhere; the changelog says to stop every 0.1.2 instance first and not to go back once a text is held |
+
+Nits done: an output named `constructor` skipped the console's verdict gate (a plain object as
+a map); the Card and the packet say for each action whether its arguments can hold free text;
+the answer's schema describes `written` and `outputs`; the ADR's sentence on what leaves, and
+E25's "names only".
+
+Left, each older than this wave and none a way out for a text:
+
+- **The same `$` slip elsewhere.** These patterns end in `$` and are matched with `match`, so
+  each takes a final line break: `SYSTEM_ID` (`core/audit.py`), `NAME_RE`
+  (`core/agent_store.py`), `ID_PATTERN` (`agent_kit.py`), `_LOCAL_MODEL`
+  (`evals/monitoring.py`), `_TOKEN_ID` (`hub/registry.py`), `_DATASET_NAME` (`server/app.py`),
+  `_SEGMENT` (`server/hub_routes.py`), `REQUEST_ID` (`server/security_log.py`), `_ID` and
+  `_OAUTH_ERROR` (`server/smart_routes.py`), `NAME` (`server/store_routes.py`). One sweep, with
+  a test per name.
+- `POST /api/review/<unknown id>` answers 409, where an unknown decision is a 404 elsewhere.
+- From the console's build: `text_status: "sealed"` means two things (this reader may not
+  read it; no key opens it), and the 409 for a missing verdict is prose only.
+- **What an author and a caller do together** is not closable by a gate that never runs an
+  action: a menu still carries a few bits, and so does the order of an object's keys.

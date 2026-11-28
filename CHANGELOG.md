@@ -21,20 +21,31 @@ is valid.
   a blocked decision no longer returns it, and keeps none of it (`POST …/decide`,
   `mendari decide`). A decision whose agent wrote a text says where each stands, in its answer
   and its record: `written`, `held` or `not_released`, never the text. The outcome does not
-  change: a text stops no label, and no action of enumerated arguments, from automating. **If
+  change: a text stops no label, and no action whose arguments are a menu, from automating. **If
   your caller sent the text of an automated decision, it has nothing to send for those now.**
   Send a text through an action a person releases, as the demo agent's `send_acknowledgement`
   is. A judge that clears a text when the decision is made is not built. `mendari demo` says
   what became of the acknowledgement its agent drafted: returned to nobody with the automated
-  decision, read and released by the reviewer of the one that waited.
-- **Actions.** An action whose arguments can hold free text (a string that is not an `enum` or
-  a `const`, an array with no `items`, or no schema) is never released without a person where
-  its gate would be `auto`: a `write` or a `contact`, and a `read` or a `draft` of an agent
-  nobody vouched for. Proposing one sends an automated decision to a person, with the reason
-  `action '<name>' can carry free text and is never released without a person`. **For an
-  author:** an action meant to go without a person takes enumerated arguments only, and an
-  identifier that is not enumerated counts as free text. The bundled demo agent's two actions
-  take enumerated arguments, so both are gated as before.
+  decision, read and released by the reviewer of the one that waited. The schema an agent's
+  detail serves for its answers describes `written` and `outputs`.
+- **What a text may hold.** A text an agent writes, a rationale and a tool's name lose every
+  character that is not seen and changes what is: each becomes a space, as a control character
+  does. `Take` + a right-to-left override + `01` is drawn "Take 10" and sent as "01", so a
+  reviewer released something other than what they read. The bidirectional marks, embeddings,
+  overrides and isolates, zero-width and invisible characters, line separators, tag characters
+  and the C1 controls go; the joiners a script or an emoji needs stay.
+- **Actions.** An action whose arguments can hold free text is never released without a person
+  where its gate would be `auto`: a `write` or a `contact`, and a `read` or a `draft` of an
+  agent nobody vouched for. Proposing one sends an automated decision to a person, with the
+  reason `action '<name>' can carry free text and is never released without a person`.
+  Arguments can hold free text unless they are a menu, a fixed set of values the manifest
+  lists: every string an `enum` or a `const`, every number listed or an integer between two
+  bounds, no array, and at most 1,000,000 different arguments in all. An action with no schema
+  is free text. **For an author:** an action meant to go without a person takes a menu. An
+  identifier that is not enumerated counts as free text, and so do a dose given as a number
+  and any list; for several of a set of options, declare a yes or no for each. `mendari card`
+  says which of your actions can hold free text. The bundled demo agent's two actions take a
+  menu, so both are gated as before.
 - **Reviews: a breaking change for a caller that only confirmed labels.**
   `POST /api/review/{id}` takes two more fields. `texts` gives each text the decision holds a
   verdict, `release` or `withhold`: a review of a decision that holds a text, without a verdict
@@ -58,28 +69,39 @@ is valid.
   input erases it. No table is added: a held text is a note.
 - **The audit trail.** Two new event kinds on a decision, `output.held` and `output.resolved`:
   the output's name, a commitment to the text, then the reviewer's verdict; never the text. The
-  FHIR export carries both, as codes. An `action.proposed` event says when its arguments can
-  hold free text (`free_text`).
+  FHIR export carries both, as codes. An `action.proposed` event of a declared action says
+  whether its arguments can hold free text (`free_text`, true or false).
 - **The words a person reads.** For an `order`, or an action with `allow_auto: false`, whose
   arguments can hold free text, the Decision Card, the console and the committee packet said
   it is released "when a reviewer confirms the decision". They now say what is so: when a
   reviewer confirms the decision and names the action. The Card and the packet no longer say
-  that a text is returned with the decision and not kept.
+  that a text is returned with the decision and not kept, and each says for every action
+  whether its arguments can hold free text or take listed values only.
 - **The console.** A decision's card in the review queue shows each held text with its two
   verdicts, *Release as written* and *Withhold*, and no label resolves the review until each
   text has one. Each held action has a tick: one whose arguments can hold free text starts
   unticked, and withholding a text unticks every action. A review that gives a verdict or
   releases an action waits five seconds, with Undo, and what it did is listed under the queue.
-  A decision's record shows each text where it stands (held, released or withheld) and, for a
-  decision that automated or was blocked, that its text was returned to nobody.
+  **Only those five seconds passing send it:** leaving the queue or closing the page before
+  then sends nothing, and the decision still waits (a label that lets nothing out is sent on
+  leaving, as before). A character that is not seen in an action's arguments is shown by its
+  code point. A decision's record shows each text where it stands (held, released or withheld)
+  and, for a decision that automated or was blocked, that its text was returned to nobody.
 - **The pilot check** (`mendari sandbox pilot-check`). Its reviewer is shown each text the
   decision holds and gives it a verdict, and it checks that a viewer cannot read one.
-- **Upgrading from 0.1.2.** Nothing to migrate: the database's schema is the same. A decision
-  that was waiting for review when you upgrade was recorded under 0.1.2's rules: no text was
-  kept for it, so its review takes no `texts`, and its held actions carry no `free_text` mark,
-  so confirming its label releases them as it did, unless the review refuses one by name
-  (`deny_actions`). Decisions made from 0.2.0 on are held to the rules above. To have none
-  reviewed under the old rules, work the queue down before you upgrade.
+- **Upgrading from 0.1.2.** Nothing to migrate: the database's schema is the same.
+  - **Stop every 0.1.2 instance before the first 0.2.0 one starts, and do not go back.** A
+    0.1.2 engine reads a 0.2.0 database and verifies its chain, and it knows none of these
+    rules: it resolves a review that holds texts with no verdict, and releases a free-text
+    action on a plain confirmation. Once 0.2.0 has recorded a held text, a rollback undoes the
+    protection for it.
+  - **A decision that was waiting when you upgrade.** No text was kept for it, so its review
+    takes no `texts`. Its held actions were recorded before a proposal said whether its
+    arguments can hold free text, so each is read as one whose can: the queue marks it
+    `free_text`, and a review releases it only by name (`release_actions`).
+- **A fix: a name in a manifest is matched whole.** An output, an action, a label or a
+  question whose name ended in a line break was accepted, and so was such an id or version.
+  The review of a decision that held such an output could not be sent.
 - **A fix: the count beside "Review queue" read the queue.** The console read the queue itself
   for that count, on every view. Under PHI mode `encrypt` the chain therefore recorded a read
   (`input.read`) of every waiting input, up to 500, each time a reviewer changed view, in the

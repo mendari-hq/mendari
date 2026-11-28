@@ -1139,19 +1139,25 @@ invalid, named by where it is and the keyword. Without a `schema`, the arguments
 object within §13.6's limits; an action whose effect is `write`, `contact` or `order` SHOULD
 have one.
 
-**Free text.** An action's arguments **can hold free text** when any of these holds:
+**Free text.** An action's arguments **can hold free text** unless they are a **menu**: a
+fixed set of values the manifest lists. They are a menu when all of these hold:
 
-- its schema admits a string that is not limited to an `enum` or a `const`;
-- its schema admits an array with no `items`: a list of anything;
-- it has no `schema`: nothing checks its arguments.
+- the action has a `schema`: without one nothing checks its arguments;
+- every string is limited to an `enum` or a `const`. Nothing else limits a string: a schema
+  has no `pattern` and no `format`, and a length does not count, since a dose fits in a few
+  characters. So an identifier that is not enumerated is free text;
+- every number is limited to an `enum` or a `const`, or is an `integer` with both a lower and
+  an upper bound: a number nothing lists can be any dose;
+- there is no array: a list puts a text together out of its items, however each is limited;
+- the schema admits at most 1,000,000 different arguments in all: the values of each property
+  multiplied together, a property that is not `required` counting once more for its absence.
+  Past that, the properties spell a text a character at a time.
 
-A runtime MUST decide this from the manifest alone, by these three rules, wherever in the
-schema the string or the array is. Nothing else limits a string: a schema has no `pattern` and
-no `format`, and a length does not count, since a dose fits in a few characters. So an
-identifier that is not enumerated is free text. What such an action needs before it is released
-is in §13.4, and how a review releases it in §13.8. An action meant to be released without a
-person takes enumerated arguments: every string an `enum` or a `const`, every array with
-`items`.
+A runtime MUST decide this from the manifest alone, by these rules, wherever in the schema a
+string, a number or an array is. What an action whose arguments can hold free text needs before
+it is released is in §13.4, and how a review releases it in §13.8. An action meant to be
+released without a person takes a menu: every string and every number an `enum` or a `const`
+(or an integer between two bounds), and no array.
 
 For example:
 
@@ -1205,9 +1211,10 @@ actions:
         queue: {type: string, enum: [refill, scheduling, front_desk]}
 ```
 
-Of these six, only `assign_queue` takes arguments that hold no free text: its one string is an
-`enum`. `draft_reply`, `send_reply` and `queue_refill` each take a string that is not
-enumerated, and `look_up_medications` and `renew_prescription` have no schema.
+Of these six, only `assign_queue` takes a menu: its one string is an `enum`. `draft_reply`,
+`send_reply` and `queue_refill` each take a string that is not enumerated, and
+`look_up_medications` and `renew_prescription` have no schema. In `queue_refill`,
+`days_supply` alone would be a menu of ninety values: an integer between two bounds.
 
 ### 13.4 What an effect needs
 
@@ -1365,8 +1372,8 @@ once:
   A held action the review had to name and did not is `denied` (`not_named`), and the review
   is still no override.
 
-So a held action of enumerated arguments that came with the agent's answer, on a decision none
-of whose texts is withheld, is released when the reviewer confirms the label, unless the
+So a held action whose arguments are a menu, that came with the agent's answer, on a decision
+none of whose texts is withheld, is released when the reviewer confirms the label, unless the
 review refuses it. The reference server takes the ids to refuse as `deny_actions` and the ids
 to release by name as `release_actions`; an id that is no held action of the decision, or one
 in both lists, refuses the whole review (`409`) and nothing is recorded. Its review queue and a
@@ -1402,10 +1409,12 @@ Each proposal is one event on its decision, `action.proposed`, chained after
 `decision.created` in the same transaction (or when a caller asks, §13.8): the action's id, its
 name and effect when the manifest declares it (else null), the disposition, the reason, the
 arguments' hash, whether it came with the answer or was asked for, and who asked. A declared
-action whose arguments can hold free text (§13.3) also has `free_text: true`, whatever its
-gate; no other proposal has the key. A review reads that key and how the action was proposed
-(`source`) to know which held actions it releases only by name (§13.8). Each held action's
-resolution is one `action.resolved`: its id,
+action's proposal also says whether its arguments can hold free text (§13.3), whatever its
+gate: `free_text`, `true` or `false`. A proposal of a declared action without the key was
+recorded before proposals said either way, and a runtime MUST read it, while its action is
+held, as one whose arguments can: nothing says they cannot. A review reads that key and how
+the action was proposed (`source`) to know which held actions it releases only by name
+(§13.8). Each held action's resolution is one `action.resolved`: its id,
 name, effect, disposition, reason and the reviewer.
 
 ```json
@@ -1791,8 +1800,13 @@ The response MAY carry what it wrote, by name:
 - `outputs` is optional, and so is each output. A name the manifest does not declare for that
   slot, a value that is not text, or a text longer than its `max_chars` makes the response
   invalid: the slot fails closed, as for a malformed answer.
-- Control characters other than the newline and the tab become a space. A text that is then
-  blank is no output.
+- Control characters other than the newline and the tab become a space, and so do the
+  characters that are not seen and change what is: those that reorder a line (bidirectional
+  marks, embeddings, overrides and isolates), zero-width and invisible characters, the line
+  and paragraph separators, and tag characters. A reviewer releases the text they read, and
+  with one of these a screen shows one thing while a channel that drops it says another. The
+  joiners a script or an emoji needs (U+200C, U+200D) and the variation selectors stay. A
+  text that is then blank is no output.
 - A slot with no declared output does not read the key at all.
 - What a decision does with the texts a response carried is in §15.8: each is handed only to a
   person, and none is ever part of a decision's record.
@@ -1936,8 +1950,8 @@ context field or a case's id.
 
 What an agent wrote (an output whose source is a `slot`) is free text nobody has read. A
 runtime MUST NOT hand it to anyone but a person who decides, and carrying one MUST NOT change
-the decision: a label, and an action of enumerated arguments (§13.3), automate as they would
-without it. An output whose source is `input` is no part of this: the input already holds it.
+the decision: a label, and an action whose arguments are a menu (§13.3), automate as they
+would without it. An output whose source is `input` is no part of this: the input already holds it.
 
 **Where a text stands.** A decision whose agent wrote a text has `written`, in its answer and
 in its record: a `state` for each output the agent wrote, by the output's name.

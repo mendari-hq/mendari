@@ -55,13 +55,19 @@ record), on the review this one builds.
 3. **Free text in an action's arguments needs a person too.** An action whose arguments can
    hold free text is never released without a person when its gate would be `auto`: a `write`
    or a `contact` action, and a `read` or `draft` one of an agent nobody vouched for. Its gate
-   is `person`. Arguments can hold free text when their schema admits a string that is not
-   limited to an `enum` or a `const`, or a list of anything (no `items`), or when the action
-   declares no schema at all; the closed set of keywords an arguments schema may use
+   is `person`. Arguments can hold free text unless they are a menu, a fixed set of values the
+   manifest lists: every string an `enum` or a `const`, every number listed or an integer
+   between two bounds, no list, and at most a million different arguments in all. An action
+   with no schema at all is free text. The closed set of keywords an arguments schema may use
    (section 13.3) makes that decidable from the manifest alone. Proposing such an action turns
    AUTO into HUMAN_REVIEW, as any action never released without a person does. This is a
    fourth way the action gate tightens, beside `allow_auto: false`, an agent nobody vouched for
    and a second signal that did not agree; nothing loosens one.
+
+   The first rule asked only that every string be enumerated, and the review of this change
+   showed what that lets through: a list of one-letter values, or a property for each
+   character, spells any text out of enumerated pieces, and a number nothing lists is a dose.
+   A menu is judged by the values it admits, not piece by piece.
 
 4. **A held text is kept for the person who reads it.** When a decision that carries texts is
    recorded and awaits review, each text is kept as an action's arguments are: apart from the
@@ -70,7 +76,10 @@ record), on the review this one builds.
    hash`). The event holds the output's name and a salted commitment, never the text.
    Retention and erasure remove it with the input. The review queue shows it to whoever may
    read inputs, and that reading is chained as reading the input is. A held text stays a
-   note after its verdict, released or withheld, until retention or erasure removes it. This
+   note after its verdict, released or withheld, until retention or erasure removes it. What
+   is kept, and returned, is the text with every character that is not seen made a space, as
+   a control character is: with a right-to-left override in it, a reviewer would read one
+   thing and release another. This
    replaces ADR-0025's "a decision returns what the agent wrote and does not store it" for a
    held text only: the text of an automated or a blocked decision is still kept nowhere.
 
@@ -106,8 +115,15 @@ record), on the review this one builds.
 
 ## Consequences
 
-- No free text an agent produced reaches a patient or a chart through a decision unless a
-  person released it by name. An author no longer chooses whether text is read.
+- No free text an agent produced is released to a patient or a chart through a decision
+  unless a person released it by name. An author no longer chooses whether text is read. Two
+  things an answer still carries are for a person and are not released: a `draft` action's
+  arguments, which staff read and send themselves, and a rationale (below).
+- **A proposal's arguments go back with its disposition, whatever the decision.** The answer
+  of a blocked decision returns no written text and keeps none, and it still lists what the
+  agent asked to do, arguments included, each `blocked`, and keeps them as each proposal's
+  note where the input is kept. They are the record of what an agent tried, which is what an
+  audit asks of a blocked decision, and a blocked action is not to be run.
 - **An automated decision no longer comes with its text,** and `write` and `contact` actions
   with a free-text argument stop being released with AUTO. A caller that sent what an
   automated decision's agent wrote has nothing to send until a judge can clear a text (the
@@ -119,6 +135,9 @@ record), on the review this one builds.
 - **An identifier that is not enumerated is free text.** An arguments schema has no pattern
   keyword, so a `write` action that takes an id as a string is a person's. A spec revision may
   add an identifier type; none can loosen the rule.
+- **So is a number nothing lists, and any list.** A `write` that takes a dose as a number is a
+  person's; one that takes a number of days between 1 and 90 is a menu of ninety values. An
+  author who wants several of a set of options declares a yes or no for each, not a list.
 - **More is kept.** Held texts are kept until retention or erasure removes them, sealed as
   inputs are. A deployment in PHI mode `hash` keeps none, and its reviewers give their verdict
   on a draft Mendari does not show.
@@ -130,10 +149,15 @@ record), on the review this one builds.
   characters, the names of the tools called) goes back with every decision. It is evidence
   for a reviewer and is not a text for a patient or a chart; an integration that sends it on
   is outside what this decides.
-- A decision's record gains an optional key, an `action.proposed` event says when its
+- A decision's record gains an optional key, an `action.proposed` event says whether its
   arguments can hold free text, and two event kinds are added (`output.held`,
   `output.resolved`), which the FHIR audit code system lists: so this ships with a new Mendari
   version, never under a released one. No table is added: a held text is a note.
+- **A decision that was waiting when the engine is upgraded.** Its proposals were recorded
+  before any said whether its arguments can hold free text. A held one is read as one whose
+  can, since nothing says otherwise: its review releases it only by name. No text was kept
+  for it, so its review gives no verdict. An older engine does not know these rules: every
+  instance is stopped before the upgrade, and none is brought back once a text is held.
 
 ## Not decided here
 
@@ -150,6 +174,9 @@ record), on the review this one builds.
   arguments whose text was not returned, and the caller has no text to send with it.
 - **An identifier type** for arguments, and whether a judge may also clear an action's
   free-text argument.
+- **What an author and a caller do together.** A menu still carries a few bits, and a caller
+  that joins the arguments of many released actions into a text sends what nobody read.
+  Mendari authorizes and never runs: what a caller does with an answer is the caller's.
 
 ## Alternatives considered
 

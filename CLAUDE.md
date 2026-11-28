@@ -73,9 +73,11 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
 - **The action gate lives in `core/policy.py` and only tightens** (ADR-0023): `EFFECT_GATES`,
   `gate_of`, `disposition`. A manifest (`allow_auto: false`), an agent nobody vouched for, a
   second signal that did not agree on a proposal and arguments that can hold free text
-  (ADR-0027: `ActionSpec.free_text`, `holds_free_text` in `core/spec.py`; a string that is no
-  `enum` or `const`, an array with no `items`, or no schema) each make a gate stricter; nothing
-  loosens one. Mendari authorizes an action and records it, and runs none.
+  (ADR-0027: `ActionSpec.free_text`, `holds_free_text` in `core/spec.py`; anything but a menu:
+  every string an `enum` or a `const`, every number listed or an integer between two bounds,
+  no array, at most `MAX_ACTION_MENU` arguments in all) each make a gate stricter; nothing
+  loosens one. A proposal chains `free_text` either way, and one that says nothing is read as
+  free text. Mendari authorizes an action and records it, and runs none.
 - **A text is handed only to a person** (ADR-0027). An answer carries what an agent wrote only
   with a decision that awaits one (`DecisionResult.drafts` and `written`, `core/decision.py`):
   an automated or a blocked decision returns none and keeps none, and no outcome changes. A
