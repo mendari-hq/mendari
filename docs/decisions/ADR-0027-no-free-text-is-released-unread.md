@@ -44,8 +44,10 @@ record), on the review this one builds.
 
 2. **The decision itself does not change.** Carrying a text does not lower an outcome: a
    label, and an action of enumerated arguments, automate as they did, and the policy's steps
-   are as they were. It holds everywhere a decision is served (a server with or without
-   sign-in, `mendari decide`, `mendari mcp`, which returns no text at all). An evaluation is
+   are as they were. It holds wherever a decision is served, with or without sign-in. The
+   draft is carried by `POST .../decide` and by `mendari decide`. The FHIR decide route, a
+   SMART launch's decide and `mendari decide --fhir` say where each text stands (`written`) and
+   carry no text; a CDS Hooks card, `$decide` and `mendari mcp` carry neither. An evaluation is
    not affected: it grades every text the agent wrote, and hands none on.
 
 3. **Free text in an action's arguments needs a person too.** An action whose arguments can
@@ -65,9 +67,10 @@ record), on the review this one builds.
    and only where the decision's input is kept (never under PHI mode `hash` or `store_input:
    hash`). The event holds the output's name and a salted commitment, never the text.
    Retention and erasure remove it with the input. The review queue shows it to whoever may
-   read inputs, and that reading is chained as reading the input is. This replaces ADR-0025's
-   "a decision returns what the agent wrote and does not store it" for a held text only: a
-   released one is still kept nowhere.
+   read inputs, and that reading is chained as reading the input is. A held text stays a
+   note after its verdict, released or withheld, until retention or erasure removes it. This
+   replaces ADR-0025's "a decision returns what the agent wrote and does not store it" for a
+   held text only: the text of an automated or a blocked decision is still kept nowhere.
 
 5. **Free text is released by name.** Resolving a review:
    - gives each written text a verdict, `release` or `withhold`, chained as `output.resolved`
@@ -79,15 +82,18 @@ record), on the review this one builds.
 
    A held action with no free text, on a decision none of whose texts is withheld, is resolved
    as before: released when the reviewer confirms the label, unless named in `deny_actions`.
-   Where the text is not kept (point 4), the verdict is still required: the reviewer read the
-   draft where the caller shows it.
+   A review that overrides the recommendation denies every held action, named or not, as
+   before; a text's verdict does not depend on the label. Where the text is not kept (point
+   4), the verdict is still required: the reviewer read the draft where the caller shows it,
+   and withholds one nobody was shown.
 
 6. **The record says where each text stands, and no more.** A decision whose agent wrote
    texts gains `written` in its record and its answer: each output's `state`, `held` (it
    awaits a person, who is handed it) or `not_released` (the decision automated or was
-   blocked: it was handed to nobody). After review the decision's answer gives the verdict,
-   `released` or `withheld`, read from the chain. No text is in a record, a reason, a log line
-   or an event.
+   blocked: it was handed to nobody). A record is written once, so it keeps saying `held`:
+   the verdict, `released` or `withheld`, is read from the chain, in the `outputs` of the
+   decision as the audit trail answers it and in the review's own answer. No text is in a
+   record, a reason, a log line or an event.
 
 ## Consequences
 
