@@ -3,7 +3,7 @@
 
 import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
-import { esc, num, pct, slotText, state } from "./ui.js";
+import { esc, may, num, pct, signedIn, slotText, state } from "./ui.js";
 
 // An agent's words for its questions and labels (spec §4.3 `display`, `names`), else the key as
 // words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
@@ -233,6 +233,9 @@ const ACTION_REASON = {
   review_closed: "asked for after the review was resolved",
   overridden: "the reviewer overrode the recommendation",
   reviewer_denied: "the reviewer refused it",
+  // Free text is released by name (ADR-0027): its arguments can hold free text, or a text of
+  // the decision was withheld, and the review that confirmed the decision did not name it.
+  not_named: "not released: the review did not name it",
 };
 const ARGUMENTS_STATUS = {
   sealed: "Arguments kept sealed: reviewers and administrators can read them, and each read is logged.",
@@ -273,4 +276,61 @@ export function actionsList(actions, { choose = false } = {}) {
     ${actionArguments(action)}
     ${choose && action.disposition === "held" ? `<label><input type="checkbox" data-release="${esc(action.id)}" checked> Release when I confirm</label>` : ""}
   </li>`).join("")}</ul>`;
+}
+
+// -- held texts (ADR-0027) ------------------------------------------------------------------------
+// What an agent wrote for a decision that went to a person. Each text is held until the review
+// gives it a verdict: released (it may be sent or filed as written) or withheld (it may not).
+// A text is what its agent wrote: it is shown as text, every character escaped, with its line
+// breaks, and never run as markup.
+const TEXT_STATE = { held: "Held", released: "Released", withheld: "Withheld" };
+const TEXT_TONE = { held: "s-warning", released: "s-ok", withheld: "s-degraded" };
+
+export const textStateBadge = (stands) =>
+  `<span class="badge ${TEXT_TONE[stands] ?? "s-degraded"}" title="${esc(stands)}">${esc(TEXT_STATE[stands] ?? stands)}</span>`;
+
+// A text by the name its manifest declares for the output.
+export const textName = (name) => named(readable(name), name);
+
+// Whoever reads this decision reads what it keeps: anyone under PHI mode off, else someone
+// signed in who may read inputs. A text still sealed for them is one the deployment's keys do
+// not open.
+const readsInputs = () => state.phiMode === "off" || (signedIn() && may("read_input"));
+
+// Why a held text is not on the screen, in words.
+function textUnshown(status) {
+  if (status === "sealed") {
+    return readsInputs()
+      ? "Kept sealed under a key this deployment does not hold."
+      : "Kept sealed: reviewers and administrators can read it, and each read is logged.";
+  }
+  if (status === "erased") return "Erased, with what this decision kept of its input.";
+  if (status === "missing") return "Missing: verify the chain with --notes.";
+  if (status !== "not_kept") return "Not shown here.";
+  // Kept only where the decision's input is: never under PHI mode hash, nor for an agent that
+  // keeps only its input's hash.
+  return state.phiMode === "hash"
+    ? "Not kept here: PHI mode hash keeps no free text."
+    : "Not kept here: this agent keeps only a hash of its input (audit.store_input).";
+}
+
+// The text in a box of its own that scrolls (a text can be 8,000 characters), in the tab order
+// so the keyboard scrolls it; or why there is none.
+function textBody(text) {
+  if (text.text_status === "open" && typeof text.text === "string") {
+    return `<div class="message text-body" tabindex="0" role="group" aria-label="${esc(readable(text.name))}: the text">${esc(text.text)}</div>`;
+  }
+  return `<p class="muted text-missing">${esc(textUnshown(text.text_status))}</p>`;
+}
+
+// A decision's texts (`outputs`: each one's `name`, `state` and, where it is shown, `text`).
+// `described`: the chosen agent made the decision, so its manifest says what each output is.
+export function textsList(outputs, { described = true } = {}) {
+  if (!outputs?.length) return "";
+  return `<ul class="texts-list" aria-label="Texts the agent wrote">${outputs.map((text) => {
+    const head = `<span class="row"><b>${textName(text.name)}</b> ${textStateBadge(text.state)}</span>`;
+    const what = described ? own(state.detail?.manifest?.outputs, text.name)?.description : null;
+    const body = `${what ? `<p class="muted">${esc(what)}</p>` : ""}${textBody(text)}`;
+    return `<li data-output="${esc(text.name)}" data-state="${esc(text.state)}">${head}${body}</li>`;
+  }).join("")}</ul>`;
 }

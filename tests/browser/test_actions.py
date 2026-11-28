@@ -28,6 +28,7 @@ VISIT = (
     "I need to move my appointment."  # HUMAN_REVIEW: a read released, a write and a contact held
 )
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
+NOT_NAMED = "not released: the review did not name it"
 UNDECLARED = "Try an undeclared thing."  # an action the manifest does not declare: blocked
 
 
@@ -177,9 +178,15 @@ def test_a_reviewed_decisions_events_say_what_was_released(
     console: Page, actions_server: str
 ) -> None:
     decided = decide(actions_server, VISIT)
+    held = {a["name"]: a["id"] for a in record(actions_server, decided["id"])["actions"]}
     resolved = httpx.post(
         f"{actions_server}/api/review/{decided['id']}",
-        json={"final_label": "appointment", "reviewer": "rn-1"},
+        # Free text is released by name (ADR-0027): the note is named, the reply is not.
+        json={
+            "final_label": "appointment",
+            "reviewer": "rn-1",
+            "release_actions": [held["file_note"]],
+        },
         timeout=30,
     )
     assert resolved.status_code == 200
@@ -191,8 +198,13 @@ def test_a_reviewed_decisions_events_say_what_was_released(
     expect(released.first).to_contain_text("File note")
     expect(released.first.locator(".badge")).to_have_text("Released")
     expect(released.first).to_contain_text("the reviewer confirmed the decision · rn-1")
+    expect(released.last).to_contain_text("Send reply")
+    expect(released.last.locator(".badge")).to_have_text("Denied")
+    expect(released.last).to_contain_text(f"{NOT_NAMED} · rn-1")
     rows = drawer.locator(".actions-list > li")
     expect(rows.nth(1).locator(".badge")).to_have_text("Released")
+    expect(rows.nth(2).locator(".badge")).to_have_text("Denied")
+    expect(rows.nth(2)).to_contain_text(NOT_NAMED)
 
 
 def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page) -> None:
