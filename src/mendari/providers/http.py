@@ -44,6 +44,7 @@ from urllib.parse import urlparse
 import httpcore
 import httpx
 
+from mendari.core.text import well_formed
 from mendari.errors import MendariError, ProviderError, ProviderErrorCode
 from mendari.providers import deadline
 from mendari.standards.fhir_client import allowed_servers, origin_of
@@ -378,6 +379,8 @@ def _post_once(
     finally:
         _ATTEMPT_ENDS.reset(attempt)
     try:
-        return json.loads(b"".join(chunks))
+        # Half a character in an answer (a text cut mid-emoji) is read as U+FFFD: every
+        # provider's answer is text a record can keep and a response can carry.
+        return well_formed(json.loads(b"".join(chunks)))
     except (ValueError, RecursionError):
         raise ProviderError("invalid_response", "body is not JSON") from None

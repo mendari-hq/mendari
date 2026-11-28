@@ -49,6 +49,7 @@ from mendari.core.spec import (
     WrittenOutput,
     deployment_env_problem,
 )
+from mendari.core.text import well_formed
 from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.providers import agent_calibration, deadline, fixture, reach
 from mendari.providers.base import (
@@ -580,6 +581,7 @@ def validate_response(
     the contract's shape (`_validate_actions`); without, the key is not read at all. With
     `outputs` (what the manifest asks this slot to write), the response's `outputs` are read
     and held to them (`_validate_outputs`); with none declared the key is not read either."""
+    raw = well_formed(raw)  # half a character is U+FFFD, however the response got here
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
 

@@ -44,13 +44,16 @@ each as the same words typed on a keyboard already decide:
 
 The plain form is never longer than the text, so the length the patterns of a bounded agent
 run on (`core/origin.py`) holds for it too, and it is its own plain form. A decision's
-record, its input hash, and what a remote model is sent keep the text as it was received.
+record, its input hash, and what a remote model is sent keep the text as it was received, but
+for one thing: half a character (`well_formed`, below).
 """
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from typing import Any
 
 _APOSTROPHES = (
     "\N{LEFT SINGLE QUOTATION MARK}\N{RIGHT SINGLE QUOTATION MARK}"
@@ -94,3 +97,30 @@ def plain(text: str) -> str:
             text = composed
         text = _BETWEEN_DIGITS.sub("-", text)
     return _SPACES.sub(" ", text.replace("\r\n", "\n").translate(_KEYBOARD))
+
+
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")  # in a Python text, a whole character is one
+
+
+def well_formed(value: Any) -> Any:
+    """`value`, a JSON value, with every lone surrogate in a text of it, a key too, read as
+    U+FFFD, the replacement character, as an agent's patterns read one (`core/patterns.py`).
+
+    A JSON string can hold half a character (`"\\ud83d"`: half an emoji, as a system that cuts
+    a text at a length counted in UTF-16 units sends it), and no UTF-8 text can. Kept as it
+    came, a decision was recorded and could not be served afterwards: every response is UTF-8.
+    So what a decision is made on, and what a provider answered, is made well formed where it
+    enters: a patient's message is not refused for half an emoji, and a reviewer sees that a
+    character was cut.
+
+    The same object when there is nothing to change, found in one pass; else a copy. A value
+    JSON cannot write at all (a date, an object) is returned as it is: whoever holds it to JSON
+    says so (`core/agent.py` `not_json`)."""
+    try:
+        written = json.dumps(value, ensure_ascii=False)
+        written.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.loads(_LONE_SURROGATE.sub("\ufffd", written))
+    except (TypeError, ValueError, RecursionError):
+        return value
+    return value

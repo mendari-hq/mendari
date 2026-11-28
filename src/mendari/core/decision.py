@@ -43,6 +43,7 @@ from mendari.core.policy import (
 from mendari.core.registry import origin_of, resolve_agent
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
 from mendari.core.spec import AgentManifest, Outcome, Priority
+from mendari.core.text import well_formed
 from mendari.errors import (
     AgentNotFoundError,
     AgentValidationError,
@@ -715,6 +716,7 @@ class Decision:
         rule's BLOCK, become HUMAN_REVIEW, the limitation a reason whatever the outcome (an
         ABSTAIN over unread data says it too, and a refused input's BLOCK, without "a person
         decides")."""
+        inputs = well_formed(inputs)  # half a character is read as U+FFFD, wherever it is kept
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -987,6 +989,8 @@ class Decision:
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
+        resources = well_formed(resources)  # as `decide` reads its input
+        focus = well_formed(focus)
         adapter = FhirAdapter.for_agent(self.agent)
         failed = dict(unreadable or {})
         hooks = self.agent.manifest.cds_hooks
