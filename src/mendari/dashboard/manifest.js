@@ -268,13 +268,14 @@ function actionArguments(action) {
 }
 
 // `choose`: a reviewer picks which held actions confirming releases, each by its tick
-// (`releaseChoice`).
-export function actionsList(actions, { choose = false } = {}) {
+// (`releaseChoice`). `brief`: what became of each, without its arguments (a review's answer
+// has none).
+export function actionsList(actions, { choose = false, brief = false } = {}) {
   if (!actions?.length) return "";
   return `<ul class="actions-list" aria-label="Proposed actions">${actions.map((action) => `<li data-action="${esc(action.id)}" data-disposition="${esc(action.disposition)}">
     <div class="row"><b>${actionName(action)}</b> ${effectBadge(action.effect)} ${dispositionBadge(action.disposition)}
       <span class="muted">${esc(actionReason(action.reason))}</span></div>
-    ${actionArguments(action)}
+    ${brief ? "" : actionArguments(action)}
     ${choose && action.disposition === "held" ? releaseChoice(action) : ""}
   </li>`).join("")}</ul>`;
 }
@@ -351,14 +352,14 @@ const verdictChoice = (id, name) => `<div class="label-options">${VERDICTS.map((
 // A decision's texts (`outputs`: each one's `name`, `state` and, where it is shown, `text`).
 // `choose`: a reviewer gives each held text its verdict (`id`: the decision's, which names
 // each group). `described`: the chosen agent made the decision, so its manifest says what each
-// output is.
-export function textsList(outputs, { choose = false, id = "", described = true } = {}) {
+// output is. `brief`: where each stands and no more (a review's answer has no text).
+export function textsList(outputs, { choose = false, id = "", described = true, brief = false } = {}) {
   if (!outputs?.length) return "";
   return `<ul class="texts-list" aria-label="Texts the agent wrote">${outputs.map((text) => {
     const asked = choose && text.state === "held";
     const head = `<span class="row"><b>${textName(text.name)}</b> ${textStateBadge(text.state)}</span>`;
     const what = described ? own(state.detail?.manifest?.outputs, text.name)?.description : null;
-    const body = `${what ? `<p class="muted">${esc(what)}</p>` : ""}${textBody(text, asked)}`;
+    const body = brief ? "" : `${what ? `<p class="muted">${esc(what)}</p>` : ""}${textBody(text, asked)}`;
     return `<li data-output="${esc(text.name)}" data-state="${esc(text.state)}">${asked
       ? `<fieldset class="text-verdict"><legend>${head}</legend>${body}${verdictChoice(id, text.name)}</fieldset>`
       : `${head}${body}`}</li>`;

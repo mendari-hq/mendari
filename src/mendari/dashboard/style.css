@@ -1146,8 +1146,12 @@ ol.rules p { margin: var(--space-1) 0; }
   background: var(--color-surface); border: 1px solid var(--color-border);
 }
 .text-verdict .label-options { margin-top: var(--space-2); }
-/* The review's labels wait for every verdict: why, above them. */
+/* The review's labels wait for every verdict: why, above them; and why a review was not recorded. */
 .review-gate { margin: 0 0 var(--space-2); font-weight: var(--weight-medium); }
+.review-error { margin-bottom: var(--space-2); }
+/* Under the queue: what each review resolved here did to the texts and actions it held. */
+.resolved-list { list-style: none; margin: 0; padding: 0; }
+.resolved-item :is(.texts-list, .actions-list) { margin-bottom: 0; }
 /* A label other than the recommendation waits here for five seconds before it is sent; the line along
    the bottom runs down with the time (it stays full under reduced motion; the seconds still count). */
 .undo-bar {

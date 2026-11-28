@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The review of a decision that holds texts (ADR-0027, points 4 and 5): what a reviewer reads
-and does in the queue before such a decision is resolved.
+and does in the queue before such a decision is resolved, and what the queue says afterwards.
 
 - a held text is on the reviewer's screen as text, with its line breaks, never as markup, and a
   long one scrolls inside its box, which the keyboard reaches;
@@ -9,13 +9,15 @@ and does in the queue before such a decision is resolved.
 - a held action is released by its tick: one whose arguments can hold free text starts
   unticked, and each text withheld unticks every one;
 - the review sends each verdict (`texts`), the ticks that need a name (`release_actions`) and
-  the refusals (`deny_actions`), never both for one action.
+  the refusals (`deny_actions`), never both for one action;
+- afterwards the queue lists what the review did to each text and action, as the server
+  answered, with the way to the decision's record (tests/browser/test_record_texts.py);
+- a refused review says why, shows nothing as done and keeps the reviewer's choices.
 
-What a decision's record then shows is tests/browser/test_record_texts.py's. On
-`tests/browser/held_site.py`'s server. Where it cannot make a state (a text sealed or erased,
-PHI mode `hash`, a reader who may not review), the request is answered or changed with
-Playwright's routing, and the test says so. Every message and text is synthetic. Run with
-`uv run pytest -m browser`."""
+On `tests/browser/held_site.py`'s server. Where it cannot make a state (a text sealed or
+erased, PHI mode `hash`, a reader who may not review, a refusal of a well-formed review), the
+request is answered or changed with Playwright's routing, and the test says so. Every message
+and text is synthetic. Run with `uv run pytest -m browser`."""
 
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ import time
 from typing import Any
 
 import pytest
-from playwright.sync_api import Locator, Page, Request, Route, expect
+from playwright.sync_api import Browser, Locator, Page, Request, Route, expect
 
 from tests.browser.held_site import (
     ALONE,
@@ -54,9 +56,10 @@ from tests.browser.held_site import (
     text_of,
     texts,
     verdict,
+    window,
 )
 from tests.browser.test_dashboard import PHONE, UNDER_24, UNNAMED, open_agent, show
-from tests.test_held_texts import ARGUMENT, REPLY
+from tests.test_held_texts import ARGUMENT, NOTE, REPLY
 
 pytestmark = pytest.mark.browser
 
@@ -67,6 +70,7 @@ FREE_TEXT = "Its arguments can hold free text: read them before releasing."
 WITHHELD = "A text is withheld: no held action is released unless you tick it."
 OFF = "Will not be released."
 ELSEWHERE = "Read the draft where your own system shows it, then give your verdict."
+NOT_NAMED = "not released: the review did not name it"
 READ = ("look_up_medications", "released", "with_decision")  # released with the decision
 
 
@@ -273,17 +277,20 @@ def test_a_decision_that_holds_nothing_confirms_in_one_tap_as_before(
     confirm(held, "Other").click()
     expect(held).to_have_count(0)  # no Undo bar: sent at once
     assert sent == [{"final_label": "other", "reviewer": "sandbox-nurse"}]
+    expect(held_console.locator(".resolved-item")).to_have_count(0)  # nothing of it to list
 
 
 # -- resolving: the verdicts and the ticks are sent, and the queue says what was done -------------
 
 
-def test_a_review_with_verdicts_resolves_and_names_no_action_by_itself(
+def test_a_review_with_verdicts_resolves_and_the_queue_lists_what_it_did(
     held_console: Page, held_server: str
 ) -> None:
     """Both texts released, the ticks left as they were: the review sends each verdict and
     names no action, so the action of enumerated arguments is released and the free-text one
-    is not. A release is final, so the review waits for Undo, saying what it does."""
+    is not. A release is final, so the review waits for Undo, saying what it does. Afterwards
+    the queue lists what the review did, each text and each held action by name, as the server
+    answered, with the way to the decision's record."""
     decided = decide(held_server, WRITER, LETTER)
     sent = reviews(held_console, decided["id"])
     held_console.clock.install()
@@ -304,6 +311,20 @@ def test_a_review_with_verdicts_resolves_and_names_no_action_by_itself(
             "texts": {"chart_note": "release", "reply_draft": "release"},
         }
     ]
+    expect(held_console.locator("#toast")).to_have_text(
+        "Confirmed: Refill · 2 texts released · 1 action released, 1 action denied"
+    )
+    # After the review, in the queue: what it did, each text and each held action by name.
+    done = held_console.locator(f'.resolved-item[data-id="{decided["id"]}"]')
+    expect(held_console.get_by_role("heading", name="What your reviews did")).to_be_visible()
+    expect(done).to_contain_text("Confirmed: Refill")
+    for name in ("chart_note", "reply_draft"):
+        expect(text_of(done, name).locator(".badge")).to_have_text("Released")
+    expect(action_of(done, "Assign queue").locator(".badge")).to_have_text("Released")
+    expect(action_of(done, "Send reply").locator(".badge")).to_have_text("Denied")
+    expect(action_of(done, "Send reply")).to_contain_text(NOT_NAMED)
+    for mark in (NOTE, REPLY, ARGUMENT):  # what it did, not what was read
+        expect(done).not_to_contain_text(mark)
     found = record(held_server, decided["id"])
     assert (found["review_status"], found["human_override"]) == ("resolved", False)
     assert texts(found) == [("chart_note", "released"), ("reply_draft", "released")]
@@ -312,6 +333,11 @@ def test_a_review_with_verdicts_resolves_and_names_no_action_by_itself(
         ("assign_queue", "released", "confirmed"),
         ("send_reply", "denied", "not_named"),
     ]
+    # The record, from the link the queue gives: each text with where it stands.
+    done.get_by_role("link", name=decided["id"][:8]).click()
+    shown = held_console.locator(".drawer")
+    for name in ("chart_note", "reply_draft"):
+        expect(text_of(shown, name).locator(".badge")).to_have_text("Released")
 
 
 def test_a_free_text_action_is_released_only_when_ticked(
@@ -666,6 +692,104 @@ def test_a_reader_who_may_not_review_reads_the_text_and_gives_no_verdict(
     expect(held.get_by_role("checkbox")).to_have_count(0)
     expect(held.locator(".review-gate")).to_have_count(0)
     expect(held).to_contain_text("Resolving is for reviewers; your role can read the queue.")
+
+
+# -- a refused review ----------------------------------------------------------------------------
+
+
+def refused_review(
+    page: Page, held_server: str, decided: dict[str, Any], ids: dict[str, str]
+) -> None:
+    """The three refusals of a review of `decided`, then the review, in `page`."""
+    page.clock.install()
+    open_agent(page, WRITER, "review")
+    held = card(page, decided["id"])
+    verdict(held, "chart_note", RELEASE)
+    verdict(held, "reply_draft", WITHHOLD)
+    release_box(held, "Send reply").check()
+    url = f"**/api/review/{decided['id']}"
+    error = held.locator(".review-error")
+
+    def as_left() -> None:
+        expect(held).to_be_visible()
+        expect(held.locator(".undo-bar")).to_have_count(0)
+        expect(page.locator("#toast")).not_to_contain_text("Confirmed")
+        expect(page.locator(".resolved-item")).to_have_count(0)
+        assert record(held_server, decided["id"])["review_status"] == "pending"
+        expect(text_of(held, "chart_note").get_by_role("radio", name=RELEASE)).to_be_checked()
+        expect(text_of(held, "reply_draft").get_by_role("radio", name=WITHHOLD)).to_be_checked()
+        expect(release_box(held, "Send reply")).to_be_checked()
+        expect(release_box(held, "Assign queue")).not_to_be_checked()
+        expect(held.locator(".withheld-note")).to_be_visible()
+        expect(confirm(held, "Refill")).to_be_enabled()
+        expect(release_box(held, "Send reply")).to_be_enabled()
+
+    def send() -> None:
+        confirm(held, "Refill").click()
+        expect(held.locator(".undo-bar")).to_be_visible()
+        page.clock.run_for(5000)
+
+    def without_verdicts(route: Route) -> None:
+        body = json.loads(route.request.post_data or "{}")
+        del body["texts"]
+        route.continue_(post_data=json.dumps(body))
+
+    page.route(url, without_verdicts)
+    send()
+    expect(error).to_have_attribute("role", "alert")
+    expect(error).to_contain_text("Not recorded:")
+    expect(error).to_contain_text("holds written output 'chart_note', 'reply_draft'")
+    as_left()
+    page.unroute(url)
+    refusal = "texts gives each held text a verdict by its output's name: release or withhold"
+    detail = [{"type": "value_error", "loc": ["body", "texts"], "msg": f"Value error, {refusal}"}]
+    page.route(url, lambda route: route.fulfill(status=422, json={"detail": detail}))
+    send()
+    expect(error).to_have_text(f"Not recorded: {refusal}")
+    as_left()
+    page.unroute(url)
+    page.route(url, lambda route: route.abort())
+    send()
+    expect(error).to_have_text(
+        "Not recorded: the server could not be reached. Your choices are kept: try again."
+    )
+    as_left()
+    page.unroute(url)
+    sent = reviews(page, decided["id"])
+    send()
+    expect(held).to_have_count(0)
+    expect(page.locator(f'.resolved-item[data-id="{decided["id"]}"]')).to_be_visible()
+    assert sent == [
+        {
+            "final_label": "refill",
+            "reviewer": "sandbox-nurse",
+            "texts": {"chart_note": "release", "reply_draft": "withhold"},
+            "release_actions": [ids["send_reply"]],
+        }
+    ]
+    found = record(held_server, decided["id"])
+    assert texts(found) == [("chart_note", "released"), ("reply_draft", "withheld")]
+    assert acted(found) == [
+        READ,
+        ("assign_queue", "denied", "not_named"),
+        ("send_reply", "released", "confirmed"),
+    ]
+
+
+def test_a_refused_review_says_why_shows_nothing_as_done_and_keeps_the_choices(
+    browser: Browser, held_server: str
+) -> None:
+    """Three refusals, then the review itself. The server's own 409, which names the texts
+    (the review reaches it with its verdicts taken out on the way: Playwright routing); a 422
+    and a failed connection (answered and cut by routing). Each time the card says why, in
+    place and at once; it is not folded away, no toast says "Confirmed", nothing is listed as
+    resolved, the decision still waits, and every verdict and tick is as the reviewer left it.
+    Sent again untouched, the review resolves as chosen."""
+    decided = decide(held_server, WRITER, LETTER)
+    ids = held_ids(record(held_server, decided["id"]))
+    # Its own window: a refused request is a console error of the browser's.
+    with window(browser, held_server) as page:
+        refused_review(page, held_server, decided, ids)
 
 
 # -- controls: named, large enough, and the page stays in its width ------------------------------

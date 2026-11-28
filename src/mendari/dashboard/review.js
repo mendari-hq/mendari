@@ -4,7 +4,8 @@
 // A decision that carries what its agent wrote holds each text for the reviewer (ADR-0027): the
 // card shows it, and takes a verdict on each, "Release as written" or "Withhold", before any
 // label resolves the review. Its held actions are released by their ticks: one whose arguments
-// can hold free text starts unticked, and withholding a text unticks them all.
+// can hold free text starts unticked, and withholding a text unticks them all. What the review
+// did is listed under the queue afterwards, as the server answered it.
 
 import { actionsList, inputView, labelName, NOT_RELEASED, statusNotice, textsList } from "./manifest.js";
 import { refreshReviewCount, views } from "./router.js";
@@ -51,7 +52,12 @@ views.review = async (main) => {
         <h2 id="group-${esc(priority)}">${esc(PRIORITY_TEXT[priority] ?? "Other")} <span class="count-plain">${group.length}</span></h2>
         ${group.map(reviewCard).join("")}
       </section>`).join("") || emptyQueue()}
-    </div>`;
+    </div>
+    <section id="resolved" aria-labelledby="resolved-title" hidden>
+      <h2 id="resolved-title">What your reviews did</h2>
+      <p class="muted">Each review you resolved here that held a text or an action: what it released, withheld or denied, as the audit trail recorded it. Newest first.</p>
+      <ol class="resolved-list"></ol>
+    </section>`;
   main.querySelectorAll(".review-card").forEach(syncCard);
 
   const applyFilter = (refocusPriority = null) => {
@@ -278,7 +284,7 @@ function resolveCard(button, onResolved) {
 }
 
 // While a review waits for Undo or for the server's answer, its card's verdicts and ticks cannot
-// change: what the bar says is what is sent. Undo, or a failure, gives them back as they were.
+// change: what the bar says is what is sent. Undo, or a refusal, gives them back as they were.
 function freeze(card, frozen) {
   card.querySelectorAll("input[data-verdict], input[data-release]").forEach((input) => (input.disabled = frozen));
 }
@@ -331,9 +337,44 @@ views.review.leave = () => {
 };
 window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
 
+// What a resolved review did, as the server answered it, in words for a toast:
+// ["2 texts released", "1 action released, 1 action denied"].
+function outcomeWords(result) {
+  const [texts, actions] = [result.outputs ?? [], result.actions ?? []];
+  const count = (items, test) => items.filter(test).length;
+  const said = (counts) => counts.filter(([n]) => n).map(([n, noun, verb]) => `${plural(n, noun)} ${verb}`).join(", ");
+  return [
+    said([[count(texts, (t) => t.verdict === "released"), "text", "released"], [count(texts, (t) => t.verdict !== "released"), "text", "withheld"]]),
+    said([[count(actions, (a) => a.disposition === "released"), "action", "released"], [count(actions, (a) => a.disposition !== "released"), "action", "denied"]]),
+  ].filter(Boolean);
+}
+
+// A decision's id as the queue shows it: a link to its record for whoever may read it.
+const recordLink = (id) => (may("read")
+  ? `<a class="action-link mono" href="#audit/${encodeURIComponent(id)}" title="Inspect decision ${esc(id)}">${esc(id.slice(0, 8))}</a>`
+  : `<span class="mono muted">${esc(id.slice(0, 8))}</span>`);
+
+// Under the queue, once a review that held a text or an action is resolved: each text with the
+// verdict it got and each held action with what became of it and why, as the server answered.
+// Never the texts themselves: the decision's record shows them to whoever may read them.
+function listResolved(id, said, result) {
+  const list = document.querySelector("#resolved .resolved-list");
+  if (!list || !(result.outputs?.length || result.actions?.length)) return;
+  const item = document.createElement("li");
+  item.className = "panel resolved-item";
+  item.dataset.id = id;
+  item.innerHTML = `<div class="row"><b>${esc(said)}</b><span class="grow"></span>${recordLink(id)}</div>
+    ${textsList((result.outputs ?? []).map((text) => ({ name: text.name, state: text.verdict })), { brief: true })}
+    ${actionsList(result.actions, { brief: true })}`;
+  list.prepend(item);
+  $("#resolved").hidden = false;
+}
+
 async function sendResolution(card, label, reviewer, chosen, { keepalive = false, onResolved } = {}) {
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   freeze(card, true);
+  const failed = card.querySelector(".review-error");
+  if (failed) failed.hidden = true;
   const hadFocus = card.contains(document.activeElement) || document.activeElement === document.body;
   const primary = state.detail?.primary;
   const note = card.querySelector(".review-note textarea")?.value.trim() || null;
@@ -348,14 +389,12 @@ async function sendResolution(card, label, reviewer, chosen, { keepalive = false
       keepalive,
     });
     const name = primary ? labelName(primary, label) : label;
-    const released = (result.actions ?? []).filter((a) => a.disposition === "released").length;
-    const refused = (result.actions ?? []).length - released;
-    const acted = result.actions?.length
-      ? ` · ${[released ? `${plural(released, "action")} released` : "", refused ? `${plural(refused, "action")} denied` : ""].filter(Boolean).join(", ")}`
-      : "";
-    toast(`${result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`}${acted}`);
+    // What was done is what the server answered, never what was asked for.
+    const said = result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`;
+    toast([said, ...outcomeWords(result)].join(" · "));
     refreshReviewCount();
     if (!card.isConnected) return; // sent on the way out of the queue
+    listResolved(card.dataset.id, said, result);
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
     // unless they have already moved on to another.
     const cards = [...document.querySelectorAll(".review-group:not([hidden]) .review-card")];
@@ -384,10 +423,18 @@ async function sendResolution(card, label, reviewer, chosen, { keepalive = false
       if (fallback) focusHeading(fallback);
     }
   } catch (error) {
-    toastError(error.message);
-    if (!card.isConnected) return;
-    card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    // Refused, or it never arrived: nothing was recorded, and nothing is shown as done. The
+    // card says why, in place, and gives back every verdict and tick as the reviewer left it.
+    const why = `Not recorded: ${error instanceof TypeError ? "the server could not be reached. Your choices are kept: try again." : error.message}`;
+    if (!card.isConnected || !failed) return toastError(why);
+    card.querySelectorAll("button").forEach((b) => {
+      b.disabled = false;
+      b.classList.remove("held");
+    });
     freeze(card, false);
+    failed.hidden = false; // shown, then filled: an alert is announced when its words change
+    failed.textContent = why;
+    if (hadFocus) card.focus({ preventScroll: true });
   }
 }
 
@@ -420,7 +467,7 @@ function reviewCard(item) {
       <span class="grow"></span>
       ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
-      ${may("read") ? `<a class="action-link mono" href="#audit/${encodeURIComponent(item.id)}" title="Inspect decision ${esc(item.id)}">${esc(item.id.slice(0, 8))}</a>` : `<span class="mono muted">${esc(item.id.slice(0, 8))}</span>`}
+      ${recordLink(item.id)}
     </div>
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
@@ -432,7 +479,8 @@ function reviewCard(item) {
         <p class="callout warning withheld-note" id="withheld-${esc(item.id)}" hidden></p>` : ""}
       ${actionsList(item.actions, { choose: reviewing && Boolean(recommendation) })}` : ""}
     ${noteField}
-    ${reviewing ? `${waits ? `<p class="review-gate" id="gate-${esc(item.id)}" hidden></p>` : ""}
+    ${reviewing ? `<p class="field-error review-error" role="alert" hidden></p>
+    ${waits ? `<p class="review-gate" id="gate-${esc(item.id)}" hidden></p>` : ""}
     <div class="labels">
       ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(name(recommendation))}</button>
         <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}
