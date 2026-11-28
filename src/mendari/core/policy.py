@@ -53,9 +53,9 @@ applies follows, in the order above, once. A reason of steps 7 and 8 ends "; a p
     action 'renew_prescription' (order) is never released without a person; a person decides
 
 What a declared action needs before it is released is here too, beside the risk caps and never
-in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest, the agent's origin and
-a second signal that did not agree on the proposal may only tighten it) and `disposition` (the
-gate, by the decision's state).
+in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest, the agent's origin, a
+second signal that did not agree on the proposal and arguments that can hold free text may only
+tighten it) and `disposition` (the gate, by the decision's state).
 """
 
 from __future__ import annotations
@@ -319,7 +319,9 @@ def _action_capped(result: PolicyResult, stops: Sequence[str]) -> PolicyResult:
 # -- actions (spec §13, ADR-0023) -----------------------------------------------------------------
 # What a declared action needs before it is released. The runtime's, as the risk caps are
 # (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
-# false`); nothing in a manifest, and nothing an agent proposes, loosens one.
+# false`); nothing in a manifest, and nothing an agent proposes, loosens one. What a manifest
+# says of an action's arguments tightens it too (ADR-0027): where they can hold free text, the
+# gate `auto` becomes `person`, so no automated decision releases words nobody read.
 
 
 class Gate(StrEnum):
@@ -355,7 +357,12 @@ def stricter(one: Gate, other: Gate) -> Gate:
 
 
 def gate_of(
-    effect: Effect, *, allow_auto: bool = True, vouched: bool = True, agreed: bool = True
+    effect: Effect,
+    *,
+    allow_auto: bool = True,
+    vouched: bool = True,
+    agreed: bool = True,
+    free_text: bool = False,
 ) -> Gate:
     """A declared action's gate: its effect's (`EFFECT_GATES`), and never looser. The manifest
     tightens it with `allow_auto: false` (never without a person). For an agent the deployment
@@ -365,10 +372,20 @@ def gate_of(
     gate of `write`. A proposal its second signal did not agree on (`agreed` false: only some
     repeated runs proposed it, or a check's second member proposed another; `Proposed.disputed`)
     is never released without a person either, whatever its effect: an agent unsure of what to
-    do is not left to do it."""
+    do is not left to do it.
+
+    A fourth way a gate tightens (ADR-0027): arguments that can hold free text (`free_text`:
+    `ActionSpec.free_text`) are never released without a person where the gate would be
+    `auto`, after the two steps above: an automated decision would send words nobody read to a
+    chart or a patient. So a `write` or a `contact` with them is a person's, as is a `read` or a
+    `draft` of an agent nobody vouched for. A `read` or a `draft` of an agent the deployment
+    vouches for keeps the gate `decision`: neither takes effect before a person sees it. An
+    `order` was a person's already."""
     gate = EFFECT_GATES[effect]
     if not vouched:
         gate = stricter(gate, Gate.AUTO)
+    if free_text and gate is Gate.AUTO:
+        gate = Gate.PERSON
     if not allow_auto or not agreed:
         gate = Gate.PERSON
     return gate
