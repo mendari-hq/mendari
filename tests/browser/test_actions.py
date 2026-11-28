@@ -27,8 +27,11 @@ AGENT = "mendari-test/actions-mini"
 VISIT = (
     "I need to move my appointment."  # HUMAN_REVIEW: a read released, a write and a contact held
 )
-REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
+# The same decision, its held write and contact taking enumerated arguments (no free text).
+RESCHEDULE = "Please reschedule my visit."
+FREE_TEXT = "Its arguments can hold free text: read them before releasing."
 NOT_NAMED = "not released: the review did not name it"
+REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
 UNDECLARED = "Try an undeclared thing."  # an action the manifest does not declare: blocked
 
 
@@ -66,7 +69,7 @@ def record(base: str, decision_id: str) -> dict[str, Any]:
     return found
 
 
-def test_the_queue_shows_what_confirming_releases_and_a_reviewer_denies_one(
+def test_the_queue_shows_what_confirming_releases_and_free_text_only_by_its_tick(
     console: Page, actions_server: str
 ) -> None:
     decided = decide(actions_server, VISIT)
@@ -85,13 +88,15 @@ def test_the_queue_shows_what_confirming_releases_and_a_reviewer_denies_one(
     expect(rows.nth(1)).to_contain_text("waits for this decision's reviewer")
     expect(rows.nth(1)).to_contain_text("Asked to move a visit.")  # its arguments, as inputs are
     expect(rows.nth(2).locator(".chip")).to_have_text("contact")
-    # Only a held action can be chosen: each starts checked.
+    # Only a held action can be chosen. Both take free text here, so neither is released unless
+    # the reviewer ticks it, and each says why (ADR-0027).
     boxes = card.get_by_role("checkbox", name="Release when I confirm")
     expect(boxes).to_have_count(2)
     expect(rows.nth(0).get_by_role("checkbox")).to_have_count(0)
     for index in range(2):
-        expect(boxes.nth(index)).to_be_checked()
-    boxes.nth(1).uncheck()  # the reply to the patient: not this time
+        expect(boxes.nth(index)).not_to_be_checked()
+        expect(rows.nth(index + 1)).to_contain_text(FREE_TEXT)
+    boxes.nth(0).check()  # the note for the chart, read; the reply to the patient: not this time
     # A release is final, so confirming waits for Undo, saying what it releases.
     card.get_by_role("button", name=re.compile("^Confirm Appointment")).click()
     bar = card.locator(".undo-bar")
@@ -108,7 +113,33 @@ def test_the_queue_shows_what_confirming_releases_and_a_reviewer_denies_one(
     assert [(a["name"], a["disposition"], a["reason"]) for a in found["actions"]] == [
         ("look_up_medications", "released", "with_decision"),
         ("file_note", "released", "confirmed"),
-        ("send_reply", "denied", "reviewer_denied"),
+        ("send_reply", "denied", "not_named"),
+    ]
+
+
+def test_an_action_of_enumerated_arguments_is_released_by_default_and_a_reviewer_denies_one(
+    console: Page, actions_server: str
+) -> None:
+    """No free text in either held action: each starts ticked, as it always did, and the one
+    the reviewer unticks is refused by name while the label is confirmed."""
+    decided = decide(actions_server, RESCHEDULE)
+    open_agent(console, AGENT, "review")
+    card = console.locator(f'.review-card[data-id="{decided["id"]}"]')
+    boxes = card.get_by_role("checkbox", name="Release when I confirm")
+    expect(boxes).to_have_count(2)
+    for index in range(2):
+        expect(boxes.nth(index)).to_be_checked()
+    expect(card).not_to_contain_text(FREE_TEXT)
+    boxes.nth(1).uncheck()  # the standard reply to the patient: not this time
+    card.get_by_role("button", name=re.compile("^Confirm Appointment")).click()
+    expect(card.locator(".undo-bar")).to_contain_text("Confirm Appointment and release 1 action")
+    show(console, "audit")
+    found = record(actions_server, decided["id"])
+    assert (found["review_status"], found["human_override"]) == ("resolved", False)
+    assert [(a["name"], a["disposition"], a["reason"]) for a in found["actions"]] == [
+        ("look_up_medications", "released", "with_decision"),
+        ("assign_queue", "released", "confirmed"),
+        ("send_template", "denied", "reviewer_denied"),
     ]
 
 

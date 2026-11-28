@@ -1,0 +1,687 @@
+# SPDX-License-Identifier: Apache-2.0
+"""The review of a decision that holds texts (ADR-0027, points 4 and 5): what a reviewer reads
+and does in the queue before such a decision is resolved.
+
+- a held text is on the reviewer's screen as text, with its line breaks, never as markup, and a
+  long one scrolls inside its box, which the keyboard reaches;
+- each text takes a verdict, "Release as written" or "Withhold", with neither chosen at first,
+  and the labels that resolve the review wait for every verdict, saying why;
+- a held action is released by its tick: one whose arguments can hold free text starts
+  unticked, and each text withheld unticks every one;
+- the review sends each verdict (`texts`), the ticks that need a name (`release_actions`) and
+  the refusals (`deny_actions`), never both for one action.
+
+What a decision's record then shows is tests/browser/test_record_texts.py's. On
+`tests/browser/held_site.py`'s server. Where it cannot make a state (a text sealed or erased,
+PHI mode `hash`, a reader who may not review), the request is answered or changed with
+Playwright's routing, and the test says so. Every message and text is synthetic. Run with
+`uv run pytest -m browser`."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from typing import Any
+
+import pytest
+from playwright.sync_api import Locator, Page, Request, Route, expect
+
+from tests.browser.held_site import (
+    ALONE,
+    ALONE_TEXT,
+    DEMO,
+    IMAGE,
+    LETTER,
+    LONG,
+    LONG_TEXT,
+    MARKUP,
+    MARKUP_TEXT,
+    PARKING,
+    PLAIN,
+    SCRIPT,
+    UNKEPT,
+    VAGUE,
+    WRITER,
+    WRITTEN,
+    acted,
+    action_of,
+    card,
+    decide,
+    held_ids,
+    record,
+    release_box,
+    text_of,
+    texts,
+    verdict,
+)
+from tests.browser.test_dashboard import PHONE, UNDER_24, UNNAMED, open_agent, show
+from tests.test_held_texts import ARGUMENT, REPLY
+
+pytestmark = pytest.mark.browser
+
+RELEASE, WITHHOLD = "Release as written", "Withhold"
+WAITS = "{} a verdict before you can resolve this review."
+READY = "Every text has a verdict: you can resolve this review."
+FREE_TEXT = "Its arguments can hold free text: read them before releasing."
+WITHHELD = "A text is withheld: no held action is released unless you tick it."
+OFF = "Will not be released."
+ELSEWHERE = "Read the draft where your own system shows it, then give your verdict."
+READ = ("look_up_medications", "released", "with_decision")  # released with the decision
+
+
+def reviews(page: Page, decision_id: str) -> list[dict[str, Any]]:
+    """What the page sends to resolve the decision, as it sends it: filled as the test goes."""
+    sent: list[dict[str, Any]] = []
+
+    def seen(request: Request) -> None:
+        if request.method == "POST" and request.url.endswith(f"/api/review/{decision_id}"):
+            sent.append(json.loads(request.post_data or "{}"))
+
+    page.on("request", seen)
+    return sent
+
+
+def leave(page: Page, decision_id: str) -> None:
+    """Leave the queue by the section list, which sends the review that waits for Undo, and
+    wait for the server's answer to it."""
+    audit = page.locator('.nav a[data-view="audit"]')
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith(f"/api/review/{decision_id}")
+    ):
+        audit.click()
+    expect(audit).to_have_class(re.compile("active"))
+
+
+def reviewed(base: str, decision_id: str) -> dict[str, Any]:
+    """The decision's record once its review is recorded. A page that is closing sends the
+    review on its way out, so nothing in the page says when it arrived."""
+    deadline = time.monotonic() + 10
+    while (found := record(base, decision_id))["review_status"] != "resolved":
+        assert time.monotonic() < deadline, "the review was not recorded"
+        time.sleep(0.05)
+    return found
+
+
+def confirm(held: Locator, label: str) -> Locator:
+    return held.get_by_role("button", name=re.compile(f"^Confirm {label}"))
+
+
+# -- reading: a held text is on the reviewer's screen, as text ------------------------------------
+
+
+def test_a_held_text_is_shown_as_text_with_its_line_breaks_never_as_markup(
+    held_console: Page, held_server: str
+) -> None:
+    """The text of a decision that awaits review is in its card, under its output's name and
+    what the agent's manifest says of it. A `<script>` and an `<img onerror>` in it are
+    characters on the screen: nothing runs and no element is made. Its line breaks are kept."""
+    decided = decide(held_server, WRITER, MARKUP)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(held.get_by_role("heading", name="What the agent wrote")).to_be_visible()
+    text = text_of(held, "reply_draft")
+    expect(text).to_contain_text("Reply draft")
+    expect(text.locator(".badge")).to_have_text("Held")
+    expect(text).to_contain_text("A short reply to the patient. Staff read it first.")
+    body = text.locator(".text-body")
+    assert body.evaluate("(el) => el.textContent") == MARKUP_TEXT
+    assert body.inner_text() == MARKUP_TEXT  # as it is laid out: each line on its own
+    assert SCRIPT in body.inner_text() and IMAGE in body.inner_text()
+    assert body.locator("*").count() == 0  # characters only: no element came of it
+    assert held.locator("img, script").count() == 0
+    assert held_console.evaluate("window.pwned") is None
+
+
+def test_a_long_text_scrolls_inside_its_box_and_the_keyboard_reaches_it(
+    held_console: Page, held_server: str
+) -> None:
+    """A text as long as one may be is all there, in a box that scrolls: the card stays short
+    and the page is not pushed sideways, on a phone too. The box is in the tab order, with a
+    name and a focus ring, so the keyboard scrolls it."""
+    decided = decide(held_server, WRITER, LONG)
+    held_console.set_viewport_size(PHONE)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    body = text_of(held, "reply_draft").locator(".text-body")
+    assert body.inner_text() == LONG_TEXT and len(LONG_TEXT) > 7_500
+    box = body.evaluate(
+        "(el) => ({ all: el.scrollHeight, seen: el.clientHeight,"
+        " scrolls: getComputedStyle(el).overflowY, wide: el.scrollWidth > el.clientWidth })"
+    )
+    assert box["all"] > box["seen"] and box["scrolls"] == "auto" and not box["wide"]
+    assert held_console.evaluate("document.documentElement.scrollWidth") <= PHONE["width"]
+    # From the keyboard: the link before it, then Tab.
+    held.locator("a.action-link").focus()
+    held_console.keyboard.press("Tab")
+    expect(body).to_be_focused()
+    expect(body).to_have_accessible_name("Reply draft: the text")
+    ring = body.evaluate("(el) => getComputedStyle(el).outlineStyle")
+    assert ring == "solid"
+    held_console.keyboard.press("End")
+    expect(body).not_to_have_js_property("scrollTop", 0)
+
+
+# -- the verdicts: each text takes one, and the labels wait ---------------------------------------
+
+
+def test_the_label_buttons_wait_for_every_verdict_and_say_why(
+    held_console: Page, held_server: str
+) -> None:
+    """Neither verdict is chosen at first. Until every text has one, the labels that resolve
+    the review are unavailable: each says so to a screen reader with the reason, which is on
+    the screen in words; asked for anyway (a click, or C), nothing is sent, the reason is said
+    at once and focus goes to the first text that waits. Each verdict given is announced."""
+    decided = decide(held_server, WRITER, LETTER)
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(held.locator('.texts-list input[type="radio"]')).to_have_count(4)
+    expect(held.locator(".texts-list input:checked")).to_have_count(0)
+    labels = [confirm(held, "Refill"), held.get_by_role("button", name="Appointment", exact=True)]
+    gate = held.locator(".review-gate")
+    expect(gate).to_have_text(WAITS.format("2 texts need"))
+    for label in labels:
+        expect(label).to_have_attribute("aria-disabled", "true")
+        expect(label).to_have_attribute("aria-describedby", gate.get_attribute("id") or "-")
+    first = text_of(held, "chart_note").get_by_role("radio", name=RELEASE)
+    labels[0].focus()  # still in the tab order
+    expect(labels[0]).to_be_focused()
+    held_console.keyboard.press("Enter")
+    expect(held_console.locator("#toast")).to_have_text(WAITS.format("2 texts need"))
+    expect(held_console.locator("#announce-alert")).to_have_text(WAITS.format("2 texts need"))
+    expect(first).to_be_focused()
+    labels[1].click(force=True)  # with the pointer: an unavailable button is still pressed
+    expect(first).to_be_focused()
+    held.focus()
+    held_console.keyboard.press("c")  # the queue's key for "confirm the recommendation"
+    expect(first).to_be_focused()
+    expect(held.locator(".undo-bar")).to_have_count(0)
+    verdict(held, "chart_note", RELEASE)
+    expect(gate).to_have_text(WAITS.format("1 text needs"))
+    expect(held_console.locator("#announce-status")).to_have_text(WAITS.format("1 text needs"))
+    expect(labels[0]).to_have_attribute("aria-disabled", "true")
+    verdict(held, "reply_draft", RELEASE)
+    expect(gate).to_be_hidden()
+    expect(held_console.locator("#announce-status")).to_have_text(READY)
+    for label in labels:
+        expect(label).not_to_have_attribute("aria-disabled", "true")
+        expect(label).not_to_have_attribute("aria-describedby", re.compile("."))
+        expect(label).to_be_enabled()
+    assert sent == [] and record(held_server, decided["id"])["review_status"] == "pending"
+
+
+def test_a_review_is_given_from_the_keyboard_alone(held_console: Page, held_server: str) -> None:
+    """Tab goes through the card in the order it is read: each text, then its two verdicts,
+    then each held action's tick, the note and the labels. Space and the arrows choose, Enter
+    confirms, and Undo takes focus and gives it back."""
+    decided = decide(held_server, WRITER, LETTER)
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    keys = held_console.keyboard
+    note, reply = text_of(held, "chart_note"), text_of(held, "reply_draft")
+    held.locator("a.action-link").focus()
+    keys.press("Tab")
+    expect(note.locator(".text-body")).to_be_focused()
+    keys.press("Tab")
+    expect(note.get_by_role("radio", name=RELEASE)).to_be_focused()
+    keys.press("Space")
+    expect(note.get_by_role("radio", name=RELEASE)).to_be_checked()
+    keys.press("Tab")
+    expect(reply.locator(".text-body")).to_be_focused()
+    keys.press("Tab")
+    expect(reply.get_by_role("radio", name=RELEASE)).to_be_focused()
+    keys.press("ArrowRight")  # to the other verdict, which it chooses
+    expect(reply.get_by_role("radio", name=WITHHOLD)).to_be_checked()
+    keys.press("Tab")
+    queue = release_box(held, "Assign queue")
+    expect(queue).to_be_focused()
+    expect(queue).not_to_be_checked()  # a text is withheld
+    keys.press("Space")
+    expect(queue).to_be_checked()
+    keys.press("Tab")
+    expect(release_box(held, "Send reply")).to_be_focused()
+    keys.press("Tab")
+    expect(held.locator(".review-note summary")).to_be_focused()
+    keys.press("Tab")
+    expect(confirm(held, "Refill")).to_be_focused()
+    assert held_console.evaluate("document.activeElement.matches(':focus-visible')")
+    keys.press("Enter")
+    undo = held.get_by_role("button", name="Undo")
+    expect(undo).to_be_focused()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Confirm Refill and release 1 text and 1 action, withhold 1 text in 5 s"
+    )
+    keys.press("Enter")
+    expect(held.locator(".undo-bar")).to_have_count(0)
+    expect(confirm(held, "Refill")).to_be_focused()
+    assert sent == []
+
+
+def test_a_decision_that_holds_nothing_confirms_in_one_tap_as_before(
+    held_console: Page, held_server: str
+) -> None:
+    """A card with no text and no action has no verdict to give and nothing to wait for."""
+    decided = decide(held_server, WRITER, PLAIN)
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(held.get_by_role("heading", name="What the agent wrote")).to_have_count(0)
+    expect(held.locator(".review-gate")).to_have_count(0)
+    expect(confirm(held, "Other")).not_to_have_attribute("aria-disabled", "true")
+    confirm(held, "Other").click()
+    expect(held).to_have_count(0)  # no Undo bar: sent at once
+    assert sent == [{"final_label": "other", "reviewer": "sandbox-nurse"}]
+
+
+# -- resolving: the verdicts and the ticks are sent, and the queue says what was done -------------
+
+
+def test_a_review_with_verdicts_resolves_and_names_no_action_by_itself(
+    held_console: Page, held_server: str
+) -> None:
+    """Both texts released, the ticks left as they were: the review sends each verdict and
+    names no action, so the action of enumerated arguments is released and the free-text one
+    is not. A release is final, so the review waits for Undo, saying what it does."""
+    decided = decide(held_server, WRITER, LETTER)
+    sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    verdict(held, "chart_note", RELEASE)
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Confirm Refill and release 2 texts and 1 action in 5 s"
+    )
+    held_console.clock.run_for(5000)
+    expect(held).to_have_count(0)
+    assert sent == [
+        {
+            "final_label": "refill",
+            "reviewer": "sandbox-nurse",
+            "texts": {"chart_note": "release", "reply_draft": "release"},
+        }
+    ]
+    found = record(held_server, decided["id"])
+    assert (found["review_status"], found["human_override"]) == ("resolved", False)
+    assert texts(found) == [("chart_note", "released"), ("reply_draft", "released")]
+    assert acted(found) == [
+        READ,
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "denied", "not_named"),
+    ]
+
+
+def test_a_free_text_action_is_released_only_when_ticked(
+    held_console: Page, held_server: str
+) -> None:
+    """A held action whose arguments can hold free text starts unticked, says why beside its
+    tick and that it will not be released; one of enumerated arguments starts ticked, as it
+    was. Ticked, the free-text action is named in the review, and released."""
+    decided = decide(held_server, WRITER, LETTER)
+    ids = held_ids(record(held_server, decided["id"]))
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    queue, reply = release_box(held, "Assign queue"), release_box(held, "Send reply")
+    expect(queue).to_be_checked()
+    expect(reply).not_to_be_checked()
+    why = action_of(held, "Send reply").locator(".release-why")
+    expect(why).to_have_text(FREE_TEXT)
+    expect(reply).to_have_accessible_description(f"{FREE_TEXT} {OFF}")
+    expect(action_of(held, "Send reply").locator(".release-off")).to_have_text(OFF)
+    expect(action_of(held, "Assign queue").locator(".release-why")).to_have_count(0)
+    expect(action_of(held, "Assign queue").locator(".release-off")).to_be_hidden()
+    # What it would send is on the screen to read: its arguments, as text.
+    expect(action_of(held, "Send reply")).to_contain_text(f"{ARGUMENT} Received.")
+    # A read released with the decision is not the reviewer's to release.
+    expect(action_of(held, "Look up medications").get_by_role("checkbox")).to_have_count(0)
+    reply.check()
+    expect(action_of(held, "Send reply").locator(".release-off")).to_be_hidden()
+    expect(reply).to_have_accessible_description(FREE_TEXT)
+    verdict(held, "chart_note", RELEASE)
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Confirm Refill and release 2 texts and 2 actions in 5 s"
+    )
+    leave(held_console, decided["id"])
+    assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
+        ([ids["send_reply"]], None)
+    ]
+    assert acted(record(held_server, decided["id"])) == [
+        READ,
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "released", "confirmed"),
+    ]
+
+
+def test_withholding_a_text_unticks_every_action_and_only_a_named_one_is_released(
+    held_console: Page, held_server: str
+) -> None:
+    """The demo agent's acknowledgement, with its two held actions of enumerated arguments:
+    both start ticked. Withholding the text unticks both and says why, each then showing that
+    it will not be released; the one the reviewer ticks again is named in the review and
+    released, the other is not released, and the text is withheld."""
+    decided = decide(held_server, DEMO, PARKING)
+    ids = held_ids(record(held_server, decided["id"]))
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, DEMO, "review")
+    held = card(held_console, decided["id"])
+    queue = release_box(held, "Assign queue")
+    send = release_box(held, "Send acknowledgement")
+    note = held.locator(".withheld-note")
+    expect(queue).to_be_checked()
+    expect(send).to_be_checked()
+    expect(note).to_be_hidden()
+    expect(held.locator(".release-why")).to_have_count(0)  # neither holds free text
+    verdict(held, "acknowledgement", WITHHOLD)
+    expect(queue).not_to_be_checked()
+    expect(send).not_to_be_checked()
+    expect(note).to_have_text(WITHHELD)
+    expect(held_console.locator("#announce-status")).to_have_text(f"{READY} {WITHHELD}")
+    for name in ("Assign queue", "Send acknowledgement"):
+        expect(action_of(held, name).locator(".release-off")).to_have_text(OFF)
+    expect(send).to_have_accessible_description(f"{WITHHELD} {OFF}")
+    queue.check()
+    expect(action_of(held, "Assign queue").locator(".release-off")).to_be_hidden()
+    confirm(held, "Other").click()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Confirm Other and release 1 action, withhold 1 text in 5 s"
+    )
+    leave(held_console, decided["id"])
+    assert sent == [
+        {
+            "final_label": "other",
+            "reviewer": "sandbox-nurse",
+            "texts": {"acknowledgement": "withhold"},
+            "release_actions": [ids["assign_queue"]],
+        }
+    ]
+    found = record(held_server, decided["id"])
+    assert texts(found) == [("acknowledgement", "withheld")]
+    assert acted(found) == [
+        ("assign_queue", "released", "confirmed"),
+        ("send_acknowledgement", "denied", "not_named"),
+    ]
+
+
+def test_each_text_withheld_unticks_every_action_and_nothing_is_ticked_again_for_the_reviewer(
+    held_console: Page, held_server: str
+) -> None:
+    """Every tick comes off each time a text is withheld, the reviewer's own too: a tick made
+    while another text could still be released does not outlive that text's withholding. A
+    verdict changed back to "Release as written" ticks nothing: what is unticked stays so, on
+    the screen and in the review. The action the label alone would release is then refused by
+    name (`deny_actions`), the free-text one is left out, and neither is in both."""
+    decided = decide(held_server, WRITER, LETTER)
+    ids = held_ids(record(held_server, decided["id"]))
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    queue, reply = release_box(held, "Assign queue"), release_box(held, "Send reply")
+    reply.check()  # ticked by the reviewer, before a text is withheld
+    verdict(held, "chart_note", WITHHOLD)
+    expect(queue).not_to_be_checked()
+    expect(reply).not_to_be_checked()  # that tick too: the action may send the withheld text
+    queue.check()  # ticked again, while the reply could still be released
+    verdict(held, "reply_draft", WITHHOLD)
+    expect(queue).not_to_be_checked()  # and off again: the other text is withheld now
+    expect(held_console.locator("#announce-status")).to_have_text(f"{READY} {WITHHELD}")
+    expect(held.locator(".withheld-note")).to_be_visible()
+    verdict(held, "chart_note", RELEASE)
+    expect(held.locator(".withheld-note")).to_be_visible()  # the reply is still withheld
+    verdict(held, "reply_draft", RELEASE)
+    expect(held.locator(".withheld-note")).to_be_hidden()
+    expect(queue).not_to_be_checked()
+    expect(reply).not_to_be_checked()
+    expect(action_of(held, "Assign queue").locator(".release-off")).to_have_text(OFF)
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text("Confirm Refill and release 2 texts in 5 s")
+    leave(held_console, decided["id"])
+    assert [(s.get("release_actions"), s.get("deny_actions")) for s in sent] == [
+        (None, [ids["assign_queue"]])
+    ]
+    assert acted(record(held_server, decided["id"])) == [
+        READ,
+        ("assign_queue", "denied", "reviewer_denied"),
+        ("send_reply", "denied", "not_named"),
+    ]
+
+
+def test_another_label_takes_each_verdict_and_releases_no_action(
+    held_console: Page, held_server: str
+) -> None:
+    """An override needs the verdicts too, says what becomes of the texts while it waits for
+    Undo, and names no action: each is denied, whatever is ticked."""
+    decided = decide(held_server, WRITER, LETTER)
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    release_box(held, "Send reply").check()
+    verdict(held, "chart_note", WITHHOLD)
+    verdict(held, "reply_draft", RELEASE)
+    release_box(held, "Send reply").check()  # ticked again after the withholding
+    held.get_by_role("button", name="Appointment", exact=True).click()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Override to Appointment and release 1 text, withhold 1 text in 5 s"
+    )
+    leave(held_console, decided["id"])
+    assert sent == [
+        {
+            "final_label": "appointment",
+            "reviewer": "sandbox-nurse",
+            "texts": {"chart_note": "withhold", "reply_draft": "release"},
+        }
+    ]
+    found = record(held_server, decided["id"])
+    assert found["human_override"] is True
+    assert texts(found) == [("chart_note", "withheld"), ("reply_draft", "released")]
+    assert acted(found) == [
+        READ,
+        ("assign_queue", "denied", "overridden"),
+        ("send_reply", "denied", "overridden"),
+    ]
+
+
+def test_an_abstention_with_a_text_takes_its_verdict_with_the_label(
+    held_console: Page, held_server: str
+) -> None:
+    """No recommendation to confirm: every label waits for the text's verdict, and the label
+    the reviewer chooses is sent with it."""
+    decided = decide(held_server, WRITER, VAGUE)
+    assert decided["outcome"] == "ABSTAIN"
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(held.get_by_role("heading", name="No recommendation")).to_be_visible()
+    expect(text_of(held, "reply_draft").locator(".text-body")).to_contain_text(REPLY)
+    other = held.get_by_role("button", name="Other", exact=True)
+    expect(other).to_have_attribute("aria-disabled", "true")
+    expect(held.locator(".review-gate")).to_have_text(WAITS.format("1 text needs"))
+    verdict(held, "reply_draft", RELEASE)
+    other.click()
+    expect(held.locator(".undo-bar")).to_contain_text("Label Other and release 1 text in 5 s")
+    leave(held_console, decided["id"])
+    assert sent == [
+        {"final_label": "other", "reviewer": "sandbox-nurse", "texts": {"reply_draft": "release"}}
+    ]
+    found = record(held_server, decided["id"])
+    assert (found["final_label"], texts(found)) == ("other", [("reply_draft", "released")])
+
+
+def test_an_agent_that_only_writes_is_reviewed_with_its_verdict_and_undo_still_cancels(
+    held_console: Page, held_server: str
+) -> None:
+    """The written fixture proposes no action: its card has the text and no list of actions.
+    Releasing a text is final, so confirming waits for Undo; undone, nothing was sent and the
+    verdict is still there to change."""
+    decided = decide(held_server, WRITTEN, "Could you refill my lisinopril?")
+    sent = reviews(held_console, decided["id"])
+    open_agent(held_console, WRITTEN, "review")
+    held = card(held_console, decided["id"])
+    expect(held.get_by_role("heading", name="Proposed actions")).to_have_count(0)
+    expect(text_of(held, "reply_draft").locator(".text-body")).to_contain_text(
+        "The pharmacy team will review your refill request"
+    )
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    bar = held.locator(".undo-bar")
+    expect(bar).to_contain_text("Confirm Refill and release 1 text in 5 s")
+    # What the bar says is what is sent: the verdict cannot change under it.
+    expect(text_of(held, "reply_draft").get_by_role("radio", name=WITHHOLD)).to_be_disabled()
+    bar.get_by_role("button", name="Undo").click()
+    expect(bar).to_have_count(0)
+    assert sent == [] and record(held_server, decided["id"])["review_status"] == "pending"
+    verdict(held, "reply_draft", WITHHOLD)  # changed their mind
+    confirm(held, "Refill").click()
+    expect(bar).to_contain_text("Confirm Refill and withhold 1 text in 5 s")
+    leave(held_console, decided["id"])
+    assert [s["texts"] for s in sent] == [{"reply_draft": "withhold"}]
+    assert texts(record(held_server, decided["id"])) == [("reply_draft", "withheld")]
+
+
+def test_a_page_that_is_closed_sends_the_review_with_its_verdicts_and_ticks(
+    held_console: Page, held_server: str
+) -> None:
+    """A review that waits for Undo is sent when its page goes away (here it is loaded anew),
+    as an override always was: with each verdict and tick as they stood when the label was
+    chosen."""
+    decided = decide(held_server, WRITER, LETTER)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    verdict(held, "chart_note", WITHHOLD)
+    verdict(held, "reply_draft", RELEASE)
+    release_box(held, "Assign queue").check()
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text(
+        "Confirm Refill and release 1 text and 1 action, withhold 1 text in 5 s"
+    )
+    show(held_console, "audit")  # another address: the page is loaded anew
+    found = reviewed(held_server, decided["id"])
+    assert texts(found) == [("chart_note", "withheld"), ("reply_draft", "released")]
+    assert acted(found) == [
+        READ,
+        ("assign_queue", "released", "confirmed"),
+        ("send_reply", "denied", "not_named"),
+    ]
+
+
+# -- a text that is not on the screen: why, and the verdict is still owed -------------------------
+
+
+def test_a_text_that_is_not_kept_says_why_and_still_takes_its_verdict(
+    held_console: Page, held_server: str
+) -> None:
+    """An agent that keeps only its input's hash keeps no text: the card says so in words, and
+    where the reviewer reads the draft instead. Each text still takes its verdict, the labels
+    still wait for it, and the review resolves."""
+    decided = decide(held_server, UNKEPT, LETTER)
+    assert decided["outputs"]["reply_draft"]  # the caller has the draft: Mendari kept none
+    open_agent(held_console, UNKEPT, "review")
+    held = card(held_console, decided["id"])
+    for name in ("chart_note", "reply_draft"):
+        text = text_of(held, name)
+        expect(text.locator(".text-body")).to_have_count(0)
+        expect(text.locator(".text-missing")).to_have_text(
+            "Not kept here: this agent keeps only a hash of its input (audit.store_input). "
+            + ELSEWHERE
+        )
+    expect(held).not_to_contain_text(REPLY)
+    expect(confirm(held, "Refill")).to_have_attribute("aria-disabled", "true")
+    verdict(held, "chart_note", RELEASE)
+    verdict(held, "reply_draft", WITHHOLD)
+    expect(confirm(held, "Refill")).not_to_have_attribute("aria-disabled", "true")
+    confirm(held, "Refill").click()
+    leave(held_console, decided["id"])
+    found = record(held_server, decided["id"])
+    assert texts(found) == [("chart_note", "released"), ("reply_draft", "withheld")]
+
+
+@pytest.mark.parametrize(
+    ("status", "phi_mode", "why"),
+    [
+        ("sealed", "off", "Kept sealed under a key this deployment does not hold."),
+        (
+            "sealed",
+            "encrypt",
+            "Kept sealed: reviewers and administrators can read it, and each read is logged.",
+        ),
+        ("erased", "off", "Erased, with what this decision kept of its input."),
+        ("missing", "off", "Missing: verify the chain with --notes."),
+        ("not_kept", "hash", "Not kept here: PHI mode hash keeps no free text."),
+    ],
+)
+def test_a_text_that_cannot_be_shown_says_why_in_words(
+    held_console: Page, held_server: str, status: str, phi_mode: str, why: str
+) -> None:
+    """A text sealed for this reader, sealed under a key the deployment no longer holds, erased
+    or missing, and one PHI mode `hash` never kept. The server here makes none of these: the
+    queue's answer and the deployment's PHI mode are changed on their way to the page
+    (Playwright routing). The words say which, the verdict is still asked for, and the real
+    server takes it."""
+    decided = decide(held_server, WRITER, ALONE)
+
+    def unshown(route: Route) -> None:
+        queue = route.fetch().json()
+        for item in queue:
+            for text in item.get("outputs", []):
+                text.pop("text", None)
+                text["text_status"] = status
+        route.fulfill(json=queue)
+
+    def mode(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "phi_mode": phi_mode})
+
+    held_console.route("**/api/review?*", unshown)
+    held_console.route("**/api/health", mode)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    text = text_of(held, "reply_draft")
+    expect(text.locator(".text-missing")).to_have_text(f"{why} {ELSEWHERE}")
+    expect(text.locator(".text-body")).to_have_count(0)
+    expect(held).not_to_contain_text(ALONE_TEXT)
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    leave(held_console, decided["id"])
+    assert texts(record(held_server, decided["id"])) == [("reply_draft", "released")]
+
+
+def test_a_reader_who_may_not_review_reads_the_text_and_gives_no_verdict(
+    held_console: Page, held_server: str
+) -> None:
+    """A viewer's queue (their sign-in answered by Playwright routing: this server has none)
+    shows the held text and its actions, and nothing to choose: no verdict, no tick, no label."""
+    decided = decide(held_server, WRITER, LETTER)
+    viewer = {"kind": "user", "name": "Viewer", "roles": ["viewer"], "permissions": ["read"]}
+    me = {"mode": "sign-in", "signed_in": True, "principal": {**viewer, "org": "default"}}
+    held_console.route("**/api/auth/me", lambda route: route.fulfill(json=me))
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    expect(text_of(held, "reply_draft").locator(".text-body")).to_contain_text(REPLY)
+    expect(text_of(held, "reply_draft").locator(".badge")).to_have_text("Held")
+    expect(held.get_by_role("radio")).to_have_count(0)
+    expect(held.get_by_role("checkbox")).to_have_count(0)
+    expect(held.locator(".review-gate")).to_have_count(0)
+    expect(held).to_contain_text("Resolving is for reviewers; your role can read the queue.")
+
+
+# -- controls: named, large enough, and the page stays in its width ------------------------------
+
+
+def test_the_review_of_a_held_text_has_no_unnamed_or_small_control_and_fits_a_phone(
+    held_console: Page, held_server: str
+) -> None:
+    decide(held_server, WRITER, LETTER)
+    decide(held_server, DEMO, PARKING)
+    held_console.set_viewport_size(PHONE)
+    for agent in (WRITER, DEMO):
+        open_agent(held_console, agent, "review")
+        expect(held_console.locator(".texts-list").first).to_be_visible()
+        assert held_console.evaluate(UNNAMED) == [], agent
+        assert held_console.evaluate(UNDER_24) == [], agent
+        assert held_console.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], (
+            agent
+        )
