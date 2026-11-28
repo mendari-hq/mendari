@@ -186,12 +186,66 @@ def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestC
     assert "names this action" in FREE_TEXT_GATE
     assert by_name["queue_refill"]["arguments"] == ["medication", "days_supply"]
     assert by_name["renew_prescription"]["arguments"] is None  # no schema: not checked
+    # Whether its arguments can hold free text, for each, whatever its gate: what the console's
+    # Card prints, as `mendari card` does.
+    assert {name: action["free_text"] for name, action in by_name.items()} == {
+        "look_up_medications": True,
+        "draft_reply": True,
+        "send_reply": True,
+        "queue_refill": True,
+        "file_note": True,
+        "renew_prescription": True,
+        "send_template": False,
+        "assign_queue": False,
+    }
     assert "## Actions" in detail["card_markdown"]
     assert "actions" in detail["output_schema"]["properties"]
     # An agent that declares none: its detail is what it was.
     plain = client.get(f"/api/agents/{PLAIN}").json()
     assert "actions" not in plain and "## Actions" not in plain["card_markdown"]
     assert "actions" not in plain["output_schema"]["properties"]
+
+
+def test_a_schema_that_names_no_field_and_takes_a_text_says_so(tmp_path: Path) -> None:
+    """An action whose schema is a text itself names no field, and can hold free text all the
+    same: the Card, the packet and the agent's detail say so, and never "none taken", which
+    is for an object that takes nothing."""
+    import yaml
+
+    from mendari.core import packet
+
+    folder = tmp_path / "said"
+    shutil.copytree(MINI, folder)
+    manifest = yaml.safe_load((folder / "agent.yaml").read_text(encoding="utf-8"))
+    manifest["actions"]["say"] = {
+        "description": "Says something.",
+        "effect": "draft",
+        "schema": {"type": "string"},
+    }
+    manifest["actions"]["ping"] = {
+        "description": "Takes nothing at all.",
+        "effect": "read",
+        "schema": {"type": "object", "additionalProperties": False},
+    }
+    (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    agent = load_agent(folder)
+    rows = {
+        row.split("|")[1].strip().strip("`"): row
+        for row in render_card(agent).split("## Actions")[1].splitlines()
+        if row.startswith("| `")
+    }
+    assert rows["say"].endswith("| checked: can hold free text |")
+    assert rows["ping"].endswith("| checked: none taken |")
+    detail = {a["name"]: a for a in declared_actions(agent, vouched=True)["actions"]}
+    assert (detail["say"]["arguments"], detail["say"]["free_text"]) == ([], True)
+    assert (detail["ping"]["arguments"], detail["ping"]["free_text"]) == ([], False)
+    listed = {
+        a["name"]: packet._html_arguments(a)
+        for section in packet.build_alone(agent)["sections"]
+        for a in section.get("content", {}).get("actions", [])
+    }
+    assert listed["say"] == "checked: can hold free text"
+    assert listed["ping"] == "checked: none taken"
 
 
 def test_an_unvouched_agents_free_text_reads_and_drafts_are_shown_as_a_persons() -> None:

@@ -728,7 +728,9 @@ def test_a_name_that_ends_in_a_line_break_is_refused(where: str) -> None:
     else:
         raw[where] = raw[where] + "\n"
         assert not spec.is_agent_id(raw["id"]) or not spec.is_version(raw["version"])
-    with pytest.raises(ValidationError):
+    # A key is refused for its own shape, whatever else the change breaks beside it.
+    said = "must match" if where in ("output", "action", "label", "question") else where
+    with pytest.raises(ValidationError, match=said):
         AgentManifest.model_validate(raw)
     AgentManifest.model_validate(raw_manifest())  # as written, it loads
 

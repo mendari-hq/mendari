@@ -4381,8 +4381,8 @@ def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
     """An agent's declared actions as its detail shows them (`actions`): each with its effect,
     its gate (`policy.gate_of`, for an agent the organization does or does not vouch for, and
     tightened where its arguments can hold free text) and the gate in words
-    (`policy.gate_words`), and the names of its arguments (None: not checked). Nothing for an
-    agent that declares none, so its detail is what it was."""
+    (`policy.gate_words`), the names of its arguments (None: not checked) and whether they can
+    hold free text. Nothing for an agent that declares none, so its detail is what it was."""
     declared = agent.manifest.actions
     if not declared:
         return {}
@@ -4399,6 +4399,9 @@ def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
                 "gate": gate_of(spec.effect, **gated).value,
                 "released": gate_words(spec.effect, **gated),
                 "arguments": None if schema is None else list(schema.get("properties") or {}),
+                # Whether they can hold free text (ADR-0027): anything but a menu, whatever
+                # the gate. A read's or a draft's too, which are released with the decision.
+                "free_text": spec.free_text,
             }
         )
     return {"actions": listed}

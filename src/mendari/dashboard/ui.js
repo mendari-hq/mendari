@@ -9,13 +9,14 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-// Characters that are not seen and change what is (the engine's `providers/agent.py` `_UNSEEN`):
-// control characters but the newline and the tab, zero-width and invisible ones, the
-// bidirectional controls, the line separators and tag characters. With one, a screen shows one
+// Characters that are not seen and change what is (the engine's `providers/agent.py` `_UNSEEN`,
+// the same set: `tests/test_dashboard_unseen.py`): control characters but the newline and the
+// tab, every code point Unicode says is not shown by default but the joiners and the two emoji
+// selectors, the line separators and the braille blank. With one, a screen shows one
 // thing while a channel that drops it, or a screen reader, says another: `Take` + U+202E + `01`
 // is drawn "Take 10". The engine takes them out of what an agent writes. An action's arguments
 // are kept as the agent sent them, and a reviewer reads them here before naming the action.
-const UNSEEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b\u200e\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu;
+const UNSEEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b\u200e\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0d\ufeff\uffa0\ufff0-\ufffb\u{1bca0}-\u{1bca3}\u{1d173}-\u{1d17a}\u{e0000}-\u{e0fff}]/gu;
 
 // A text as markup that shows every character of it: escaped, and a character that is not
 // seen as its code point, named, so that it is read and never left to do its work.

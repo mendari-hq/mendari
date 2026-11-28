@@ -143,6 +143,15 @@ def test_characters_that_are_not_seen_become_a_space_and_what_a_script_needs_sta
         assert clean_output(f"a{chr(code)}b") == "a b", hex(code)
     for code in (0xE0001, 0xE0020, 0xE007F, 0x009B):
         assert clean_output(f"a{chr(code)}b") == "a b", hex(code)
+    # Every code point Unicode says is not shown by default (Default_Ignorable_Code_Point):
+    # fillers, a grapheme joiner, and the 254 variation selectors that are no presentation
+    # selector, each of which could carry a byte of a text nobody sees.
+    ignorable = (0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180F, 0x3164, 0xFFA0, 0xFFF0)
+    for code in (*ignorable, 0xFE00, 0xFE0D, 0x1BCA0, 0x1D173, 0x1D17A, 0xE0100, 0xE01EF, 0xE0FFF):
+        assert clean_output(f"a{chr(code)}b") == "a b", hex(code)
+    assert clean_output("a\u2800b") == "a b"  # a braille cell with no dot: blank, and no space
+    hidden_bytes = "Take 10 mg" + "".join(chr(0xE0100 + byte) for byte in b"stop insulin")
+    assert clean_output(hidden_bytes) == "Take 10 mg"
     # A joiner inside a word or an emoji, a variation selector, and letters of any script.
     kept = (
         "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645 "  # Persian, a non-joiner inside

@@ -116,6 +116,25 @@ def test_the_pilots_reviewer_gives_a_verdict_on_each_text_the_decision_holds() -
         pilot_check.review_of(sealed, "other")
 
 
+def test_the_pilot_stops_when_a_viewer_is_shown_an_input_or_a_text() -> None:
+    """A viewer reads a decision and neither its input nor a text its agent wrote: each is
+    kept for whoever may read inputs. What the pilot holds the engine's answer to."""
+    sealed = {"name": "acknowledgement", "state": "released", "text_status": "sealed"}
+    seen = {"record": {"input": None}, "input_restricted": True, "outputs": [sealed]}
+    assert pilot_check.shown_to_a_viewer(seen) is None
+    assert pilot_check.shown_to_a_viewer({**seen, "outputs": []}) is None
+    opened = {**sealed, "text_status": "open", "text": "Thanks."}
+    assert pilot_check.shown_to_a_viewer({**seen, "outputs": [sealed, opened]}) == (
+        "the viewer could read a text the agent wrote"
+    )
+    assert pilot_check.shown_to_a_viewer({**seen, "record": {"input": {"message": {}}}}) == (
+        "the viewer could read an input"
+    )
+    assert pilot_check.shown_to_a_viewer({**seen, "input_restricted": False}) == (
+        "the viewer could read an input"
+    )
+
+
 def test_the_cli_reports_the_steps_or_the_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -169,8 +169,12 @@ def test_a_character_that_is_not_seen_is_shown_by_its_code_point(
     expect(marks.first).to_have_attribute("title", "A character that is not shown: U+202E")
     assert "\u202e" not in said.evaluate("(el) => el.textContent")  # none is left to do its work
     read = action_of(held, "Look up medications").locator("dl.facts")
-    expect(read.locator("dt")).to_have_text("naU+200Bme")
-    expect(read.locator("dd")).to_have_text('["U+2066xU+2069"]')
+    expect(read.locator("dt").first).to_have_text("naU+200Bme")
+    expect(read.locator("dd").first).to_have_text('["U+2066xU+2069"]')
+    # Markup before and after such a character: every part of the text is still characters.
+    both = read.locator("dd").last
+    expect(both).to_have_text("<i>a</i>U+202E<b>b</b>")
+    assert both.locator("i, b").count() == 0 and both.locator("code.unseen").count() == 1
     shown_record = drawer(held_console, decided["id"])
     again = action_of(shown_record, "Send reply").locator("dl.facts dd")
     expect(again).to_have_text("Take U+202E01U+202C mgU+200B now")
@@ -704,6 +708,39 @@ def test_leaving_or_closing_the_page_sends_no_review_that_lets_anything_out(
         ("assign_queue", "held", "awaiting_review"),
         ("send_reply", "held", "awaiting_review"),
     ]
+
+
+def test_a_page_that_is_hidden_sends_no_review_that_lets_anything_out(
+    held_console: Page, held_server: str
+) -> None:
+    """Another tab, a locked screen: the reviewer is no longer looking, and has no Undo to
+    press. A review that gives a verdict or releases an action is dropped when its page is
+    hidden inside its five seconds, and the page says so for when they come back."""
+    decided = decide(held_server, WRITER, ALONE)
+    sent = reviews(held_console, decided["id"])
+    held_console.clock.install()
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    verdict(held, "reply_draft", RELEASE)
+    confirm(held, "Refill").click()
+    expect(held.locator(".undo-bar")).to_contain_text("Confirm Refill and release 1 text in 5 s")
+    held_console.evaluate(
+        """() => {
+          Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+          document.dispatchEvent(new Event("visibilitychange"));
+        }"""
+    )
+    expect(held.locator(".undo-bar")).to_have_count(0)
+    expect(held_console.locator("#toast")).to_have_text(
+        "1 review not sent: this page was hidden before the 5 seconds were up. "
+        "Its decision still waits in the queue."
+    )
+    held_console.clock.run_for(10_000)
+    assert sent == []
+    assert record(held_server, decided["id"])["review_status"] == "pending"
+    # The card is as it was before the label was chosen: the verdict is still there to send.
+    expect(text_of(held, "reply_draft").get_by_role("radio", name=RELEASE)).to_be_checked()
+    expect(confirm(held, "Refill")).to_be_enabled()
 
 
 def test_leaving_still_sends_a_held_label_that_lets_nothing_out(

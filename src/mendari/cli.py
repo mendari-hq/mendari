@@ -3309,7 +3309,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
     is set, with the workflow that checks the agent on every change in its own repository
     (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive."""
-    from mendari.core.spec import _AGENT_ID
+    from mendari.core.spec import is_agent_id
 
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
@@ -3317,7 +3317,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     agent_id = args.id
     if agent_id is None:
         raise MendariError("--id is required: namespace/name, e.g. my-clinic/refill-router")
-    if not _AGENT_ID.match(agent_id):
+    if not is_agent_id(agent_id):  # matched whole: no line break after the name
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
     name = args.name or agent_id.split("/", 1)[1].replace("-", " ").capitalize()
     raw_values = {"{{id}}": agent_id, "{{name}}": name, "{{publisher}}": args.publisher}

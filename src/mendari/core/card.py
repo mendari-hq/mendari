@@ -422,6 +422,8 @@ def _actions(agent: Agent) -> list[str]:
         elif named:
             holds = "can hold free text" if spec.free_text else "listed values only"
             arguments = "checked: " + ", ".join(_c(key) for key in named) + f"; {holds}"
+        elif spec.free_text:  # a schema that names no field and still takes a text
+            arguments = "checked: can hold free text"
         else:
             arguments = "checked: none taken"
         out.append(

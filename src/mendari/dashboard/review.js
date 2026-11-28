@@ -340,20 +340,26 @@ function holdResolution(card, button, label, reviewer, chosen, { final, onResolv
 
 // Leaving the queue (another view, another agent, another organization: that one waits for them)
 // sends a held label that lets nothing out; so does closing the page, with keepalive so the
-// request outlives it. A held review that gives a verdict or releases an action is never sent by
-// leaving: a reviewer who chose it by mistake and went away, or closed the page, released
-// nothing. It is dropped, its decision still waits in the queue, and the reviewer is told.
-views.review.leave = () => {
-  stopKeys();
-  const waiting = [...held.values()];
-  const dropped = waiting.filter((review) => review.final);
+// request outlives it. A held review that gives a verdict or releases an action is never sent
+// by leaving, nor behind the back of a reviewer whose page is hidden (another tab, a locked
+// screen: they have no Undo to press): a reviewer who chose it by mistake and went away
+// released nothing. It is dropped, its decision still waits in the queue, and the page says so.
+function dropFinal(why) {
+  const dropped = [...held.values()].filter((review) => review.final);
   dropped.forEach((review) => review.drop());
   if (dropped.length) {
-    toastError(`${plural(dropped.length, "review")} not sent: you left before the ${UNDO_SECONDS} seconds were up. ${dropped.length === 1 ? "Its decision still waits" : "Their decisions still wait"} in the queue.`);
+    toastError(`${plural(dropped.length, "review")} not sent: ${why} before the ${UNDO_SECONDS} seconds were up. ${dropped.length === 1 ? "Its decision still waits" : "Their decisions still wait"} in the queue.`);
   }
-  return Promise.all(waiting.filter((review) => !review.final).map((review) => review.send()));
+}
+views.review.leave = () => {
+  stopKeys();
+  dropFinal("you left");
+  return Promise.all([...held.values()].map((review) => review.send()));
 };
 window.addEventListener("pagehide", () => held.forEach((review) => (review.final ? review.drop() : review.send({ keepalive: true }))));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) dropFinal("this page was hidden");
+});
 
 // What a resolved review did, as the server answered it, in words for a toast:
 // ["2 texts released", "1 action released, 1 action denied"].

@@ -121,6 +121,16 @@ def review_of(item: Mapping[str, Any], label: str) -> dict[str, Any]:
     return review
 
 
+def shown_to_a_viewer(seen: Mapping[str, Any]) -> str | None:
+    """What a viewer was shown of a decision that only whoever may read inputs opens, or None:
+    its input, or a text its agent wrote (ADR-0027), kept and shown as the input is."""
+    if seen["record"]["input"] is not None or not seen.get("input_restricted"):
+        return "the viewer could read an input"
+    if any("text" in text for text in seen.get("outputs") or ()):
+        return "the viewer could read a text the agent wrote"
+    return None
+
+
 def run(
     *,
     engine: str,
@@ -197,10 +207,9 @@ def run(
             200,
             "the viewer reads a decision",
         )
-        if seen["record"]["input"] is not None or not seen.get("input_restricted"):
-            raise MendariError("the viewer could read an input")
-        if any("text" in text for text in seen.get("outputs") or ()):
-            raise MendariError("the viewer could read a text the agent wrote")
+        shown = shown_to_a_viewer(seen)
+        if shown is not None:
+            raise MendariError(shown)
         if seen["reviewer"] != email("reviewer"):
             raise MendariError(f"the review is recorded for {seen['reviewer']!r}")
         pilot.expect(

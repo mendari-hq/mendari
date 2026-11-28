@@ -17,6 +17,16 @@ function questionPanel(key, q, primary) {
 }
 
 // A policy condition in words: "the chance that urgency is urgent is at least 0.35".
+// What an action's arguments are checked for, and whether they can hold free text (ADR-0027),
+// in the Decision Card's words (`core/card.py` `_actions`): a read's or a draft's too, which
+// are released with the decision.
+function actionArguments(action) {
+  if (action.arguments === null) return `<span class="muted">not checked:</span> can hold free text`;
+  const named = action.arguments.map((key) => `<code>${esc(key)}</code>`).join(", ");
+  if (!named) return action.free_text ? "can hold free text" : `<span class="muted">none taken</span>`;
+  return `${named}; ${action.free_text ? "can hold free text" : "listed values only"}`;
+}
+
 function conditionText(when) {
   const q = `<code>${esc(when.question)}</code>`;
   const labels = (when.labels ?? []).map((l) => `<code>${esc(l)}</code>`).join(" or ");
@@ -167,14 +177,17 @@ views.card = async (main, params) => {
       <h2 id="card-actions-title">Actions</h2>
       <p class="prose muted">What the agent may ask to have done, besides answer. Mendari authorizes each action and runs none:
         the caller runs an action only when it was released, and every proposal and its release or denial is in the audit trail.
-        An action the agent proposes that is not listed here is blocked, and its decision goes to a person.</p>
+        An action the agent proposes that is not listed here is blocked, and its decision goes to a person.
+        Arguments can hold free text unless every value they take is one the manifest lists: a text or a number that is not
+        one of a list of values, a list, or arguments nothing checks, can. An action that writes or contacts with such
+        arguments is never released without a person.</p>
       <div class="panel table-wrap"><table>
         <thead><tr><th scope="col">Action</th><th scope="col">Does</th><th scope="col">Effect</th><th scope="col">Released</th><th scope="col">Arguments</th></tr></thead>
         <tbody>${d.actions.map((a) => `<tr><td><code>${esc(a.name)}</code></td>
           <td>${esc(a.description)}</td>
           <td>${effectBadge(a.effect)}</td>
           <td>${esc(a.released)}</td>
-          <td>${a.arguments === null ? `<span class="muted">not checked</span>` : a.arguments.map((key) => `<code>${esc(key)}</code>`).join(", ") || `<span class="muted">none taken</span>`}</td></tr>`).join("")}</tbody>
+          <td>${actionArguments(a)}</td></tr>`).join("")}</tbody>
       </table></div>
     </section>` : ""}
 

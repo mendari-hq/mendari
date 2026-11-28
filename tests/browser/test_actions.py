@@ -250,7 +250,12 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     expect(rows).to_have_count(8)
     expect(rows.nth(0)).to_contain_text("look_up_medications")
     expect(rows.nth(0)).to_contain_text("With any decision that is not blocked.")
-    expect(rows.nth(0)).to_contain_text("not checked")
+    # Each action says whether its arguments can hold free text, whatever its gate: a read and
+    # a draft too, which are released with the decision.
+    expect(rows.nth(0).locator("td").last).to_have_text("not checked: can hold free text")
+    expect(rows.nth(1)).to_contain_text("draft_reply")
+    expect(rows.nth(1).locator("td").last).to_have_text("message; can hold free text")
+    expect(section).to_contain_text("unless every value they take is one the manifest lists")
     # A contact whose argument is a free string: never without a person, why, and that a
     # reviewer has to name it (ADR-0027).
     expect(rows.nth(2).locator(".chip")).to_have_text("contact")
@@ -265,6 +270,7 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     expect(rows.nth(6)).to_contain_text("send_template")
     expect(rows.nth(6).locator(".chip")).to_have_text("contact")
     expect(rows.nth(6)).to_contain_text("Only with an automated decision")
+    expect(rows.nth(6).locator("td").last).to_have_text("template; listed values only")
     # An agent that declares none has no such section, and no link to one.
     open_agent(console, TRIAGE, "card")
     expect(console.locator("#card-actions")).to_have_count(0)

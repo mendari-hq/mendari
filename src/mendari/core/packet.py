@@ -517,8 +517,8 @@ def _html_arguments(action: Mapping[str, Any]) -> str:
     named = action["arguments"]
     if named is None:
         return "not checked: can hold free text"
-    if not named:
-        return "checked: none taken"
+    if not named:  # a schema that names no field may still take a text
+        return "checked: can hold free text" if action.get("free_text") else "checked: none taken"
     holds = "can hold free text" if action.get("free_text") else "listed values only"
     return "checked: " + ", ".join(_code(name) for name in named) + f"; {holds}"
 

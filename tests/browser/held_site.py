@@ -66,6 +66,8 @@ LONG_TEXT = "\n".join([PARAGRAPH] * (MAX_OUTPUT_CHARS // (len(PARAGRAPH) + 1)))
 ALONE_TEXT = "Thank you. The pharmacy will reply within two business days."
 # Drawn "Take 10 mg now" by a screen that lets the override work, and sent as "01".
 REVERSED = "Take \u202e01\u202c mg\u200b now"
+# Markup on both sides of a character that is not seen: each part is still only characters.
+BOTH = "<i>a</i>\u202e<b>b</b>"
 # An action with no schema takes any JSON object: a key of it is the agent's text too.
 HOSTILE_KEY = '<img src="y" onerror="window.pwned = 2">'
 
@@ -86,7 +88,10 @@ CASES = [
         "response": {
             **_answer({"reply_draft": ALONE_TEXT}),
             "actions": [
-                {"name": "look_up_medications", "arguments": {"na\u200bme": ["\u2066x\u2069"]}},
+                {
+                    "name": "look_up_medications",
+                    "arguments": {"na\u200bme": ["\u2066x\u2069"], "note": BOTH},
+                },
                 {"name": "send_reply", "arguments": {"message": REVERSED}},
             ],
         },

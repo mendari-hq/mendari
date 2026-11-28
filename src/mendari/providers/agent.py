@@ -617,16 +617,22 @@ def validate_response(
 # What a written text may not carry, each run of them a space. The control characters, all but
 # the newline and the tab. And the characters that are not seen and change what is: a reviewer
 # releases the text they read, and with one of these the screen shows one thing while a channel
-# that drops it, or a screen reader, says another (`Take` + U+202E + `01` is drawn "Take 10").
-# - U+00AD, U+180E, U+200B, U+2060 to U+2064, U+FEFF: zero-width and invisible;
-# - U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+206F: bidirectional marks,
-#   embeddings, overrides and isolates, and the deprecated formatting controls;
-# - U+2028, U+2029: separators that break a line in some places and not in others;
-# - U+FFF9 to U+FFFB, U+E0000 to U+E007F: interlinear annotation and tag characters.
-# The joiners (U+200C, U+200D) and the variation selectors stay: scripts and emoji need them.
+# that drops it, or a screen reader, says another (`Take` + U+202E + `01` is drawn "Take 10"),
+# or the text carries words no eye sees (a byte in each variation selector).
+# - Every code point Unicode says is not shown by default (Default_Ignorable_Code_Point): the
+#   soft hyphen, zero-width and invisible characters, fillers, the bidirectional marks,
+#   embeddings, overrides and isolates, the variation selectors, tag characters.
+# - U+2028, U+2029: separators that break a line in some places and not in others.
+# - U+FFF9 to U+FFFB, U+2800: interlinear annotation, and the braille cell with no dot.
+# But four of the first group, which a script or an emoji needs: the joiners (U+200C, U+200D)
+# and the selectors that say how an emoji is drawn (U+FE0E, U+FE0F).
+# The console shows the same set by code point where it is not taken out
+# (`dashboard/ui.js` `UNSEEN`; `tests/test_dashboard_unseen.py` holds the two equal).
 _UNSEEN = (
-    "\x00-\x08\x0b-\x1f\x7f-\x9f\u00ad\u061c\u180e\u200b\u200e\u200f\u2028-\u202e"
-    "\u2060-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f"
+    "\x00-\x08\x0b-\x1f\x7f-\x9f"
+    "\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b\u200e\u200f"
+    "\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0d\ufeff\uffa0\ufff0-\ufffb"
+    "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0000-\U000e0fff"
 )
 _OUTPUT_CTRL = re.compile(f"[{_UNSEEN}]+")
 
