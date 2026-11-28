@@ -7,8 +7,8 @@ what is kept. It serves four agents:
 - `WRITER`: the copy of the actions fixture that also writes (`tests.test_held_texts.writing`:
   two texts, a `read` released with the decision, a `write` of enumerated arguments and a
   free-text `contact`), with four more canned answers: a text that holds markup, one of the
-  longest a text may be, a decision with a text and nothing else, and one whose actions hold
-  markup in their arguments;
+  longest a text may be, a decision with a text and nothing else, one whose actions hold
+  markup in their arguments, and one whose arguments hold characters that are not seen;
 - `UNKEPT`: the same agent keeping only its input's hash (`audit.store_input: hash`), so
   none of its texts is kept;
 - `WRITTEN`: the written fixture, which writes a reply and proposes no action;
@@ -54,6 +54,7 @@ MARKUP = "Please check the markup in what you write."  # a text that holds marku
 LONG = "Please write me the longest text."  # a text of the most characters one may have
 ALONE = "Just the one text, please."  # one text, and no action
 ODD = "Please ask to do something odd."  # actions whose arguments, and a key of them, hold markup
+UNSEEN = "Please send what I cannot see."  # an argument that holds characters that are not seen
 PARKING = "Where do I park on Tuesday?"  # the demo agent: the front desk, an acknowledgement
 
 SCRIPT = "<script>window.pwned = 1</script>"
@@ -63,6 +64,8 @@ PARAGRAPH = " ".join(["The pharmacy reads each request in the order it came."] *
 # As long as a text may be, less than a paragraph: one paragraph to a line.
 LONG_TEXT = "\n".join([PARAGRAPH] * (MAX_OUTPUT_CHARS // (len(PARAGRAPH) + 1)))
 ALONE_TEXT = "Thank you. The pharmacy will reply within two business days."
+# Drawn "Take 10 mg now" by a screen that lets the override work, and sent as "01".
+REVERSED = "Take \u202e01\u202c mg\u200b now"
 # An action with no schema takes any JSON object: a key of it is the agent's text too.
 HOSTILE_KEY = '<img src="y" onerror="window.pwned = 2">'
 
@@ -78,6 +81,16 @@ def _answer(outputs: dict[str, str]) -> dict[str, Any]:
 
 
 CASES = [
+    {
+        "match": "cannot see",
+        "response": {
+            **_answer({"reply_draft": ALONE_TEXT}),
+            "actions": [
+                {"name": "look_up_medications", "arguments": {"na\u200bme": ["\u2066x\u2069"]}},
+                {"name": "send_reply", "arguments": {"message": REVERSED}},
+            ],
+        },
+    },
     {
         "match": "something odd",
         "response": {
@@ -179,6 +192,17 @@ def review(base: str, decision_id: str, label: str, **more: Any) -> dict[str, An
     assert answer.status_code == 200, answer.text
     resolved: dict[str, Any] = answer.json()
     return resolved
+
+
+def elapse(page: Page, decision_id: str) -> None:
+    """Let the five seconds of a review that waits for Undo pass, and wait for the server's
+    answer to it. The page's clock is the test's (`page.clock.install()`, before the queue is
+    opened): nothing else sends a review that gives a verdict or releases an action, least of
+    all leaving the page."""
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith(f"/api/review/{decision_id}")
+    ):
+        page.clock.run_for(5000)
 
 
 def texts(found: dict[str, Any]) -> list[tuple[str, str]]:

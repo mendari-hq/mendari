@@ -612,8 +612,21 @@ def validate_response(
     return validated
 
 
-# Control characters a written text may not carry: all but the newline and the tab.
-_OUTPUT_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]+")
+# What a written text may not carry, each run of them a space. The control characters, all but
+# the newline and the tab. And the characters that are not seen and change what is: a reviewer
+# releases the text they read, and with one of these the screen shows one thing while a channel
+# that drops it, or a screen reader, says another (`Take` + U+202E + `01` is drawn "Take 10").
+# - U+00AD, U+180E, U+200B, U+2060 to U+2064, U+FEFF: zero-width and invisible;
+# - U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+206F: bidirectional marks,
+#   embeddings, overrides and isolates, and the deprecated formatting controls;
+# - U+2028, U+2029: separators that break a line in some places and not in others;
+# - U+FFF9 to U+FFFB, U+E0000 to U+E007F: interlinear annotation and tag characters.
+# The joiners (U+200C, U+200D) and the variation selectors stay: scripts and emoji need them.
+_UNSEEN = (
+    "\x00-\x08\x0b-\x1f\x7f-\x9f\u00ad\u061c\u180e\u200b\u200e\u200f\u2028-\u202e"
+    "\u2060-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f"
+)
+_OUTPUT_CTRL = re.compile(f"[{_UNSEEN}]+")
 
 
 def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[str, str]:
@@ -645,7 +658,8 @@ def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[s
 
 def clean_output(text: str) -> str:
     """A written text as it is kept and graded: control characters other than the newline and
-    the tab a space, and no blank at either end. Empty for a text that says nothing."""
+    the tab, and characters that are not seen (`_UNSEEN`), a space; no blank at either end.
+    Empty for a text that says nothing."""
     return _OUTPUT_CTRL.sub(" ", text).strip()
 
 
@@ -802,7 +816,9 @@ def _effective_model(
     return service_id or service_version
 
 
-_CTRL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
+# What an answer's evidence may not carry (a rationale, a tool's name), each run a space: every
+# control character, the newline and the tab too, and the characters that are not seen.
+_CTRL_CHARS = re.compile(f"[\t\n{_UNSEEN}]+")
 
 
 def _tool_evidence(tool_calls: list[Any]) -> list[str]:

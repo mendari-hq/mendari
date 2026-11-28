@@ -45,6 +45,7 @@ from tests.browser.held_site import (
     PLAIN,
     SCRIPT,
     UNKEPT,
+    UNSEEN,
     VAGUE,
     WRITER,
     WRITTEN,
@@ -53,6 +54,8 @@ from tests.browser.held_site import (
     ask,
     card,
     decide,
+    drawer,
+    elapse,
     held_ids,
     record,
     release_box,
@@ -88,16 +91,6 @@ def reviews(page: Page, decision_id: str) -> list[dict[str, Any]]:
 
     page.on("request", seen)
     return sent
-
-
-def elapse(page: Page, decision_id: str) -> None:
-    """Let the five seconds of a review that waits for Undo pass, and wait for the server's
-    answer to it. The page's clock is the test's (`page.clock.install()`, before the queue is
-    opened): nothing else sends such a review, least of all leaving the page."""
-    with page.expect_response(
-        lambda r: r.request.method == "POST" and r.url.endswith(f"/api/review/{decision_id}")
-    ):
-        page.clock.run_for(5000)
 
 
 def reviewed(base: str, decision_id: str) -> dict[str, Any]:
@@ -157,6 +150,33 @@ def test_what_an_action_would_say_is_shown_as_text_never_as_markup(
     assert read.locator("dd").evaluate("(el) => el.textContent") == SCRIPT
     assert held.locator(".actions-list").locator("img, script").count() == 0
     assert held_console.evaluate("window.pwned") is None
+
+
+def test_a_character_that_is_not_seen_is_shown_by_its_code_point(
+    held_console: Page, held_server: str
+) -> None:
+    """An action's arguments are kept as the agent sent them. `Take` + a right-to-left override
+    + `01` would be drawn "Take 10" and sent as "01": the card shows the override by its code
+    point instead, in the argument, in a key and inside a list, so the reviewer reads what
+    would be sent. In the record too, under the action and as the note of its event."""
+    decided = decide(held_server, WRITER, UNSEEN)
+    open_agent(held_console, WRITER, "review")
+    held = card(held_console, decided["id"])
+    said = action_of(held, "Send reply").locator("dl.facts dd")
+    expect(said).to_have_text("Take U+202E01U+202C mgU+200B now")
+    marks = said.locator("code.unseen")
+    assert marks.all_inner_texts() == ["U+202E", "U+202C", "U+200B"]
+    expect(marks.first).to_have_attribute("title", "A character that is not shown: U+202E")
+    assert "\u202e" not in said.evaluate("(el) => el.textContent")  # none is left to do its work
+    read = action_of(held, "Look up medications").locator("dl.facts")
+    expect(read.locator("dt")).to_have_text("naU+200Bme")
+    expect(read.locator("dd")).to_have_text('["U+2066xU+2069"]')
+    shown_record = drawer(held_console, decided["id"])
+    again = action_of(shown_record, "Send reply").locator("dl.facts dd")
+    expect(again).to_have_text("Take U+202E01U+202C mgU+200B now")
+    note = shown_record.locator(".timeline .event-note", has_text="Arguments:").last
+    expect(note).to_contain_text("Take U+202E01U+202C mgU+200B now")
+    assert note.locator("code.unseen").count() == 3
 
 
 def test_a_long_text_scrolls_inside_its_box_and_the_keyboard_reaches_it(

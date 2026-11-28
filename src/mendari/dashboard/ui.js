@@ -9,6 +9,27 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+// Characters that are not seen and change what is (the engine's `providers/agent.py` `_UNSEEN`):
+// control characters but the newline and the tab, zero-width and invisible ones, the
+// bidirectional controls, the line separators and tag characters. With one, a screen shows one
+// thing while a channel that drops it, or a screen reader, says another: `Take` + U+202E + `01`
+// is drawn "Take 10". The engine takes them out of what an agent writes. An action's arguments
+// are kept as the agent sent them, and a reviewer reads them here before naming the action.
+const UNSEEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b\u200e\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu;
+
+// A text as markup that shows every character of it: escaped, and a character that is not
+// seen as its code point, named, so that it is read and never left to do its work.
+export function legible(value) {
+  const text = String(value ?? "");
+  let [out, last] = ["", 0];
+  for (const found of text.matchAll(UNSEEN)) {
+    const code = `U+${found[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
+    out += `${esc(text.slice(last, found.index))}<code class="unseen" title="A character that is not shown: ${code}">${code}</code>`;
+    last = found.index + found[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
 // A decision's whole id (a UUID, as each is made): what its record is read by
 // (`GET /api/audit/{id}`), so the audit search and the palette open a record by it, never by a part.
 export const WHOLE_DECISION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

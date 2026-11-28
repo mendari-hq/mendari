@@ -3,7 +3,7 @@
 
 import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
-import { esc, may, num, pct, signedIn, slotText, state } from "./ui.js";
+import { esc, legible, may, num, pct, signedIn, slotText, state } from "./ui.js";
 
 // An agent's words for its questions and labels (spec §4.3 `display`, `names`), else the key as
 // words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
@@ -264,7 +264,7 @@ function actionArguments(action) {
   const given = Object.entries(action.arguments ?? {});
   if (!given.length) return `<p class="muted">No arguments.</p>`;
   return `<dl class="facts">${given.map(([key, value]) =>
-    `<dt>${esc(key)}</dt><dd class="break-anywhere">${esc(typeof value === "string" ? value : JSON.stringify(value))}</dd>`).join("")}</dl>`;
+    `<dt>${legible(key)}</dt><dd class="break-anywhere">${legible(typeof value === "string" ? value : JSON.stringify(value))}</dd>`).join("")}</dl>`;
 }
 
 // `choose`: a reviewer picks which held actions confirming releases, each by its tick
@@ -347,7 +347,7 @@ function textUnshown(status) {
 // so the keyboard scrolls it; or why there is none. `choose`: the verdict is still owed.
 function textBody(text, choose) {
   if (text.text_status === "open" && typeof text.text === "string") {
-    return `<div class="message text-body" tabindex="0" role="group" aria-label="${esc(readable(text.name))}: the text">${esc(text.text)}</div>`;
+    return `<div class="message text-body" tabindex="0" role="group" aria-label="${esc(readable(text.name))}: the text">${legible(text.text)}</div>`;
   }
   return `<p class="muted text-missing">${esc(textUnshown(text.text_status))}${choose ? " Read the draft where your own system shows it, then give your verdict." : ""}</p>`;
 }

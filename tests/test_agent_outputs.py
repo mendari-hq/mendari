@@ -28,9 +28,11 @@ from mendari.core import spec
 from mendari.core.agent import Agent
 from mendari.core.spec import AgentManifest, Outcome, WrittenOutput
 from mendari.errors import AgentValidationError, ProviderError
+from mendari.providers import agent as agent_provider
 from mendari.providers.agent import (
     ENDPOINT_ENV,
     AgentProvider,
+    clean_output,
     request_body,
     slot_outputs,
     validate_response,
@@ -120,6 +122,58 @@ def test_control_characters_become_a_space_and_newlines_and_tabs_stay(agent: Age
     cleaned = validated(agent, {"reply_draft": text})["outputs"]["reply_draft"]
     assert cleaned == "Line one.\nLine\ttwo. End. \nLast ."
     assert validated(agent, {"reply_draft": "  padded \n"})["outputs"] == {"reply_draft": "padded"}
+
+
+def test_characters_that_are_not_seen_become_a_space_and_what_a_script_needs_stays(
+    agent: Agent,
+) -> None:
+    """A reviewer releases the text they read. A character that is not seen and changes what
+    is makes the screen show one thing while a channel that drops it, or a screen reader, says
+    another: `Take` + a right-to-left override + `01` is drawn as "Take 10". So each becomes a
+    space, as a control character does: what reorders a line (bidirectional embeddings,
+    overrides, isolates and marks), zero-width and invisible characters, separators that break
+    a line in some places only, and tag characters. What a script or an emoji needs stays."""
+    hidden = (
+        "Take \u202e01\u202c mg\u200b now\u2066.\u2069 Re\u00adfill\ufeff "
+        "\U000e0041ok\u200f\u0085x\u2028y"
+    )
+    cleaned = validated(agent, {"reply_draft": hidden})["outputs"]["reply_draft"]
+    assert cleaned == "Take  01  mg  now .  Re fill   ok x y"  # a run of them is one space
+    for code in (0x202A, 0x202D, 0x2067, 0x2068, 0x061C, 0x180E, 0x2060, 0x2064, 0x206F, 0xFFF9):
+        assert clean_output(f"a{chr(code)}b") == "a b", hex(code)
+    for code in (0xE0001, 0xE0020, 0xE007F, 0x009B):
+        assert clean_output(f"a{chr(code)}b") == "a b", hex(code)
+    # A joiner inside a word or an emoji, a variation selector, and letters of any script.
+    kept = (
+        "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645 "  # Persian, a non-joiner inside
+        "\U0001f469\u200d\u2695\ufe0f "  # an emoji made of two, joined, with a selector
+        "a\u00f1adir \u85ac \u05e9\u05dc\u05d5\u05dd"  # Spanish, Japanese, Hebrew
+    )
+    assert clean_output(kept) == kept
+    assert clean_output("\u202e\u200b") == ""  # nothing is left: no text at all
+
+
+def test_a_rationale_and_a_tool_name_carry_no_character_that_is_not_seen(agent: Agent) -> None:
+    """An answer's evidence is what a reviewer reads to judge it: a rationale and the tools
+    the agent says it called. The same characters become a space there, and a line break too:
+    evidence is one line."""
+    called: list[Any] = ["lookup\u200e_one", {"name": "look\u2066up\u2069_two"}]
+    raw = {
+        "answers": {
+            "request": {
+                "value": "refill",
+                "confidence": 0.95,
+                "rationale": "Asked for \u202e01\u202c tablets\u200b.\nSecond line.",
+            }
+        },
+        "tool_calls": called,
+    }
+    found = validate_response(raw, questions(agent))
+    assert found["answers"]["request"]["rationale"] == "Asked for  01  tablets . Second line."
+    assert agent_provider._tool_evidence(called) == [
+        "tool:lookup _one",
+        "tool:look up _two",
+    ]
 
 
 def test_with_no_output_declared_the_key_is_not_read_at_all(agent: Agent) -> None:

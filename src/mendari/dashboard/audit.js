@@ -9,7 +9,7 @@ import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
+import { $, api, copyText, download, esc, fileSlug, icon, legible, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, WHOLE_DECISION_ID, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -509,7 +509,7 @@ function noteLine(e) {
   if (e.note_status !== "open") return `<p class="event-note muted">${esc((NOTE_STATUS[e.note_status] ?? "Note").replace(/^Note/, what))}</p>`;
   // A held text is shown once, whole, under its name: the timeline does not repeat it.
   if (what === "Text") return `<p class="event-note muted">Its text is shown above, under “What the agent wrote”.</p>`;
-  return `<p class="event-note"><b>${what}:</b> ${esc(what === "Note" ? e.note : keptArguments(e.note))}</p>`;
+  return `<p class="event-note"><b>${what}:</b> ${legible(what === "Note" ? e.note : keptArguments(e.note))}</p>`;
 }
 
 // A proposed action's kept note is `{name, arguments}`: the arguments, as JSON.

@@ -17,6 +17,7 @@ from playwright.sync_api import Browser, Page, expect
 
 from mendari.server.app import create_app
 from tests.browser.conftest import TRIAGE, serving
+from tests.browser.held_site import elapse
 from tests.browser.test_dashboard import open_agent, show
 from tests.conftest import ROOT, TRIAGE_DIR, message
 
@@ -73,6 +74,7 @@ def test_the_queue_shows_what_confirming_releases_and_free_text_only_by_its_tick
     console: Page, actions_server: str
 ) -> None:
     decided = decide(actions_server, VISIT)
+    console.clock.install()
     open_agent(console, AGENT, "review")
     card = console.locator(f'.review-card[data-id="{decided["id"]}"]')
     expect(card.get_by_role("heading", name="Proposed actions")).to_be_visible()
@@ -104,10 +106,10 @@ def test_the_queue_shows_what_confirming_releases_and_free_text_only_by_its_tick
     bar.get_by_role("button", name="Undo").click()
     expect(card.locator(".undo-bar")).to_have_count(0)
     assert record(actions_server, decided["id"])["review_status"] == "pending"  # nothing was sent
-    # Confirmed for real: sent when the queue is left, as an override is.
+    # Confirmed for real: sent once its five seconds are up, and by nothing else.
     card.get_by_role("button", name=re.compile("^Confirm Appointment")).click()
     expect(card.locator(".undo-bar")).to_be_visible()
-    show(console, "audit")
+    elapse(console, decided["id"])
     found = record(actions_server, decided["id"])
     assert (found["review_status"], found["human_override"]) == ("resolved", False)
     assert [(a["name"], a["disposition"], a["reason"]) for a in found["actions"]] == [
@@ -123,6 +125,7 @@ def test_an_action_of_enumerated_arguments_is_released_by_default_and_a_reviewer
     """No free text in either held action: each starts ticked, as it always did, and the one
     the reviewer unticks is refused by name while the label is confirmed."""
     decided = decide(actions_server, RESCHEDULE)
+    console.clock.install()
     open_agent(console, AGENT, "review")
     card = console.locator(f'.review-card[data-id="{decided["id"]}"]')
     boxes = card.get_by_role("checkbox", name="Release when I confirm")
@@ -133,7 +136,7 @@ def test_an_action_of_enumerated_arguments_is_released_by_default_and_a_reviewer
     boxes.nth(1).uncheck()  # the standard reply to the patient: not this time
     card.get_by_role("button", name=re.compile("^Confirm Appointment")).click()
     expect(card.locator(".undo-bar")).to_contain_text("Confirm Appointment and release 1 action")
-    show(console, "audit")
+    elapse(console, decided["id"])
     found = record(actions_server, decided["id"])
     assert (found["review_status"], found["human_override"]) == ("resolved", False)
     assert [(a["name"], a["disposition"], a["reason"]) for a in found["actions"]] == [
