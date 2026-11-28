@@ -54,7 +54,7 @@ from mendari.core import validation_brief
 from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.card import RISK_AUTOMATION, RISK_NAMES, read_benchmark
-from mendari.core.policy import GATE_TEXT, gate_of
+from mendari.core.policy import gate_of, gate_words
 from mendari.core.spec import variant_configs
 from mendari.core.status import title as question_title
 from mendari.errors import MendariError
@@ -486,18 +486,21 @@ def _risk(agent: Agent, deployment: Deployment | None) -> dict[str, Any]:
 
 def _actions(agent: Agent) -> list[dict[str, Any]]:
     """The actions the agent declares (spec §13), each with its effect and how the runtime
-    gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
+    gates it (`policy.gate_of`, in `policy.gate_words`' words): the tightened gate of an action
+    whose arguments can hold free text, saying why. `tightened` says the agent's own files did
+    it (`allow_auto: false`); free text is the runtime's rule, and is not marked so. Empty: it
+    declares none."""
     declared = []
     for name, spec in agent.manifest.actions.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
+        gated = {"allow_auto": spec.allow_auto, "free_text": spec.free_text}
         schema = spec.json_schema
         declared.append(
             {
                 "name": name,
                 "description": spec.description,
                 "effect": spec.effect.value,
-                "gate": gate.value,
-                "released": GATE_TEXT[gate],
+                "gate": gate_of(spec.effect, **gated).value,
+                "released": gate_words(spec.effect, **gated),
                 "tightened": not spec.allow_auto,
                 # None: no schema, so its arguments are not checked; else the fields it takes.
                 "arguments": None if schema is None else list(schema.get("properties") or {}),

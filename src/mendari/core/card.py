@@ -11,7 +11,7 @@ from typing import Any, Literal
 from mendari import notices
 from mendari.core import clock
 from mendari.core.agent import Agent
-from mendari.core.policy import GATE_TEXT, gate_of
+from mendari.core.policy import gate_words
 from mendari.core.spec import AgentManifest, Condition, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
@@ -382,7 +382,8 @@ def _written(agent: Agent) -> list[str]:
 
 def _actions(agent: Agent) -> list[str]:
     """The card's Actions section (spec §13): each action the agent may propose, what it does,
-    its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
+    its effect and how the runtime gates it (`policy.gate_of`, in `policy.gate_words`' words:
+    the tightened gate of an action whose arguments can hold free text, saying why).
     Nothing for an agent that declares none, so its card is what it always was."""
     declared = agent.manifest.actions
     if not declared:
@@ -401,7 +402,7 @@ def _actions(agent: Agent) -> list[str]:
         "|---|---|---|---|---|",
     ]
     for name, spec in declared.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
+        released = gate_words(spec.effect, allow_auto=spec.allow_auto, free_text=spec.free_text)
         schema = spec.json_schema
         named = list((schema or {}).get("properties") or {})
         if schema is None:
@@ -412,7 +413,7 @@ def _actions(agent: Agent) -> list[str]:
             arguments = "checked: none taken"
         out.append(
             f"| {_c(name)} | {_t(spec.description)} | `{spec.effect.value}` | "
-            f"{GATE_TEXT[gate]} | {arguments} |"
+            f"{released} | {arguments} |"
         )
     return [*out, ""]
 

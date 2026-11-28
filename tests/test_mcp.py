@@ -365,10 +365,20 @@ REGISTRY = "https://hub.example.org"
 def pulled_and_approved(base: Path, store: AuditStore) -> Agent:
     """An outside publisher's agent pulled from a registry, with an action that writes to a
     record, approved for its digest in the trail: what a running server automates once its
-    registry has been read and recalls nothing (`server/recalls.py`)."""
+    registry has been read and recalls nothing (`server/recalls.py`). The action takes one
+    flag and no text: a write whose arguments can hold free text, as one with no schema can, is
+    never released without a person (ADR-0027), and these tests are about one an AUTO decision
+    releases."""
 
     def writes(manifest: dict[str, Any]) -> None:
-        manifest["actions"] = {"file_bill": {"description": "File it.", "effect": "write"}}
+        takes = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"again": {"type": "boolean"}},
+        }
+        manifest["actions"] = {
+            "file_bill": {"description": "File it.", "effect": "write", "schema": takes}
+        }
 
     source = outside_sorter(base / "source", manifest=writes)
     target = agents_cache() / OUTSIDE_ID / source.version

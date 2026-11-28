@@ -449,6 +449,7 @@ class Decision:
                         allow_auto=spec.allow_auto,
                         vouched=vouched,
                         agreed=not item.proposed.disputed,
+                        free_text=spec.free_text,
                     ),
                     outcome=policy.outcome,
                     recommendation=policy.recommendation,
@@ -521,7 +522,12 @@ class Decision:
                 for event in events
             )
             found = disposition(
-                gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched),
+                gate_of(
+                    spec.effect,
+                    allow_auto=spec.allow_auto,
+                    vouched=vouched,
+                    free_text=spec.free_text,
+                ),
                 outcome=Outcome(row["outcome"]),
                 recommendation=row["recommendation"],
                 review=_review_of(row),

@@ -1819,18 +1819,26 @@ def test_the_demo_agents_proposals_are_in_what_each_case_decided_from(
 def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> None:
     """Decided for real by the actions fixture: a plain refill automates exactly from its own
     confidence down, and the same answer with an order proposed never does, however low the
-    threshold. Applying the policy again is exact for both."""
+    threshold. Nor does an answer whose proposals can carry free text (ADR-0027), where the
+    same answer with enumerated proposals automates from its confidence down. Applying the
+    policy again is exact for each."""
     decision = Decision.from_path(ACTIONS_MINI, origin_cap=False)
     manifest = decision.agent.manifest
     plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
     order = decision({"message": {"body": "Please renew my prescription."}})
     undeclared = decision({"message": {"body": "Try an undeclared thing."}})
-    visit = decision({"message": {"body": "I need to move my appointment."}})
-    results = [plain, order, undeclared, visit]
-    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 3]
+    visit = decision({"message": {"body": "Please reschedule my visit."}})
+    noted = decision({"message": {"body": "I need to move my appointment."}})
+    results = [plain, order, undeclared, visit, noted]
+    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 4]
     assert plain.policy_inputs is not None and plain.policy_inputs.actions == ()
     assert order.policy_inputs is not None and order.policy_inputs.actions == (STOP,)
     assert visit.policy_inputs is not None and visit.policy_inputs.actions == ()  # held, no stop
+    # The same answer as `visit`, proposing a note and a reply that are free strings: two stops.
+    assert noted.policy_inputs is not None and noted.policy_inputs.actions == (
+        "action 'file_note' can carry free text and is never released without a person",
+        "action 'send_reply' can carry free text and is never released without a person",
+    )
     cases = [
         Case(r.recommendation, (), r.outcome.value, r.recommendation, r.policy_inputs)
         for r in results
@@ -1843,6 +1851,7 @@ def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> N
         assert outcomes[0] == ("AUTO" if threshold <= 0.95 else "HUMAN_REVIEW"), threshold
         assert outcomes[1:3] == ["HUMAN_REVIEW", "HUMAN_REVIEW"], threshold  # the stops hold
         assert outcomes[3] == ("AUTO" if threshold <= 0.70 else "HUMAN_REVIEW"), threshold
+        assert outcomes[4] == "HUMAN_REVIEW", threshold  # free text: a person's at any threshold
     # The same answers without the stop would automate: it is the stop that holds them.
     without = Case(
         "refill", (), "AUTO", "refill", PolicyInputs(order.policy_inputs.answers, {}, None, {})

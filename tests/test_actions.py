@@ -6,7 +6,9 @@ manifest.
 The table is written out here, cell by cell, and held against the code; then properties over
 every effect, manifest key, origin and decision state prove what the table alone cannot: that
 nothing a manifest declares and nothing an agent proposes loosens a gate or releases what a
-stricter reading would not, and that the cap never raises an outcome."""
+stricter reading would not, and that the cap never raises an outcome. Arguments that can hold
+free text are a fourth way a gate tightens (ADR-0027): where it would be `auto` it is `person`,
+so no automated decision releases a `write` or a `contact` that carries words nobody read."""
 
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ from mendari.core.actions import (
 from mendari.core.phi import PhiPolicy
 from mendari.core.policy import (
     EFFECT_GATES,
+    FREE_TEXT_GATE,
     GATE_TEXT,
     GATES,
     Gate,
@@ -40,6 +43,7 @@ from mendari.core.policy import (
     apply_policy,
     disposition,
     gate_of,
+    gate_words,
     risk_permits_auto,
     stricter,
 )
@@ -93,6 +97,82 @@ def test_the_gate_of_each_effect_by_who_vouches_for_the_agent(
     # `allow_auto: false` is never without a person, whatever the effect and the origin.
     assert gate_of(effect, allow_auto=False) is PERSON
     assert gate_of(effect, allow_auto=False, vouched=False) is PERSON
+
+
+@pytest.mark.parametrize(
+    ("effect", "vouched", "not_vouched"),
+    [
+        (Effect.READ, DECISION, PERSON),
+        (Effect.DRAFT, DECISION, PERSON),
+        (Effect.WRITE, PERSON, PERSON),
+        (Effect.CONTACT, PERSON, PERSON),
+        (Effect.ORDER, PERSON, PERSON),
+    ],
+)
+def test_the_gate_of_each_effect_when_its_arguments_can_hold_free_text(
+    effect: Effect, vouched: Gate, not_vouched: Gate
+) -> None:
+    """ADR-0027: an action whose arguments can hold free text is never released without a
+    person where its gate would be `auto`. So a `write` or a `contact` is a person's; a `read`
+    or a `draft` is still released with any decision that is not blocked, unless nobody vouched
+    for the agent (its gate was `auto` then, and is `person`); an `order` was a person's
+    already."""
+    assert gate_of(effect, free_text=True) is vouched
+    assert gate_of(effect, vouched=False, free_text=True) is not_vouched
+    # Arguments that hold none leave the gate what the table above says.
+    assert gate_of(effect, free_text=False) is gate_of(effect)
+    assert gate_of(effect, vouched=False, free_text=False) is gate_of(effect, vouched=False)
+    # Whatever else made the gate `person` still does.
+    assert gate_of(effect, allow_auto=False, free_text=True) is PERSON
+    assert gate_of(effect, agreed=False, free_text=True) is PERSON
+
+
+def test_free_text_only_tightens_a_gate_whatever_else_is_so() -> None:
+    """Over every effect, manifest key, origin and second signal there is: the gate with free
+    text is the same gate or a stricter one, never a looser one. It differs only where the gate
+    would be `auto`, and is then `person`: so no gate of a free-text action is `auto`, the one
+    gate an automated decision releases by itself."""
+    combinations = list(itertools.product(Effect, (True, False), (True, False), (True, False)))
+    assert len(combinations) == 5 * 2 * 2 * 2
+    for effect, allow_auto, vouched, agreed in combinations:
+        said = {"allow_auto": allow_auto, "vouched": vouched, "agreed": agreed}
+        without = gate_of(effect, **said)
+        held = gate_of(effect, **said, free_text=True)
+        assert GATES.index(held) >= GATES.index(without) >= GATES.index(EFFECT_GATES[effect]), said
+        assert held is (PERSON if without is AUTO else without), (effect, said)
+        assert held is not AUTO, (effect, said)
+        assert stricter(held, without) is held
+
+
+def test_the_gate_in_words_says_when_free_text_made_it_a_persons() -> None:
+    """What the Decision Card, the console and the committee packet show for a declared action
+    (`gate_words`): the words of its gate, the tightened one. Where the gate is `person` only
+    because the action's arguments can hold free text, the words say that; an order and an
+    action the manifest tightens keep the words they had."""
+    assert FREE_TEXT_GATE == "Never without a person: its arguments can hold free text."
+    assert gate_words(Effect.CONTACT) == GATE_TEXT[AUTO]
+    assert gate_words(Effect.CONTACT, free_text=True) == FREE_TEXT_GATE
+    assert gate_words(Effect.WRITE, free_text=True) == FREE_TEXT_GATE
+    # A read or a draft of an agent the deployment vouches for is released with the decision.
+    assert gate_words(Effect.READ, free_text=True) == GATE_TEXT[DECISION]
+    assert gate_words(Effect.DRAFT, free_text=True) == GATE_TEXT[DECISION]
+    assert gate_words(Effect.READ, vouched=False, free_text=True) == FREE_TEXT_GATE
+    assert gate_words(Effect.READ, vouched=False) == GATE_TEXT[AUTO]
+    assert gate_words(Effect.ORDER, free_text=True) == GATE_TEXT[PERSON]
+    assert gate_words(Effect.WRITE, allow_auto=False, free_text=True) == GATE_TEXT[PERSON]
+    # Over every action there is: the words are the gate's own, or say why it is stricter, and
+    # they say "never without a person" exactly where the gate is `person`.
+    for effect, allow_auto, vouched, free_text in itertools.product(
+        Effect, (True, False), (True, False), (True, False)
+    ):
+        said = {"allow_auto": allow_auto, "vouched": vouched}
+        gate = gate_of(effect, **said, free_text=free_text)
+        words = gate_words(effect, **said, free_text=free_text)
+        if gate is gate_of(effect, **said):
+            assert words == GATE_TEXT[gate], (effect, said, free_text)
+        else:
+            assert free_text and gate is PERSON and words == FREE_TEXT_GATE, (effect, said)
+        assert words.startswith("Never without a person") is (gate is PERSON)
 
 
 # -- the disposition (Table B), every cell --------------------------------------------------------
@@ -193,35 +273,64 @@ states = st.fixed_dictionaries(
 )
 
 
-@given(effect=effects, allow_auto=st.booleans(), vouched=st.booleans())
+@given(effect=effects, allow_auto=st.booleans(), vouched=st.booleans(), free_text=st.booleans())
 def test_no_manifest_key_and_no_origin_gives_a_gate_looser_than_the_effects(
-    effect: Effect, allow_auto: bool, vouched: bool
+    effect: Effect, allow_auto: bool, vouched: bool, free_text: bool
 ) -> None:
-    gate = gate_of(effect, allow_auto=allow_auto, vouched=vouched)
+    said = {"allow_auto": allow_auto, "vouched": vouched, "free_text": free_text}
+    gate = gate_of(effect, **said)
     assert GATES.index(gate) >= GATES.index(EFFECT_GATES[effect])
-    # Each of the two only tightens, alone and together.
-    assert GATES.index(gate_of(effect, allow_auto=False, vouched=vouched)) >= GATES.index(gate)
-    assert GATES.index(gate_of(effect, allow_auto=allow_auto, vouched=False)) >= GATES.index(gate)
+    # Each of the three only tightens, alone and together.
+    for tighter in ({"allow_auto": False}, {"vouched": False}, {"free_text": True}):
+        assert GATES.index(gate_of(effect, **{**said, **tighter})) >= GATES.index(gate)
     assert stricter(gate, EFFECT_GATES[effect]) is gate
+
+
+# The arguments a manifest can give an action, as far as the gate reads them: none checked, none
+# taken, enumerated ones, and a free string (`ActionSpec.free_text`).
+_TAKING = {"type": "object", "additionalProperties": False}
+schemas = st.sampled_from(
+    [
+        None,
+        _TAKING,
+        {**_TAKING, "properties": {"queue": {"type": "string", "enum": ["refill", "other"]}}},
+        {**_TAKING, "properties": {"days": {"type": "integer", "minimum": 1}}},
+        {**_TAKING, "properties": {"message": {"type": "string", "maxLength": 2000}}},
+    ]
+)
 
 
 @given(
     description=st.text(min_size=1, max_size=40).filter(lambda text: text.strip()),
     effect=effects,
     allow_auto=st.one_of(st.none(), st.booleans()),
+    schema=schemas,
     vouched=st.booleans(),
 )
 def test_no_action_a_manifest_can_declare_has_a_gate_looser_than_its_effects(
-    description: str, effect: Effect, allow_auto: bool | None, vouched: bool
+    description: str,
+    effect: Effect,
+    allow_auto: bool | None,
+    schema: dict[str, Any] | None,
+    vouched: bool,
 ) -> None:
-    """Every `ActionSpec` there is: the model takes nothing but these keys (and a schema, which
-    is no part of the gate), so this is every way a manifest can word an action."""
+    """Every `ActionSpec` there is: the model takes nothing but these keys, so this is every
+    way a manifest can word an action. Its schema is part of the gate only to tighten it
+    (arguments that can hold free text, ADR-0027): no schema loosens one."""
     raw: dict[str, Any] = {"description": description, "effect": effect.value}
     if allow_auto is not None:
         raw["allow_auto"] = allow_auto
+    if schema is not None:
+        raw["schema"] = schema
     spec = ActionSpec.model_validate(raw)
-    gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched)
+    gate = gate_of(
+        spec.effect, allow_auto=spec.allow_auto, vouched=vouched, free_text=spec.free_text
+    )
     assert GATES.index(gate) >= GATES.index(EFFECT_GATES[effect])
+    # Whatever the schema, the gate is the one the same action has with no free text, or stricter.
+    plain = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched)
+    assert GATES.index(gate) >= GATES.index(plain)
+    assert (gate is plain) or spec.free_text
     assert set(ActionSpec.model_fields) == {"description", "effect", "allow_auto", "json_schema"}
 
 
@@ -263,14 +372,16 @@ def test_what_released_and_held_mean(gate: Gate, state: dict[str, Any]) -> None:
     assert RANK[disposition(gate, **worse)[0]] <= RANK[found]
 
 
-@given(effect=effects, allow_auto=st.booleans(), state=states)
+@given(effect=effects, allow_auto=st.booleans(), free_text=st.booleans(), state=states)
 def test_an_agent_nobody_vouched_for_gets_nothing_released_without_a_person(
-    effect: Effect, allow_auto: bool, state: dict[str, Any]
+    effect: Effect, allow_auto: bool, free_text: bool, state: dict[str, Any]
 ) -> None:
     """Such an agent never automates (`apply_policy`'s registry cap), so with
     its decisions never AUTO nothing it proposes is released by the table."""
-    gate = gate_of(effect, allow_auto=allow_auto, vouched=False)
+    gate = gate_of(effect, allow_auto=allow_auto, vouched=False, free_text=free_text)
     assert gate is not DECISION
+    if free_text:  # and what could hold free text is a person's outright, a `read` too
+        assert gate is PERSON
     for outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN, Outcome.BLOCK):
         assert disposition(gate, **{**state, "outcome": outcome})[0] != "released"
 
@@ -298,11 +409,16 @@ def test_risk_permits_auto_is_what_the_risk_cap_decides(level: RiskLevel) -> Non
 
 # -- the cap's reasons ----------------------------------------------------------------------------
 
+QUEUED = {"queue": "refill"}  # `assign_queue`'s arguments: enumerated, so no free text
+FREE_NOTE = "action 'file_note' can carry free text and is never released without a person"
+FREE_REPLY = "action 'send_reply' can carry free text and is never released without a person"
+
 
 def test_what_stops_a_decision_from_being_automated() -> None:
     assert action_stops([]) == ()
-    assert action_stops([check("look_up_medications"), check("file_note", {"note": "x"})]) == ()
-    assert action_stops([check("send_reply", {"message": "Received."})]) == ()
+    # A read, and a write and a contact of enumerated arguments: an AUTO decision releases each.
+    assert action_stops([check("look_up_medications"), check("assign_queue", QUEUED)]) == ()
+    assert action_stops([check("send_template", {"template": "received"})]) == ()
     assert action_stops([check("renew_prescription")]) == (
         "action 'renew_prescription' (order) is never released without a person",
     )
@@ -331,9 +447,61 @@ def test_what_stops_a_decision_from_being_automated() -> None:
     )
 
 
+def test_free_text_in_a_write_or_a_contact_stops_a_decision_from_being_automated() -> None:
+    """ADR-0027: a declared, well-formed proposal whose arguments can hold free text is never
+    released without a person where its gate would be `auto`, and its reason says so. A draft
+    and a read are no stop: their gate is `decision`. The manifest's own tightening, an order
+    and arguments the schema refuses keep their own words where free text applies too."""
+    assert action_stops([check("file_note", {"note": "x"})]) == (FREE_NOTE,)
+    assert action_stops([check("send_reply", {"message": "Received."})]) == (FREE_REPLY,)
+    # In order, each once, however often and with whatever arguments it is proposed.
+    several = [
+        check("send_reply", {"message": "Received."}),
+        check("assign_queue", QUEUED),
+        check("file_note", {"note": "x"}),
+        check("send_reply", {"message": "Again."}),
+    ]
+    assert action_stops(several) == (FREE_REPLY, FREE_NOTE)
+    # A draft and a read can hold free text and wait for nobody: a person sees a draft before
+    # it takes effect, and a read changes nothing.
+    assert MANIFEST.actions["draft_reply"].free_text and MANIFEST.actions["file_note"].free_text
+    assert (
+        action_stops([check("draft_reply", {"message": "x"}), check("look_up_medications")]) == ()
+    )
+    # Each of these can hold free text as well, and says what it always said.
+    assert action_stops([check("queue_refill", {"medication": "x"})]) == (
+        "action 'queue_refill' is never released without a person (allow_auto: false)",
+    )
+    assert action_stops([check("renew_prescription")]) == (
+        "action 'renew_prescription' (order) is never released without a person",
+    )
+    assert action_stops([check("send_reply", {"message": 5})]) == (
+        "action 'send_reply': its arguments do not match its schema",
+    )
+    # A reason names the declared action and holds no word of its arguments.
+    assert "Received" not in FREE_REPLY and "'send_reply'" in FREE_REPLY
+
+
 def test_an_unvouched_agents_read_is_no_stop_of_its_own() -> None:
-    """Its decision cannot be AUTO anyway; the stop is for what AUTO itself could not release."""
-    assert action_stops([check("look_up_medications")], vouched=False) == ()
+    """Its decision cannot be AUTO anyway; the stop is for what AUTO itself could not release.
+    A read whose arguments can hold free text is one of those (ADR-0027): for an agent nobody
+    vouched for its gate was `auto`, and is `person`. One that takes no arguments is still no
+    stop of its own."""
+    raw = raw_manifest()
+    raw["actions"]["count_refills"] = {
+        "description": "Count the refills left on the prescription.",
+        "effect": "read",
+        "schema": {"type": "object", "additionalProperties": False},
+    }
+    manifest = AgentManifest.model_validate(raw)
+    counted = actions.check(manifest, actions.validators(manifest), Proposed("count_refills", {}))
+    assert counted.spec is not None and not counted.spec.free_text
+    assert action_stops([counted], vouched=False) == ()
+    # No schema: its arguments are whatever the agent sends.
+    assert action_stops([check("look_up_medications")], vouched=False) == (
+        "action 'look_up_medications' can carry free text and is never released without a person",
+    )
+    assert action_stops([check("look_up_medications")]) == ()  # vouched for: with the decision
     assert action_stops([check("renew_prescription")], vouched=False) != ()
 
 
@@ -345,10 +513,20 @@ json_values = st.recursive(
     ),
     max_leaves=8,
 )
+# Arguments that fit a declared action, so that well-formed proposals are generated too.
+fitting = st.sampled_from(
+    [
+        QUEUED,
+        {"template": "received"},
+        {"message": "Received."},
+        {"note": "Asked."},
+        {"medication": "lisinopril 10 mg"},
+    ]
+)
 proposed = st.builds(
     Proposed,
     name=st.one_of(names, st.sampled_from(list(MANIFEST.actions))),
-    arguments=st.dictionaries(st.text(max_size=8), json_values, max_size=4),
+    arguments=st.one_of(st.dictionaries(st.text(max_size=8), json_values, max_size=4), fitting),
     refused=st.one_of(st.none(), st.sampled_from(["composite_member", "undeclared"])),
 )
 
@@ -367,22 +545,30 @@ def test_no_proposal_is_released_past_its_gate_and_a_reason_names_declared_actio
             assert item.refusal in REFUSALS  # what is not declared is refused, whatever it says
         if item.refusal is not None or declared is None or not declared.allow_auto:
             assert stops  # and it stops automation
-        elif gate_of(declared.effect, vouched=vouched) is PERSON:
+        elif gate_of(declared.effect, vouched=vouched, free_text=declared.free_text) is PERSON:
             assert stops
         for problem in item.problems:  # where and which rule: no key the agent wrote
             where = problem.split(": ", 1)[0]
             assert set(where.split("/")) <= {"(root)", "*", "message", "medication",
-                                             "days_supply", "note"}  # fmt: skip
+                                             "days_supply", "note", "template",
+                                             "queue"}  # fmt: skip
     # No reason holds a name the manifest does not declare, nor any argument.
     undeclared = {p.name for p in proposals if p.name not in MANIFEST.actions and len(p.name) > 3}
     for stop in stops:
         assert not any(repr(name) in stop for name in undeclared)
         named = [name for name in MANIFEST.actions if repr(name) in stop]
         assert len(named) <= 1
+        if "can carry free text" in stop:  # said only of an action whose arguments can
+            assert len(named) == 1 and MANIFEST.actions[named[0]].free_text
     if not stops:  # everything proposed could be released with an AUTO decision
         for item in checked:
             assert item.refusal is None and item.spec is not None
-            gate = gate_of(item.spec.effect, allow_auto=item.spec.allow_auto, vouched=vouched)
+            gate = gate_of(
+                item.spec.effect,
+                allow_auto=item.spec.allow_auto,
+                vouched=vouched,
+                free_text=item.spec.free_text,
+            )
             assert gate is not PERSON
 
 

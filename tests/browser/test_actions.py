@@ -201,15 +201,20 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     section = console.locator("#card-actions")
     expect(section).to_contain_text("Mendari authorizes each action and runs none")
     rows = section.locator("tbody tr")
-    expect(rows).to_have_count(6)
+    expect(rows).to_have_count(8)
     expect(rows.nth(0)).to_contain_text("look_up_medications")
     expect(rows.nth(0)).to_contain_text("With any decision that is not blocked.")
     expect(rows.nth(0)).to_contain_text("not checked")
+    # A contact whose argument is a free string: never without a person, and why (ADR-0027).
     expect(rows.nth(2).locator(".chip")).to_have_text("contact")
-    expect(rows.nth(2)).to_contain_text("Only with an automated decision")
+    expect(rows.nth(2)).to_contain_text("Never without a person: its arguments can hold free text.")
     expect(rows.nth(3)).to_contain_text("Never without a person")  # tightened by the manifest
     expect(rows.nth(3)).to_contain_text("medication")
     expect(rows.nth(5).locator(".chip")).to_have_text("order")
+    # The same effect with an enumerated argument is released with an automated decision.
+    expect(rows.nth(6)).to_contain_text("send_template")
+    expect(rows.nth(6).locator(".chip")).to_have_text("contact")
+    expect(rows.nth(6)).to_contain_text("Only with an automated decision")
     # An agent that declares none has no such section, and no link to one.
     open_agent(console, TRIAGE, "card")
     expect(console.locator("#card-actions")).to_have_count(0)

@@ -53,9 +53,9 @@ applies follows, in the order above, once. A reason of steps 7 and 8 ends "; a p
     action 'renew_prescription' (order) is never released without a person; a person decides
 
 What a declared action needs before it is released is here too, beside the risk caps and never
-in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest, the agent's origin and
-a second signal that did not agree on the proposal may only tighten it) and `disposition` (the
-gate, by the decision's state).
+in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest, the agent's origin, a
+second signal that did not agree on the proposal and arguments that can hold free text may only
+tighten it) and `disposition` (the gate, by the decision's state).
 """
 
 from __future__ import annotations
@@ -319,7 +319,9 @@ def _action_capped(result: PolicyResult, stops: Sequence[str]) -> PolicyResult:
 # -- actions (spec §13, ADR-0023) -----------------------------------------------------------------
 # What a declared action needs before it is released. The runtime's, as the risk caps are
 # (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
-# false`); nothing in a manifest, and nothing an agent proposes, loosens one.
+# false`); nothing in a manifest, and nothing an agent proposes, loosens one. What a manifest
+# says of an action's arguments tightens it too (ADR-0027): where they can hold free text, the
+# gate `auto` becomes `person`, so no automated decision releases words nobody read.
 
 
 class Gate(StrEnum):
@@ -344,6 +346,9 @@ GATE_TEXT: Mapping[Gate, str] = {
     Gate.AUTO: "Only with an automated decision; otherwise when a reviewer confirms it.",
     Gate.PERSON: "Never without a person: when a reviewer confirms the decision.",
 }
+# The gate `person` in words where only the free text an action's arguments can hold made it so
+# (ADR-0027): what `gate_words` gives in place of `GATE_TEXT`'s, so that the reader sees why.
+FREE_TEXT_GATE = "Never without a person: its arguments can hold free text."
 # Where a decision's review stands: none is needed, one is awaited, or a reviewer confirmed or
 # overrode the recommendation.
 Review = Literal["none", "pending", "confirmed", "overridden"]
@@ -355,7 +360,12 @@ def stricter(one: Gate, other: Gate) -> Gate:
 
 
 def gate_of(
-    effect: Effect, *, allow_auto: bool = True, vouched: bool = True, agreed: bool = True
+    effect: Effect,
+    *,
+    allow_auto: bool = True,
+    vouched: bool = True,
+    agreed: bool = True,
+    free_text: bool = False,
 ) -> Gate:
     """A declared action's gate: its effect's (`EFFECT_GATES`), and never looser. The manifest
     tightens it with `allow_auto: false` (never without a person). For an agent the deployment
@@ -365,13 +375,36 @@ def gate_of(
     gate of `write`. A proposal its second signal did not agree on (`agreed` false: only some
     repeated runs proposed it, or a check's second member proposed another; `Proposed.disputed`)
     is never released without a person either, whatever its effect: an agent unsure of what to
-    do is not left to do it."""
+    do is not left to do it.
+
+    A fourth way a gate tightens (ADR-0027): arguments that can hold free text (`free_text`:
+    `ActionSpec.free_text`). Where the gate would be `auto`, by the action's effect or because
+    nobody vouched for the agent, it is `person`: an automated decision would send words nobody
+    read to a chart or a patient. So a `write` or a `contact` with them is a person's, as is a
+    `read` or a `draft` of an agent nobody vouched for. A `read` or a `draft` of an agent the
+    deployment vouches for keeps the gate `decision` (a read changes nothing, and a person sees
+    a draft before it takes effect), and an `order` was a person's already."""
     gate = EFFECT_GATES[effect]
     if not vouched:
         gate = stricter(gate, Gate.AUTO)
+    if free_text and gate is Gate.AUTO:
+        gate = Gate.PERSON
     if not allow_auto or not agreed:
         gate = Gate.PERSON
     return gate
+
+
+def gate_words(
+    effect: Effect, *, allow_auto: bool = True, vouched: bool = True, free_text: bool = False
+) -> str:
+    """A declared action's gate in words, as the Decision Card, the console and the committee
+    packet show it: `GATE_TEXT`'s for its gate (`gate_of`, with its free text), and
+    `FREE_TEXT_GATE` where that gate is `person` only because the action's arguments can hold
+    free text. An `order`, and an action the manifest tightens, keep `GATE_TEXT`'s words."""
+    gate = gate_of(effect, allow_auto=allow_auto, vouched=vouched, free_text=free_text)
+    if gate is not gate_of(effect, allow_auto=allow_auto, vouched=vouched):
+        return FREE_TEXT_GATE
+    return GATE_TEXT[gate]
 
 
 def risk_permits_auto(level: RiskLevel, governance: GovernanceOverride | None) -> bool:
@@ -387,8 +420,11 @@ def action_stops(checked: Sequence[Checked], *, vouched: bool = True) -> tuple[s
     """Why each proposed action could not be released with an AUTO decision, in order and once
     each: what `apply_policy` takes as `actions`. An agent that proposes what it never declared,
     or arguments its own schema refuses, is not trusted to automate; an action never released
-    without a person gets one only if the decision goes to a person. A reason names a declared
-    action only: any other name is the agent's text."""
+    without a person gets one only if the decision goes to a person. That is one the manifest
+    tightens (`allow_auto: false`), one whose effect is a person's (an `order`), and one whose
+    arguments can carry free text where its gate would be `auto` (ADR-0027): each says which,
+    the first that applies in that order. A reason names a declared action only: any other name
+    is the agent's text."""
     stops: list[str] = []
     for item in checked:
         name = item.proposed.name
@@ -405,6 +441,12 @@ def action_stops(checked: Sequence[Checked], *, vouched: bool = True) -> tuple[s
         elif gate_of(item.spec.effect, vouched=vouched) is Gate.PERSON:
             effect = item.spec.effect.value
             stops.append(f"action {name!r} ({effect}) is never released without a person")
+        else:
+            gate = gate_of(item.spec.effect, vouched=vouched, free_text=item.spec.free_text)
+            if gate is Gate.PERSON:  # only its free text made it so: the effect alone did not
+                stops.append(
+                    f"action {name!r} can carry free text and is never released without a person"
+                )
     return tuple(dict.fromkeys(stops))
 
 

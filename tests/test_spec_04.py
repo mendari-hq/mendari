@@ -90,6 +90,8 @@ def test_a_0_4_manifest_with_actions_loads_and_keeps_their_order() -> None:
         "queue_refill",
         "file_note",
         "renew_prescription",
+        "send_template",
+        "assign_queue",
     ]
     assert {spec.effect for spec in manifest.actions.values()} == set(Effect)
     assert manifest.actions["queue_refill"].allow_auto is False
@@ -126,6 +128,9 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
         "assign_queue": ("write", True),
         "send_acknowledgement": ("contact", False),
     }
+    # Both take enumerated arguments, so neither can hold free text: ADR-0027 changes nothing of
+    # what the demo shows.
+    assert not any(action.free_text for action in demo.actions.values())
     # The scaffold is a 0.4 agent, the one version there is, and says what 0.4 offers it where
     # its author reads the version; it shows an action as a comment a person can uncomment.
     template = (ROOT / "src" / "mendari" / "templates" / "base" / "agent.yaml").read_text()
@@ -143,6 +148,16 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
         "assign_queue": "write",
         "send_acknowledgement": "contact",
     }
+    # What its comments say of each is true (ADR-0027): the write it calls released with an
+    # AUTO decision takes an enumerated argument, and it says what a free string would change;
+    # the contact is the author's own `allow_auto: false`.
+    assert declared["assign_queue"].allow_auto and not declared["assign_queue"].free_text
+    assert not declared["send_acknowledgement"].allow_auto
+    assert (
+        "#     effect: write  # released with an AUTO decision; otherwise when a reviewer "
+        "confirms it\n"
+        "#     schema:  # enumerated: with a free string, it is never released without a person\n"
+    ) in template
 
 
 # -- what 0.4 has of what the spec documents of 0.2 and 0.3 ---------------------------------------
@@ -433,6 +448,29 @@ def test_arguments_hold_free_text_unless_every_string_is_enumerated(
     action = ActionSpec.model_validate(declared)
     assert action.free_text is free
     assert spec.holds_free_text(schema) is free
+
+
+def test_the_fixture_declares_two_actions_whose_arguments_hold_no_free_text() -> None:
+    """The actions fixture, as the gate's tests read it: the spec's five and the filed note each
+    take a string that is not enumerated, or declare no schema; `send_template` (a `contact`)
+    and `assign_queue` (a `write`) take enumerated arguments only, so they are the ones an AUTO
+    decision still releases (ADR-0027)."""
+    manifest = AgentManifest.model_validate(raw_manifest())
+    assert {name: action.free_text for name, action in manifest.actions.items()} == {
+        "look_up_medications": True,  # no schema
+        "draft_reply": True,
+        "send_reply": True,
+        "queue_refill": True,
+        "file_note": True,
+        "renew_prescription": True,  # no schema
+        "send_template": False,
+        "assign_queue": False,
+    }
+    assert manifest.actions["send_template"].effect is Effect.CONTACT
+    assert manifest.actions["assign_queue"].effect is Effect.WRITE
+    assert (
+        manifest.actions["send_template"].allow_auto and manifest.actions["assign_queue"].allow_auto
+    )
 
 
 def test_free_text_is_found_without_recursion_in_a_schema_as_deep_as_one_may_be() -> None:

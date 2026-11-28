@@ -23,7 +23,7 @@ from mendari import AuditStore
 from mendari.core import actions
 from mendari.core.agent import load_agent
 from mendari.core.card import render_card
-from mendari.server.app import create_app
+from mendari.server.app import create_app, declared_actions
 from mendari.server.auth import permission_for
 from mendari.server.limits import DailyCap, Limiter, limit_settings
 from mendari.server.scopes import DECIDE, needed
@@ -42,6 +42,7 @@ AGENT = "mendari-test/actions-mini"
 PLAIN = "mendari-test/triage"  # an agent that declares no actions
 BASE = f"/api/agents/{AGENT}"
 REFILL = "Could you refill my lisinopril?"
+REPLY = "Please reply about my lisinopril."  # confident, with a free-text note and reply
 VISIT = "I need to move my appointment."
 ORDER = "Please renew my prescription."
 UNCLEAR = "It is unclear what I want."
@@ -112,6 +113,31 @@ def test_a_decision_lists_each_proposed_action_with_its_disposition(client: Test
     assert plain.status_code == 200 and "actions" not in plain.json()
 
 
+def test_free_text_in_a_write_or_a_contact_sends_the_decision_to_a_person(
+    client: TestClient,
+) -> None:
+    """ADR-0027, over HTTP: an answer confident enough to automate, with a free-text note and
+    reply proposed. The decision goes to a person saying why, each action is held, and it is in
+    the review queue."""
+    decided = decide(client, REPLY)
+    assert (decided["outcome"], decided["recommendation"]) == ("HUMAN_REVIEW", "refill")
+    assert decided["reasons"] == [
+        "confidence 0.95 >= auto threshold 0.90",
+        "action 'file_note' can carry free text and is never released without a person; "
+        "a person decides",
+        "action 'send_reply' can carry free text and is never released without a person; "
+        "a person decides",
+    ]
+    assert [(a["name"], a["disposition"], a["reason"]) for a in decided["actions"]] == [
+        ("assign_queue", "held", "awaiting_review"),
+        ("file_note", "held", "awaiting_review"),
+        ("send_reply", "held", "awaiting_review"),
+    ]
+    queue = client.get("/api/review").json()
+    (item,) = [entry for entry in queue if entry["id"] == decided["id"]]
+    assert [a["disposition"] for a in item["actions"]] == ["held", "held", "held"]
+
+
 def test_the_stored_decision_shows_its_actions_and_their_events(client: TestClient) -> None:
     decided = decide(client, ORDER)
     record = client.get(f"/api/audit/{decided['id']}").json()
@@ -133,18 +159,28 @@ def test_the_stored_decision_shows_its_actions_and_their_events(client: TestClie
 
 def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestClient) -> None:
     detail = client.get(BASE).json()
+    # The gate is the tightened one (ADR-0027): a contact and a write whose argument is a free
+    # string are a person's, though the manifest left `allow_auto` alone; the same effects with
+    # enumerated arguments keep the gate `auto`.
     assert [(a["name"], a["effect"], a["gate"], a["allow_auto"]) for a in detail["actions"]] == [
         ("look_up_medications", "read", "decision", True),
         ("draft_reply", "draft", "decision", True),
-        ("send_reply", "contact", "auto", True),
+        ("send_reply", "contact", "person", True),
         ("queue_refill", "write", "person", False),
-        ("file_note", "write", "auto", True),
+        ("file_note", "write", "person", True),
         ("renew_prescription", "order", "person", True),
+        ("send_template", "contact", "auto", True),
+        ("assign_queue", "write", "auto", True),
     ]
     by_name = {a["name"]: a for a in detail["actions"]}
     assert by_name["look_up_medications"]["released"] == "With any decision that is not blocked."
-    assert by_name["send_reply"]["released"].startswith("Only with an automated decision")
-    assert by_name["renew_prescription"]["released"].startswith("Never without a person")
+    free_text = "Never without a person: its arguments can hold free text."
+    assert by_name["send_reply"]["released"] == by_name["file_note"]["released"] == free_text
+    assert by_name["send_template"]["released"].startswith("Only with an automated decision")
+    assert by_name["assign_queue"]["released"].startswith("Only with an automated decision")
+    confirmed = "Never without a person: when a reviewer confirms the decision."
+    assert by_name["renew_prescription"]["released"] == confirmed  # an order: its own words
+    assert by_name["queue_refill"]["released"] == confirmed  # tightened by the manifest: likewise
     assert by_name["queue_refill"]["arguments"] == ["medication", "days_supply"]
     assert by_name["renew_prescription"]["arguments"] is None  # no schema: not checked
     assert "## Actions" in detail["card_markdown"]
@@ -153,6 +189,28 @@ def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestC
     plain = client.get(f"/api/agents/{PLAIN}").json()
     assert "actions" not in plain and "## Actions" not in plain["card_markdown"]
     assert "actions" not in plain["output_schema"]["properties"]
+
+
+def test_an_unvouched_agents_free_text_reads_and_drafts_are_shown_as_a_persons() -> None:
+    """What the detail lists for an agent the organization does not vouch for (one from a
+    registry before its digest is approved): a read and a draft take the gate `auto`, and one
+    whose arguments can hold free text is then a person's, saying why (ADR-0027). The contact
+    and the write of enumerated arguments keep the gate `auto`."""
+    agent = load_agent(MINI)
+    unvouched = {a["name"]: a for a in declared_actions(agent, vouched=False)["actions"]}
+    free_text = "Never without a person: its arguments can hold free text."
+    for name in ("look_up_medications", "draft_reply", "send_reply", "file_note"):
+        assert (unvouched[name]["gate"], unvouched[name]["released"]) == ("person", free_text), name
+    for name in ("send_template", "assign_queue"):
+        assert unvouched[name]["gate"] == "auto", name
+        assert unvouched[name]["released"].startswith("Only with an automated decision")
+    vouched = {a["name"]: a for a in declared_actions(agent, vouched=True)["actions"]}
+    assert vouched["look_up_medications"]["gate"] == vouched["draft_reply"]["gate"] == "decision"
+    # Nothing in either is looser than the other way round: vouching only ever loosens to the
+    # effect's own gate, never past the free text.
+    order = ["decision", "auto", "person"]
+    for name, shown in vouched.items():
+        assert order.index(unvouched[name]["gate"]) >= order.index(shown["gate"]), name
 
 
 # -- the second way in: each row of the table -----------------------------------------------------
@@ -165,7 +223,9 @@ def test_a_blocked_action_is_a_200_and_every_disposition_is_answered(client: Tes
     blocked = decide(client, ABUSIVE)["id"]
     table = [
         (automated, "look_up_medications", {}, "released", "with_decision"),
-        (automated, "file_note", {"note": "asked"}, "released", "automated"),
+        (automated, "assign_queue", {"queue": "refill"}, "released", "automated"),
+        (automated, "file_note", {"note": "asked"}, "blocked", "no_reviewer"),  # free text
+        (automated, "send_reply", {"message": "asked"}, "blocked", "no_reviewer"),  # free text
         (automated, "renew_prescription", {}, "blocked", "no_reviewer"),
         (automated, "queue_refill", {"medication": "x"}, "blocked", "no_reviewer"),
         (pending, "draft_reply", {"message": "asked"}, "released", "with_decision"),
@@ -282,7 +342,7 @@ def test_an_undeclared_or_malformed_action_is_blocked_and_never_named_in_the_tra
     assert unknown["name"] is None and unknown["effect"] is None
     wrong = ask(client, decided["id"], "send_reply", {"message": 5})
     assert (wrong["disposition"], wrong["reason"]) == ("blocked", "invalid_arguments")
-    after = ask(client, decided["id"], "file_note", {"note": "x"})
+    after = ask(client, decided["id"], "assign_queue", {"queue": "refill"})
     assert (after["disposition"], after["reason"]) == ("blocked", "earlier_refusal")
     listed = client.get("/api/audit", params={"limit": 50}).text
     exported = client.get("/api/audit/export/fhir").text
@@ -372,10 +432,11 @@ def test_a_decision_of_an_earlier_digest_is_agent_changed(tmp_path: Path) -> Non
 
 def test_a_hold_set_after_an_automated_decision_is_not_automated(client: TestClient) -> None:
     decided = decide(client, REFILL)
-    assert ask(client, decided["id"], "file_note", {"note": "before"})["reason"] == "automated"
+    before = ask(client, decided["id"], "assign_queue", {"queue": "refill"})
+    assert before["reason"] == "automated"
     held = client.post("/api/holds", json={"agent_id": AGENT, "reason": "a drill"})
     assert held.status_code in (200, 201), held.text
-    after = ask(client, decided["id"], "file_note", {"note": "after"})
+    after = ask(client, decided["id"], "assign_queue", {"queue": "scheduling"})
     assert (after["disposition"], after["reason"]) == ("blocked", "not_automated")
     assert ask(client, decided["id"], "look_up_medications", {})["disposition"] == "released"
     # And a decision made under the hold goes to a person: its write is held.
@@ -491,6 +552,12 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
     operation = described["paths"]["/api/agents/{namespace}/{name}/actions"]["post"]
     assert operation["summary"] == "Authorize an action" and operation["tags"] == ["Decisions"]
     assert "runs nothing" in operation["description"]
+    # The gate it describes is the one that is applied: free text is a person's (ADR-0027).
+    described_gate = " ".join(operation["description"].split())
+    assert (
+        "an order never without a person, nor an action that writes or contacts a patient with "
+        "arguments that can hold free text"
+    ) in described_gate
     request = described["components"]["schemas"]["ActionRequest"]
     assert request["required"] == ["decision_id", "name"]
     assert request["properties"]["name"]["pattern"] == actions.NAME_PATTERN
@@ -511,9 +578,19 @@ def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() ->
         "| `read` | With any decision that is not blocked. | not checked |"
         in by_name["look_up_medications"]
     )
-    assert "`contact` | Only with an automated decision" in by_name["send_reply"]
-    assert "checked: `message`" in by_name["send_reply"]
-    assert "`write` | Never without a person" in by_name["queue_refill"]  # tightened
+    # A contact and a write whose argument is a free string: the tightened gate, saying why
+    # (ADR-0027). The same effects with enumerated arguments are released with AUTO.
+    free_text = "Never without a person: its arguments can hold free text."
+    assert f"| `contact` | {free_text} | checked: `message` |" in by_name["send_reply"]
+    assert f"| `write` | {free_text} | checked: `note` |" in by_name["file_note"]
+    assert "`contact` | Only with an automated decision" in by_name["send_template"]
+    assert "checked: `template`" in by_name["send_template"]
+    assert "`write` | Only with an automated decision" in by_name["assign_queue"]
+    # A draft can hold free text and is released with the decision: a person sees it first.
+    assert "`draft` | With any decision that is not blocked." in by_name["draft_reply"]
+    assert (
+        "`write` | Never without a person: when a reviewer" in by_name["queue_refill"]
+    )  # tightened
     assert "checked: `medication`, `days_supply`" in by_name["queue_refill"]
     assert "`order` | Never without a person" in by_name["renew_prescription"]
     # The bundled agent's card lists its two; an agent that declares none has no such section.
